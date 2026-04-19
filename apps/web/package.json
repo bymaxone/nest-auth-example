@@ -1,0 +1,60 @@
+{
+  "name": "@nest-auth-example/web",
+  "version": "0.0.1",
+  "description": "Next.js 16 frontend for nest-auth-example — demonstrates @bymax-one/nest-auth React and Next.js integrations.",
+  "license": "MIT",
+  "author": {
+    "name": "Bymax One",
+    "url": "https://bymax.one"
+  },
+  "homepage": "https://github.com/bymaxone/nest-auth-example#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bymaxone/nest-auth-example.git",
+    "directory": "apps/web"
+  },
+  "bugs": {
+    "url": "https://github.com/bymaxone/nest-auth-example/issues"
+  },
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src app lib components",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@bymax-one/nest-auth": "link:../../nest-auth",
+    "@hookform/resolvers": "^5.2.2",
+    "date-fns": "^4.1.0",
+    "lucide-react": "^1.8.0",
+    "next": "^16.2.4",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "react-hook-form": "^7.72.1",
+    "sonner": "^2.0.7",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/postcss": "^4.2.2",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^25.6.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "autoprefixer": "^10.5.0",
+    "eslint-config-next": "^16.2.4",
+    "jsdom": "^29.0.2",
+    "tailwindcss": "^4.2.2",
+    "vitest": "^4.1.4"
+  }
+}

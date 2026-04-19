@@ -1,0 +1,67 @@
+name: nest-auth-example-test
+
+# CI/test stack -- ephemeral, no named volumes, alternate host ports.
+# Credentials are static test-only values; never reuse outside of CI.
+# Ports are bound to 127.0.0.1; run alongside the dev stack without collision.
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: example_app_test
+    ports:
+      - '127.0.0.1:55432:5432'
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      # Tighter interval (3s) for faster CI feedback.
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER:-postgres} -d example_app_test']
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ci
+
+  redis:
+    image: redis:7-alpine
+    # volatile-lru mirrors dev redis.conf so eviction semantics are consistent.
+    # maxmemory cap prevents unbounded memory growth in CI.
+    command:
+      - 'redis-server'
+      - '--save'
+      - ''
+      - '--appendonly'
+      - 'no'
+      - '--protected-mode'
+      - 'yes'
+      - '--maxmemory'
+      - '256mb'
+      - '--maxmemory-policy'
+      - 'volatile-lru'
+    ports:
+      - '127.0.0.1:56379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ci
+
+  mailpit:
+    image: axllent/mailpit@sha256:757f22b56c1da03570afdb3d259effe5091018008a81bbedc8158cee7e16fdbc
+    ports:
+      - '127.0.0.1:51025:1025'
+      - '127.0.0.1:58025:8025'
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:8025/api/v1/info || exit 1']
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ci
+
+networks:
+  ci:
+    driver: bridge

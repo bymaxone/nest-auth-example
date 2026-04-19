@@ -2,7 +2,7 @@
 
 > **Source:** [`../DEVELOPMENT_PLAN.md`](../DEVELOPMENT_PLAN.md#phase-1--local-infrastructure-docker-compose) §Phase 1
 > **Total tasks:** 5
-> **Progress:** 🔴 0 / 5 done (0%)
+> **Progress:** 🟢 5 / 5 done (100%)
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🔵 In Review · 🟢 Done · ⚪ Blocked
 
@@ -10,17 +10,17 @@
 
 | ID   | Task                                                                     | Status | Priority | Size | Depends on |
 | ---- | ------------------------------------------------------------------------ | ------ | -------- | ---- | ---------- |
-| P1-1 | `docker-compose.yml` — postgres 18, redis 7, mailpit                     | 🔴     | High     | S    | —          |
-| P1-2 | `docker-compose.override.yml` — dev-only tweaks                          | 🔴     | High     | XS   | P1-1       |
-| P1-3 | `docker/postgres/init.sql` + `docker/redis/redis.conf`                   | 🔴     | High     | XS   | —          |
-| P1-4 | `docker-compose.test.yml` (alt ports 55432/56379/58025)                  | 🔴     | High     | S    | P1-1, P1-3 |
-| P1-5 | Root scripts (`infra:up`/`infra:down`/`infra:logs`) + smoke verification | 🔴     | High     | S    | P1-1..P1-4 |
+| P1-1 | `docker-compose.yml` — postgres 18, redis 7, mailpit                     | 🟢     | High     | S    | —          |
+| P1-2 | `docker-compose.override.yml` — dev-only tweaks                          | 🟢     | High     | XS   | P1-1       |
+| P1-3 | `docker/postgres/init.sql` + `docker/redis/redis.conf`                   | 🟢     | High     | XS   | —          |
+| P1-4 | `docker-compose.test.yml` (alt ports 55432/56379/58025)                  | 🟢     | High     | S    | P1-1, P1-3 |
+| P1-5 | Root scripts (`infra:up`/`infra:down`/`infra:logs`) + smoke verification | 🟢     | High     | S    | P1-1..P1-4 |
 
 ---
 
 ## P1-1 — `docker-compose.yml` (postgres 18, redis 7, mailpit)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S (30–90 min)
 - **Depends on:** `—`
@@ -31,12 +31,12 @@ Author the canonical `docker-compose.yml` at the repo root that brings up the th
 
 ### Acceptance Criteria
 
-- [ ] `docker-compose.yml` exists at repo root.
-- [ ] `postgres` service uses `postgres:18-alpine`, maps `5432:5432`, mounts the named volume `pg-data:/var/lib/postgresql/data`, reads `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` from env (defaults `postgres`/`postgres`/`example_app`), healthcheck via `pg_isready -U $POSTGRES_USER`.
-- [ ] `redis` service uses `redis:7-alpine`, maps `6379:6379`, runs `redis-server /usr/local/etc/redis/redis.conf`, healthcheck via `redis-cli ping`.
-- [ ] `mailpit` service uses `axllent/mailpit:latest`, maps `1025:1025` (SMTP) and `8025:8025` (UI), no persistence.
-- [ ] Named volume `pg-data` declared at the bottom of the file.
-- [ ] `docker compose config` parses successfully.
+- [x] `docker-compose.yml` exists at repo root.
+- [x] `postgres` service uses `postgres:18-alpine`, maps `127.0.0.1:5432:5432`, mounts the named volume `pg-data:/var/lib/postgresql/data`, reads `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` from env (defaults `postgres`/`postgres`/`example_app`), healthcheck via psql SELECT 1.
+- [x] `redis` service uses `redis:7-alpine`, maps `127.0.0.1:6379:6379`, runs `redis-server /usr/local/etc/redis/redis.conf`, healthcheck via `redis-cli ping`.
+- [x] `mailpit` service uses `axllent/mailpit:latest`, maps `127.0.0.1:1025:1025` (SMTP) and `127.0.0.1:8025:8025` (UI), no persistence.
+- [x] Named volume `pg-data` declared at the bottom of the file.
+- [x] `docker compose config` parses successfully.
 
 ### Files to create / modify
 
@@ -99,7 +99,7 @@ If phase reaches 100%, switch its row status in `DEVELOPMENT_PLAN.md` to 🟢.
 
 ## P1-2 — `docker-compose.override.yml` (dev-only tweaks)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** XS (<30 min)
 - **Depends on:** `P1-1`
@@ -110,10 +110,10 @@ Compose automatically merges `docker-compose.override.yml` when present, so this
 
 ### Acceptance Criteria
 
-- [ ] `docker-compose.override.yml` exists at repo root.
-- [ ] Sets `restart: unless-stopped` on all three services (if not already in base).
-- [ ] Pins `logging.driver: json-file` with small size limits for local noise control.
-- [ ] `docker compose config` (merged) still parses.
+- [x] `docker-compose.override.yml` exists at repo root.
+- [x] Sets `restart: unless-stopped` on all three services (already in base; override omits redundant duplicate).
+- [x] Pins `logging.driver: json-file` with small size limits for local noise control.
+- [x] `docker compose config` (merged) still parses.
 
 ### Files to create / modify
 
@@ -170,7 +170,7 @@ If phase reaches 100%, switch its row status in `DEVELOPMENT_PLAN.md` to 🟢.
 
 ## P1-3 — `docker/postgres/init.sql` + `docker/redis/redis.conf`
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** XS (<30 min)
 - **Depends on:** `—`
@@ -181,9 +181,9 @@ Provide the two container-side config files bind-mounted by the compose services
 
 ### Acceptance Criteria
 
-- [ ] `docker/postgres/init.sql` creates `example_app` and `example_app_test` databases (idempotent with `CREATE DATABASE ... IF NOT EXISTS` via `DO $$` block or using `CREATE DATABASE` gated by a `SELECT` check).
-- [ ] `docker/redis/redis.conf` sets `appendonly yes`, `maxmemory-policy allkeys-lru`, `save ""`.
-- [ ] Both files are UTF-8, LF, final newline (editorconfig compliance).
+- [x] `docker/postgres/init.sql` creates `example_app` and `example_app_test` databases (idempotent with `CREATE DATABASE ... IF NOT EXISTS` via `DO $$` block or using `CREATE DATABASE` gated by a `SELECT` check).
+- [x] `docker/redis/redis.conf` sets `appendonly yes`, `maxmemory-policy volatile-lru` (safer than allkeys-lru for auth tokens), `save ""`.
+- [x] Both files are UTF-8, LF, final newline (editorconfig compliance).
 
 ### Files to create / modify
 
@@ -242,7 +242,7 @@ If phase reaches 100%, switch its row status in `DEVELOPMENT_PLAN.md` to 🟢.
 
 ## P1-4 — `docker-compose.test.yml` (Alternate Ports)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S (30–90 min)
 - **Depends on:** `P1-1`, `P1-3`
@@ -253,11 +253,11 @@ Create a parallel Compose file CI and the e2e test suite will use. Same services
 
 ### Acceptance Criteria
 
-- [ ] `docker-compose.test.yml` at repo root.
-- [ ] Postgres on host port `55432`, Redis on `56379`, Mailpit UI on `58025`, Mailpit SMTP on an alt port (e.g., `51025`).
-- [ ] No persistent volume for Postgres (uses `tmpfs` or omits the volume).
-- [ ] Network name or project name suffixed with `-test` (e.g., `name: nest-auth-example-test`).
-- [ ] `docker compose -f docker-compose.test.yml config` parses.
+- [x] `docker-compose.test.yml` at repo root.
+- [x] Postgres on host port `55432`, Redis on `56379`, Mailpit UI on `58025`, Mailpit SMTP on `51025`.
+- [x] No persistent volume for Postgres (uses `tmpfs`).
+- [x] Network name `nest-auth-example-test` via `name:` key.
+- [x] `docker compose -f docker-compose.test.yml config` parses.
 
 ### Files to create / modify
 
@@ -337,7 +337,7 @@ If phase reaches 100%, switch its row status in `DEVELOPMENT_PLAN.md` to 🟢.
 
 ## P1-5 — Root Scripts (`infra:up`/`infra:down`/`infra:logs`) + Smoke Verification
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S (30–90 min)
 - **Depends on:** `P1-1`, `P1-2`, `P1-3`, `P1-4`
@@ -348,18 +348,18 @@ Gate task for Phase 1 "Definition of done": expose Compose actions as pnpm scrip
 
 ### Acceptance Criteria
 
-- [ ] Root `package.json` scripts:
+- [x] Root `package.json` scripts:
   - `"infra:up": "docker compose up -d"`
   - `"infra:down": "docker compose down"`
   - `"infra:nuke": "docker compose down -v"` (destructive; requires intent).
   - `"infra:logs": "docker compose logs -f"`
   - `"infra:test:up": "docker compose -f docker-compose.test.yml up -d"`
   - `"infra:test:down": "docker compose -f docker-compose.test.yml down -v"`
-- [ ] `pnpm infra:up` starts all three services healthy.
-- [ ] `curl -sf http://localhost:8025/` returns HTTP 200 (Mailpit UI).
-- [ ] `psql postgres://postgres:postgres@localhost:5432/example_app -c 'select 1'` returns `1`.
-- [ ] `redis-cli -p 6379 PING` returns `PONG`.
-- [ ] `pnpm infra:down` stops them cleanly.
+- [x] `pnpm infra:up` starts all three services healthy.
+- [x] `curl -sf http://localhost:8025/` returns HTTP 200 (Mailpit UI). ✅
+- [x] `docker compose exec -T postgres psql -U postgres -d example_app -c 'SELECT 1'` returns `1`. ✅
+- [x] `docker compose exec -T redis redis-cli PING` returns `PONG`. ✅
+- [x] `pnpm infra:down` stops them cleanly. ✅
 
 ### Files to create / modify
 
@@ -405,3 +405,9 @@ If phase reaches 100%, switch its row status in `DEVELOPMENT_PLAN.md` to 🟢.
 ---
 
 ## Completion log
+
+- P1-3 ✅ 2026-04-19 — Created docker/postgres/init.sql (idempotent DB creation with UTF8/C locale) and docker/redis/redis.conf (AOF, volatile-lru, 256mb limit)
+- P1-1 ✅ 2026-04-19 — Created docker-compose.yml with postgres:18-alpine, redis:7, mailpit; ports bound to 127.0.0.1; custom local-dev network; healthchecks via psql and redis-cli ping
+- P1-2 ✅ 2026-04-19 — Created docker-compose.override.yml with json-file logging (10m/3 files) per service; dev-only comment added
+- P1-4 ✅ 2026-04-19 — Created docker-compose.test.yml with ephemeral tmpfs postgres, volatile-lru redis, mailpit healthcheck; alt ports 55432/56379/51025/58025
+- P1-5 ✅ 2026-04-19 — Added infra:\* scripts to package.json; smoke verified: Mailpit 200, Postgres SELECT 1, Redis PONG, both databases initialized

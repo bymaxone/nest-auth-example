@@ -1,0 +1,26 @@
+name: nest-auth-example
+
+# Dev-only override — auto-merged by Compose when running from this directory.
+# CI and staging pipelines must use explicit --file flags to exclude this file.
+# Do NOT add production-specific settings here; use docker-compose.prod.yml instead.
+services:
+  postgres:
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  redis:
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  mailpit:
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
