@@ -8,16 +8,16 @@
 
 ## Task index
 
-| ID | Task | Status | Priority | Size | Depends on |
-| --- | --- | --- | --- | --- | --- |
-| P13-1 | `app/(auth)/layout.tsx` + shared primitives + zod schemas + `auth-errors.ts` | 🔴 | High | M | Phase 12 |
-| P13-2 | `login/page.tsx` — email + password + Google + MFA challenge hand-off | 🔴 | High | M | P13-1 |
-| P13-3 | `register/page.tsx` — email + name + password + tenant + "verification sent" screen | 🔴 | High | M | P13-1 |
-| P13-4 | `verify-email/page.tsx` — OTP input + resend cooldown | 🔴 | High | S | P13-1 |
-| P13-5 | `forgot-password/page.tsx` — email input, anti-enumeration success | 🔴 | High | S | P13-1 |
-| P13-6 | `reset-password/page.tsx` — token + OTP modes via `?mode=` | 🔴 | High | M | P13-1 |
-| P13-7 | `mfa-challenge/page.tsx` — TOTP + recovery-code toggle | 🔴 | High | S | P13-1, P13-2 |
-| P13-8 | `accept-invitation/page.tsx` — invite summary + name + password | 🔴 | High | M | P13-1 |
+| ID    | Task                                                                                | Status | Priority | Size | Depends on   |
+| ----- | ----------------------------------------------------------------------------------- | ------ | -------- | ---- | ------------ |
+| P13-1 | `app/(auth)/layout.tsx` + shared primitives + zod schemas + `auth-errors.ts`        | 🔴     | High     | M    | Phase 12     |
+| P13-2 | `login/page.tsx` — email + password + Google + MFA challenge hand-off               | 🔴     | High     | M    | P13-1        |
+| P13-3 | `register/page.tsx` — email + name + password + tenant + "verification sent" screen | 🔴     | High     | M    | P13-1        |
+| P13-4 | `verify-email/page.tsx` — OTP input + resend cooldown                               | 🔴     | High     | S    | P13-1        |
+| P13-5 | `forgot-password/page.tsx` — email input, anti-enumeration success                  | 🔴     | High     | S    | P13-1        |
+| P13-6 | `reset-password/page.tsx` — token + OTP modes via `?mode=`                          | 🔴     | High     | M    | P13-1        |
+| P13-7 | `mfa-challenge/page.tsx` — TOTP + recovery-code toggle                              | 🔴     | High     | S    | P13-1, P13-2 |
+| P13-8 | `accept-invitation/page.tsx` — invite summary + name + password                     | 🔴     | High     | M    | P13-1        |
 
 ---
 
@@ -29,9 +29,11 @@
 - **Depends on:** Phase 12
 
 ### Description
+
 Lay the foundation every other Phase 13 page will consume: the `(auth)` route-group layout (centered card + brand), the shared OTP and password-input components, a single zod-schema module covering every form shape, and `lib/auth-errors.ts` — a map that translates **every** key of `AUTH_ERROR_CODES` (FCM row #29) into a user-facing message. The anti-enumeration story relies on this map being exhaustive.
 
 ### Acceptance Criteria
+
 - [ ] `apps/web/app/(auth)/layout.tsx` renders a centered `<Card>` layout with brand ("nest-auth-example") at the top, children in the card body. Server component; no client code.
 - [ ] `apps/web/components/auth/otp-input.tsx` exports `<OtpInput length={6} value onChange />` — six single-character boxes, auto-advance, paste-friendly. Built with `@/components/ui/input`.
 - [ ] `apps/web/components/auth/password-input.tsx` exports `<PasswordInput />` — show/hide toggle + simple strength hint (UX only; library owns validation).
@@ -40,6 +42,7 @@ Lay the foundation every other Phase 13 page will consume: the `(auth)` route-gr
 - [ ] `pnpm --filter @nest-auth-example/web typecheck` passes.
 
 ### Files to create / modify
+
 - `apps/web/app/(auth)/layout.tsx` — new.
 - `apps/web/components/auth/otp-input.tsx` — new.
 - `apps/web/components/auth/password-input.tsx` — new.
@@ -53,12 +56,13 @@ Lay the foundation every other Phase 13 page will consume: the `(auth)` route-gr
 > Objective: Ship the `(auth)` layout, two shared components, the schemas module, and the error-code translator.
 > Steps: 1. Author `(auth)/layout.tsx` as a server component centering a shadcn `<Card>` with brand. 2. Author `<OtpInput />` with 6 single-character inputs, keydown auto-advance, paste handler splitting the clipboard across boxes. 3. Author `<PasswordInput />` wrapping `@/components/ui/input` with an `Eye`/`EyeOff` icon toggle (`lucide-react`). 4. Author `lib/schemas/auth.ts` — every schema uses `react-hook-form`-compatible zod (`z.object({ ... })`). 5. Author `lib/auth-errors.ts` importing `AUTH_ERROR_CODES` and exporting `translateAuthError`. Use `satisfies` to enforce exhaustiveness.
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2 and §13.
 > - Form library: `react-hook-form` + `zod`. Toasts: `sonner`. UI primitives: `@/components/ui/*`.
 > - Quote the exact shared library symbol `AUTH_ERROR_CODES`.
 > - `<OtpInput />` must be accessible: `inputMode="numeric"`, `autoComplete="one-time-code"` on the first box.
 > - Never import anything under `@bymax-one/nest-auth/dist/*` — only public subpaths.
-> Verification:
+>   Verification:
 > - `pnpm --filter @nest-auth-example/web typecheck` — expected: green; adding a fake new key to `AUTH_ERROR_CODES` locally must break `lib/auth-errors.ts` (proves the `satisfies` trick works).
 > - `pnpm --filter @nest-auth-example/web test --run` — expected: any `<OtpInput />` unit test passes.
 
@@ -83,9 +87,11 @@ Lay the foundation every other Phase 13 page will consume: the `(auth)` route-gr
 - **Depends on:** `P13-1`
 
 ### Description
+
 The canonical login form — FCM rows **#2 (cookie-mode login)** and **#12 (OAuth Google)**. Email + password fields (zod-validated), a "Continue with Google" button rendered only when `env.NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED` is true, and a "Forgot password?" link to `/auth/forgot-password`. When the API responds with an MFA challenge, the page stashes `mfaTempToken` in `sessionStorage` (never a cookie) and navigates to `/auth/mfa-challenge`.
 
 ### Acceptance Criteria
+
 - [ ] `apps/web/app/(auth)/login/page.tsx` is a client component using `react-hook-form` with `zodResolver(loginSchema)`.
 - [ ] Calls `authClient.login({ email, password })` from `@/lib/auth-client`.
 - [ ] On 200 success: `router.replace('/dashboard')` (proxy handles role-based routing from there).
@@ -96,6 +102,7 @@ The canonical login form — FCM rows **#2 (cookie-mode login)** and **#12 (OAut
 - [ ] `useAuthStatus()` returns `'authenticated'` → server-side redirect via the proxy's `publicRoutesRedirectIfAuthenticated` — verify by logging in and hitting `/auth/login` again.
 
 ### Files to create / modify
+
 - `apps/web/app/(auth)/login/page.tsx` — new.
 
 ### Agent Execution Prompt
@@ -105,12 +112,13 @@ The canonical login form — FCM rows **#2 (cookie-mode login)** and **#12 (OAut
 > Objective: Ship `app/(auth)/login/page.tsx`.
 > Steps: 1. Build the `react-hook-form` form with `zodResolver(loginSchema)`. 2. Compose shadcn `Form`, `Input`, `Button`. 3. On submit, call `authClient.login` and branch on the response shape. 4. Conditionally render the Google button based on `env.NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED`. 5. Link "Forgot password?" to `/auth/forgot-password`.
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2 and §13.
 > - Form: `react-hook-form` + `zod`. Toasts: `sonner`. UI: `@/components/ui/*`.
 > - Quote `createAuthClient` (indirectly via `authClient`) and `useAuthStatus` from `@bymax-one/nest-auth/react`.
 > - Never write the MFA temp token to a cookie.
 > - Do not call `fetch()` directly for the OAuth start URL — use an `<a>` tag (full navigation is required so the browser follows the library's 302).
-> Verification:
+>   Verification:
 > - `pnpm --filter @nest-auth-example/web build` — expected: success.
 > - Manual: valid credentials → `/dashboard`; invalid → toast with translated error; credentials on an MFA-enabled account → `/auth/mfa-challenge` with `sessionStorage.mfaTempToken` set.
 
@@ -135,9 +143,11 @@ The canonical login form — FCM rows **#2 (cookie-mode login)** and **#12 (OAut
 - **Depends on:** `P13-1`
 
 ### Description
+
 FCM row **#1 (email + password registration)**. Form collects email, name, password (using `<PasswordInput />` from P13-1), and a tenant dropdown fed by a lightweight public `/api/tenants/public` query (or hardcoded seed tenants if the endpoint isn't ready yet). On success, swap the form for a "Check your email" confirmation screen with a resend affordance.
 
 ### Acceptance Criteria
+
 - [ ] `apps/web/app/(auth)/register/page.tsx` is a client component using `react-hook-form` with `zodResolver(registerSchema)`.
 - [ ] Fields: email (`type="email"`), name, password (`<PasswordInput />`), tenant (`<Select>` from shadcn).
 - [ ] Calls `authClient.register({ email, name, password, tenantId })`.
@@ -147,6 +157,7 @@ FCM row **#1 (email + password registration)**. Form collects email, name, passw
 - [ ] "Already have an account? Sign in" link to `/auth/login`.
 
 ### Files to create / modify
+
 - `apps/web/app/(auth)/register/page.tsx` — new.
 
 ### Agent Execution Prompt
@@ -156,11 +167,12 @@ FCM row **#1 (email + password registration)**. Form collects email, name, passw
 > Objective: Ship `app/(auth)/register/page.tsx`.
 > Steps: 1. Build the form with `registerSchema`. 2. Call `authClient.register` and switch to the confirmation screen on success. 3. Implement `Resend` via `authClient.resendVerification` with a 60s cooldown (reuse the cooldown helper from P13-4 if already present; otherwise author it inline and migrate later). 4. Use `sonner` for errors.
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2 and §13.
 > - Form: `react-hook-form` + `zod`. Toasts: `sonner`. UI: `@/components/ui/*`.
 > - Do not re-implement password strength validation — defer to the library's response.
 > - If the `/api/tenants/public` endpoint is not yet available, stub with a small static list gated by a `// TODO(P14): source from API` comment.
-> Verification:
+>   Verification:
 > - `pnpm --filter @nest-auth-example/web build` — expected: success.
 > - Manual: register a new email → confirmation screen appears; resend button becomes enabled after 60s; Mailpit UI (http://localhost:8025) shows the verification email.
 
@@ -185,9 +197,11 @@ FCM row **#1 (email + password registration)**. Form collects email, name, passw
 - **Depends on:** `P13-1`
 
 ### Description
+
 FCM row **#5 (email verification OTP)**. Reads `?email=&tenantId=` from the URL, renders the shared `<OtpInput length={6} />`, and calls `authClient.verifyEmail` with the six-digit code. Resend button is rate-limited on the client with a 60-second cooldown (persisted across mount via `sessionStorage`).
 
 ### Acceptance Criteria
+
 - [ ] `apps/web/app/(auth)/verify-email/page.tsx` is a client component.
 - [ ] Reads `?email=` and `?tenantId=` using `useSearchParams()`.
 - [ ] Renders `<OtpInput length={6} />` inside a `react-hook-form` form using `verifyEmailSchema`.
@@ -198,6 +212,7 @@ FCM row **#5 (email verification OTP)**. Reads `?email=&tenantId=` from the URL,
 - [ ] Missing `email` / `tenantId` query params: show "Please re-open the link from your email" inline error instead of crashing.
 
 ### Files to create / modify
+
 - `apps/web/app/(auth)/verify-email/page.tsx` — new.
 
 ### Agent Execution Prompt
@@ -207,10 +222,11 @@ FCM row **#5 (email verification OTP)**. Reads `?email=&tenantId=` from the URL,
 > Objective: Ship `app/(auth)/verify-email/page.tsx`.
 > Steps: 1. Read query params via `useSearchParams()`. 2. Render `<OtpInput />` inside a `react-hook-form` form. 3. Call `authClient.verifyEmail` on submit. 4. Author a `useCooldown(key, seconds)` hook persisting to `sessionStorage`; use it to gate the Resend button. 5. Wire errors through `translateAuthError`.
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2 and §13.
 > - Form: `react-hook-form` + `zod`. Toasts: `sonner`. UI: `@/components/ui/*`.
 > - Do not store the OTP in `sessionStorage` — only the cooldown timestamp.
-> Verification:
+>   Verification:
 > - `pnpm --filter @nest-auth-example/web build` — expected: success.
 > - Manual: register → copy OTP from Mailpit → paste into the six boxes → submit → redirected to login; click Resend twice quickly — second click is disabled during the cooldown.
 
@@ -235,9 +251,11 @@ FCM row **#5 (email verification OTP)**. Reads `?email=&tenantId=` from the URL,
 - **Depends on:** `P13-1`
 
 ### Description
+
 FCM rows **#6/#7 (password reset — token + OTP modes)**, initial step. Single email input; calls `authClient.forgotPassword({ email })`. To avoid account-enumeration, the UI always shows "If an account exists for that email, we sent reset instructions." — regardless of whether the API reports the email as known or unknown.
 
 ### Acceptance Criteria
+
 - [ ] `apps/web/app/(auth)/forgot-password/page.tsx` is a client component.
 - [ ] Form uses `forgotPasswordSchema` (email only).
 - [ ] Calls `authClient.forgotPassword({ email })`.
@@ -247,6 +265,7 @@ FCM rows **#6/#7 (password reset — token + OTP modes)**, initial step. Single 
 - [ ] Success state replaces the form with the confirmation message; no automatic redirect.
 
 ### Files to create / modify
+
 - `apps/web/app/(auth)/forgot-password/page.tsx` — new.
 
 ### Agent Execution Prompt
@@ -256,11 +275,12 @@ FCM rows **#6/#7 (password reset — token + OTP modes)**, initial step. Single 
 > Objective: Ship `app/(auth)/forgot-password/page.tsx`.
 > Steps: 1. Build the form with `forgotPasswordSchema`. 2. Call `authClient.forgotPassword`. 3. On any resolved response, render the confirmation message. 4. On thrown network/rate-limit errors, toast via `translateAuthError`.
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2 and §13.
 > - Form: `react-hook-form` + `zod`. Toasts: `sonner`. UI: `@/components/ui/*`.
 > - Never render "no account with that email" — anti-enumeration is non-negotiable.
 > - Handle both response modes in the same submit handler.
-> Verification:
+>   Verification:
 > - `pnpm --filter @nest-auth-example/web build` — expected: success.
 > - Manual: submit with a known email → generic confirmation; submit with an unknown email → identical confirmation; Mailpit shows the reset email only for the known case.
 
@@ -285,9 +305,11 @@ FCM rows **#6/#7 (password reset — token + OTP modes)**, initial step. Single 
 - **Depends on:** `P13-1`
 
 ### Description
+
 FCM rows **#6/#7 (password reset completion)**. Single page covering both modes via the query string: `?mode=token&token=...` renders a password-only form; `?mode=otp&email=...` renders an OTP + password form. Both call `authClient.resetPassword` with the right payload shape. Successful reset redirects to `/auth/login?reset=1`.
 
 ### Acceptance Criteria
+
 - [ ] `apps/web/app/(auth)/reset-password/page.tsx` is a client component that reads `?mode=`, `?token=`, `?email=` via `useSearchParams()`.
 - [ ] When `mode === 'token'`: uses `resetPasswordTokenSchema` (password, confirmPassword) and submits with the `token` from the URL.
 - [ ] When `mode === 'otp'`: uses `resetPasswordOtpSchema` (code, password, confirmPassword); renders `<OtpInput length={6} />` + `<PasswordInput />`.
@@ -298,6 +320,7 @@ FCM rows **#6/#7 (password reset completion)**. Single page covering both modes 
 - [ ] Client-side check: `password === confirmPassword` enforced by the zod schema.
 
 ### Files to create / modify
+
 - `apps/web/app/(auth)/reset-password/page.tsx` — new.
 
 ### Agent Execution Prompt
@@ -307,11 +330,12 @@ FCM rows **#6/#7 (password reset completion)**. Single page covering both modes 
 > Objective: Ship `app/(auth)/reset-password/page.tsx` supporting both modes.
 > Steps: 1. Read `?mode=`, `?token=`, `?email=`. 2. Branch form shape based on `mode`. 3. For both, call `authClient.resetPassword` with the right payload. 4. Redirect to `/auth/login?reset=1` on success. 5. Handle unknown `mode` gracefully.
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2 and §13.
 > - Form: `react-hook-form` + `zod`. Toasts: `sonner`. UI: `@/components/ui/*`.
 > - Use the shared `<OtpInput />` and `<PasswordInput />` from P13-1.
 > - Never log the token or OTP.
-> Verification:
+>   Verification:
 > - `pnpm --filter @nest-auth-example/web build` — expected: success.
 > - Manual (token mode): request reset → open email link → set a new password → login with it. Manual (OTP mode): request reset → copy OTP from Mailpit → paste → set new password.
 
@@ -336,9 +360,11 @@ FCM rows **#6/#7 (password reset completion)**. Single page covering both modes 
 - **Depends on:** `P13-1`, `P13-2`
 
 ### Description
+
 FCM rows **#9 (TOTP challenge)** and **#10 (recovery codes)**. The login page (P13-2) redirects here with `mfaTempToken` in `sessionStorage`. The page shows a TOTP input (six boxes); a "Use a recovery code instead" toggle swaps the input for a recovery-code field. Submitting calls `authClient.mfaChallenge({ tempToken, code, type })`. On success, the library sets the session cookies and the page routes to `/dashboard`.
 
 ### Acceptance Criteria
+
 - [ ] `apps/web/app/(auth)/mfa-challenge/page.tsx` is a client component.
 - [ ] Reads `mfaTempToken` from `sessionStorage` on mount; if missing, redirects to `/auth/login` with a toast.
 - [ ] Default mode: TOTP — renders `<OtpInput length={6} />` with `inputMode="numeric"`.
@@ -349,6 +375,7 @@ FCM rows **#9 (TOTP challenge)** and **#10 (recovery codes)**. The login page (P
 - [ ] Pressing the browser back button does not leak the temp token to `/auth/login`.
 
 ### Files to create / modify
+
 - `apps/web/app/(auth)/mfa-challenge/page.tsx` — new.
 
 ### Agent Execution Prompt
@@ -358,11 +385,12 @@ FCM rows **#9 (TOTP challenge)** and **#10 (recovery codes)**. The login page (P
 > Objective: Ship `app/(auth)/mfa-challenge/page.tsx` with TOTP + recovery-code modes.
 > Steps: 1. On mount, read `sessionStorage.mfaTempToken`; redirect if missing. 2. Render TOTP `<OtpInput />` by default. 3. Add a toggle that swaps to a recovery-code text input. 4. On submit, call `authClient.mfaChallenge` with the right `type`. 5. On success, clear sessionStorage and navigate to `/dashboard`. 6. Defensive: if the user types a recovery code into the OTP boxes, don't submit without toggling mode — let the library return `INVALID_MFA_CODE`.
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2 and §13.
 > - Form: `react-hook-form` + `zod` (`mfaChallengeSchema` with discriminated union on `type`). Toasts: `sonner`. UI: `@/components/ui/*`.
 > - Never write the temp token to a cookie.
 > - Clear `sessionStorage.mfaTempToken` on success AND on the mount-time redirect path.
-> Verification:
+>   Verification:
 > - `pnpm --filter @nest-auth-example/web build` — expected: success.
 > - Manual: enroll MFA on a test user → log in → land on `/auth/mfa-challenge` → submit a correct TOTP → `/dashboard`. Repeat with a recovery code.
 
@@ -387,9 +415,11 @@ FCM rows **#9 (TOTP challenge)** and **#10 (recovery codes)**. The login page (P
 - **Depends on:** `P13-1`
 
 ### Description
+
 FCM row **#21 (invitations)**. Reads `?token=...` from the URL, fetches the invite summary via `authClient.getInvitation(token)` (or the library's equivalent), displays inviter + tenant + role, and collects `name` + `password` to complete signup. On submit, calls `authClient.acceptInvitation({ token, name, password })`. Successful acceptance redirects to `/dashboard` (the library issues session cookies on acceptance).
 
 ### Acceptance Criteria
+
 - [ ] `apps/web/app/(auth)/accept-invitation/page.tsx` is a client component.
 - [ ] Reads `?token=` via `useSearchParams()`.
 - [ ] On mount, calls `authClient.getInvitation(token)` — renders a `Loading…` skeleton while resolving.
@@ -400,6 +430,7 @@ FCM row **#21 (invitations)**. Reads `?token=...` from the URL, fetches the invi
 - [ ] Error handling via `translateAuthError` + `sonner` — covers `INVITATION_EXPIRED`, `INVITATION_USED`, `INVITATION_NOT_FOUND`, `WEAK_PASSWORD`.
 
 ### Files to create / modify
+
 - `apps/web/app/(auth)/accept-invitation/page.tsx` — new.
 
 ### Agent Execution Prompt
@@ -409,12 +440,13 @@ FCM row **#21 (invitations)**. Reads `?token=...` from the URL, fetches the invi
 > Objective: Ship `app/(auth)/accept-invitation/page.tsx`.
 > Steps: 1. Read `?token=`. 2. On mount, call `authClient.getInvitation(token)` and render a skeleton → summary → error states. 3. Build the form with `acceptInvitationSchema` (name, password, confirmPassword). 4. Submit via `authClient.acceptInvitation({ token, name, password })`. 5. Redirect to `/dashboard` on success. 6. Handle invalid/expired invites with a calm inline error state, not a crash.
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2 and §13.
 > - Form: `react-hook-form` + `zod`. Toasts: `sonner`. UI: `@/components/ui/*`.
 > - Use the shared `<PasswordInput />` from P13-1.
 > - Never log the token.
 > - Do not render the form until the invite summary is resolved — this avoids users submitting credentials into an invalid invite.
-> Verification:
+>   Verification:
 > - `pnpm --filter @nest-auth-example/web build` — expected: success.
 > - Manual: admin invites a new email from Phase 14's `/dashboard/invitations` → Mailpit shows the invite link → open it → summary renders → set name + password → redirected to `/dashboard` signed in.
 

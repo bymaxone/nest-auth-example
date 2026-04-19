@@ -8,14 +8,14 @@
 
 ## Task index
 
-| ID | Task | Status | Priority | Size | Depends on |
-| --- | --- | --- | --- | --- | --- |
-| P12-1 | `lib/auth-client.ts` — `createAuthClient` singleton + `AuthClientError` mapping | 🔴 | High | S | Phase 11 |
-| P12-2 | `app/providers.tsx` — `<AuthProvider>` + `sonner` toaster, mounted in layout | 🔴 | High | S | P12-1 |
-| P12-3 | `apps/web/proxy.ts` — `createAuthProxy` + `middleware.ts` re-export | 🔴 | High | M | P12-1 |
-| P12-4 | Route handlers — silent-refresh, client-refresh, logout | 🔴 | High | M | P12-1 |
-| P12-5 | `lib/require-auth.ts` — server helper using `verifyJwtToken` + `getUserId` / `getUserRole` / `getTenantId` | 🔴 | High | S | P12-3 |
-| P12-6 | `components/auth/sign-out-button.tsx` | 🔴 | High | XS | P12-4 |
+| ID    | Task                                                                                                       | Status | Priority | Size | Depends on |
+| ----- | ---------------------------------------------------------------------------------------------------------- | ------ | -------- | ---- | ---------- |
+| P12-1 | `lib/auth-client.ts` — `createAuthClient` singleton + `AuthClientError` mapping                            | 🔴     | High     | S    | Phase 11   |
+| P12-2 | `app/providers.tsx` — `<AuthProvider>` + `sonner` toaster, mounted in layout                               | 🔴     | High     | S    | P12-1      |
+| P12-3 | `apps/web/proxy.ts` — `createAuthProxy` + `middleware.ts` re-export                                        | 🔴     | High     | M    | P12-1      |
+| P12-4 | Route handlers — silent-refresh, client-refresh, logout                                                    | 🔴     | High     | M    | P12-1      |
+| P12-5 | `lib/require-auth.ts` — server helper using `verifyJwtToken` + `getUserId` / `getUserRole` / `getTenantId` | 🔴     | High     | S    | P12-3      |
+| P12-6 | `components/auth/sign-out-button.tsx`                                                                      | 🔴     | High     | XS   | P12-4      |
 
 ---
 
@@ -27,9 +27,11 @@
 - **Depends on:** Phase 11
 
 ### Description
+
 Ship the single typed HTTP client that every page and hook in `apps/web` will use to talk to the API. Built on `createAuthClient` from `@bymax-one/nest-auth/client` with same-origin base URL `/api` (the Next.js rewrite from P11-2 forwards to the NestJS service) and `credentials: 'include'` so HttpOnly cookies flow. Also ship an `AuthClientError` → toast + redirect mapping helper consumed by every form in Phase 13. Covers FCM row #25 foundation.
 
 ### Acceptance Criteria
+
 - [ ] `apps/web/lib/auth-client.ts` imports `createAuthClient` from `@bymax-one/nest-auth/client`.
 - [ ] Exports `export const authClient = createAuthClient({ baseUrl: '/api', routePrefix: 'auth', credentials: 'include' })` as a module-level singleton.
 - [ ] Exports a helper `mapAuthClientError(error: unknown): { code: AuthErrorCode | 'UNKNOWN'; message: string; redirectTo?: string }` that normalizes `AuthClientError` instances — including pulling the `code` off the error when present.
@@ -38,6 +40,7 @@ Ship the single typed HTTP client that every page and hook in `apps/web` will us
 - [ ] No direct `fetch()` call anywhere in `apps/web` targeting auth routes — per `docs/DEVELOPMENT_PLAN.md` §2 ("HTTP client — `@bymax-one/nest-auth/client` only").
 
 ### Files to create / modify
+
 - `apps/web/lib/auth-client.ts` — new.
 
 ### Agent Execution Prompt
@@ -47,11 +50,12 @@ Ship the single typed HTTP client that every page and hook in `apps/web` will us
 > Objective: Ship `lib/auth-client.ts` with a `createAuthClient` singleton + error-mapping helpers.
 > Steps: 1. Import `createAuthClient` and `AuthClientError` from `@bymax-one/nest-auth/client`. 2. Construct the singleton. 3. Author `mapAuthClientError` + `handleAuthClientError` helpers. 4. Export types `AuthErrorCode` from the library's shared error-code module if available; otherwise redeclare. 5. Add a short JSDoc at the top explaining the same-origin rewrite.
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2.
 > - Use the exact factory name `createAuthClient` from the library.
 > - Do not reach into `@bymax-one/nest-auth/*` internal paths — only public subpaths.
 > - Keep the file server/client-agnostic — it is imported by both RSC and client components.
-> Verification:
+>   Verification:
 > - `pnpm --filter @nest-auth-example/web typecheck` — expected: green.
 > - `pnpm --filter @nest-auth-example/web test --run` — expected: any unit test touching the import path passes.
 
@@ -76,9 +80,11 @@ Ship the single typed HTTP client that every page and hook in `apps/web` will us
 - **Depends on:** `P12-1`
 
 ### Description
+
 Wrap the app tree with `<AuthProvider>` from `@bymax-one/nest-auth/react`, feeding it the `authClient` singleton from P12-1. Also mount the `sonner` `<Toaster />` so the `handleAuthClientError` helper has a destination. The provider is what backs `useSession`, `useAuth`, and `useAuthStatus` throughout the dashboard (FCM row #25). Wire it into `app/layout.tsx` replacing the placeholder shell from P11-5.
 
 ### Acceptance Criteria
+
 - [ ] `apps/web/app/providers.tsx` is a `'use client'` module exporting `default function Providers({ children }: { children: ReactNode })`.
 - [ ] Imports `AuthProvider` from `@bymax-one/nest-auth/react` and `authClient` from `@/lib/auth-client`.
 - [ ] Renders `<AuthProvider client={authClient} onSessionExpired={() => router.push('/auth/login?reason=session_expired')}>` wrapping `{children}`.
@@ -87,6 +93,7 @@ Wrap the app tree with `<AuthProvider>` from `@bymax-one/nest-auth/react`, feedi
 - [ ] No runtime errors or hydration warnings when hitting `/`.
 
 ### Files to create / modify
+
 - `apps/web/app/providers.tsx` — new.
 - `apps/web/app/layout.tsx` — update to mount `<Providers>`.
 
@@ -97,11 +104,12 @@ Wrap the app tree with `<AuthProvider>` from `@bymax-one/nest-auth/react`, feedi
 > Objective: Ship `app/providers.tsx` and wire it into `app/layout.tsx`.
 > Steps: 1. Create `providers.tsx` as a client component. 2. Import `AuthProvider` from `@bymax-one/nest-auth/react` and the `authClient` singleton. 3. Pull `useRouter` from `next/navigation` so `onSessionExpired` can navigate. 4. Mount `<Toaster />` as a sibling of `<AuthProvider>` children. 5. Update `app/layout.tsx` to render `<Providers>{children}</Providers>` inside `<body>`.
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2.
 > - Quote the exact library symbol `AuthProvider` in imports.
 > - Do not put any fetch logic in the provider file — all data flow is via `authClient`.
 > - Keep server components in `layout.tsx`; the `'use client'` boundary is only inside `providers.tsx`.
-> Verification:
+>   Verification:
 > - `pnpm --filter @nest-auth-example/web dev` — expected: `/` renders, no console errors.
 > - Open devtools Components tab — expected: `AuthProvider` visible in the tree.
 
@@ -126,9 +134,11 @@ Wrap the app tree with `<AuthProvider>` from `@bymax-one/nest-auth/react`, feedi
 - **Depends on:** `P12-1`
 
 ### Description
+
 Author the Next.js edge middleware that gates every route in `apps/web` against the cookies set by `@bymax-one/nest-auth`. Uses `createAuthProxy` from `@bymax-one/nest-auth/nextjs` with the full config from `docs/DEVELOPMENT_PLAN.md` §12.3 — public routes, `publicRoutesRedirectIfAuthenticated`, role-gated protected routes, `loginPath`, `getDefaultDashboard`, `apiBase`, `jwtSecret`, and `blockedUserStatuses`. The file lives at `apps/web/proxy.ts` per `docs/OVERVIEW.md` §5; `apps/web/middleware.ts` is a thin re-export so Next.js picks it up.
 
 ### Acceptance Criteria
+
 - [ ] `apps/web/proxy.ts` imports `createAuthProxy` from `@bymax-one/nest-auth/nextjs`.
 - [ ] Constructs the proxy with:
   - `publicRoutes: ['/', '/auth/login', '/auth/register', '/auth/forgot-password', '/auth/reset-password', '/auth/verify-email', '/auth/accept-invitation', '/platform/login']`.
@@ -149,6 +159,7 @@ Author the Next.js edge middleware that gates every route in `apps/web` against 
 - [ ] Navigating to `/dashboard` without cookies redirects to `/auth/login`; navigating with valid cookies renders the route.
 
 ### Files to create / modify
+
 - `apps/web/proxy.ts` — new.
 - `apps/web/middleware.ts` — new, re-export only.
 
@@ -159,12 +170,13 @@ Author the Next.js edge middleware that gates every route in `apps/web` against 
 > Objective: Ship `proxy.ts` + `middleware.ts` with the full §12.3 config.
 > Steps: 1. Import `createAuthProxy` from `@bymax-one/nest-auth/nextjs` and `env` from `@/lib/env`. 2. Build the config object exactly as listed in Acceptance Criteria. 3. Instantiate the proxy and export `middleware` (wraps `proxy` since the library returns a handler) + `config.matcher`. 4. Create `middleware.ts` re-exporting `{ middleware, config }` from `./proxy`. 5. Verify with a curl smoke test.
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2 and §12.3.
 > - Quote the exact library symbol `createAuthProxy`.
 > - Do not hand-roll JWT verification — the proxy does it via its own helpers.
 > - The `matcher` must exclude `_next/static`, `_next/image`, `favicon.ico`, `public/*`.
 > - Do not log tokens or cookies in middleware.
-> Verification:
+>   Verification:
 > - `pnpm --filter @nest-auth-example/web build` — expected: success, middleware chunk emitted.
 > - `pnpm --filter @nest-auth-example/web dev`, then `curl -i http://localhost:3000/dashboard` — expected: `302` to `/auth/login`.
 
@@ -189,9 +201,11 @@ Author the Next.js edge middleware that gates every route in `apps/web` against 
 - **Depends on:** `P12-1`
 
 ### Description
+
 Mount the three Next.js route handlers the library exposes via `@bymax-one/nest-auth/nextjs`: `createSilentRefreshHandler` (GET), `createClientRefreshHandler` (POST), and `createLogoutHandler` (POST). These back FCM rows #27 (silent + client refresh) and #28 (logout). All three live under `app/api/auth/*` and talk to the API over `env.INTERNAL_API_URL` server-side.
 
 ### Acceptance Criteria
+
 - [ ] `apps/web/app/api/auth/silent-refresh/route.ts` exports `export const GET = createSilentRefreshHandler({ apiBase: env.INTERNAL_API_URL, jwtSecret: env.AUTH_JWT_SECRET_FOR_PROXY })`.
 - [ ] `apps/web/app/api/auth/client-refresh/route.ts` exports `export const POST = createClientRefreshHandler({ apiBase: env.INTERNAL_API_URL })`.
 - [ ] `apps/web/app/api/auth/logout/route.ts` exports `export const POST = createLogoutHandler({ apiBase: env.INTERNAL_API_URL, redirect: { to: '/auth/login' } })`.
@@ -200,6 +214,7 @@ Mount the three Next.js route handlers the library exposes via `@bymax-one/nest-
 - [ ] POST to `/api/auth/logout` clears cookies and issues the redirect per `LogoutHandlerRedirectConfig`.
 
 ### Files to create / modify
+
 - `apps/web/app/api/auth/silent-refresh/route.ts` — new.
 - `apps/web/app/api/auth/client-refresh/route.ts` — new.
 - `apps/web/app/api/auth/logout/route.ts` — new.
@@ -211,11 +226,12 @@ Mount the three Next.js route handlers the library exposes via `@bymax-one/nest-
 > Objective: Mount all three route handlers under `app/api/auth/*`.
 > Steps: 1. Create the three files above. 2. In each, import the matching factory from `@bymax-one/nest-auth/nextjs` and call it with `{ apiBase: env.INTERNAL_API_URL, ... }`. 3. For `createLogoutHandler`, pass `redirect: { to: '/auth/login' }`. 4. For `createSilentRefreshHandler`, pass `jwtSecret: env.AUTH_JWT_SECRET_FOR_PROXY` if the config accepts it (library verifies access-token expiry at the edge). 5. Declare `runtime` explicitly. 6. Smoke-test with curl.
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2 and §12.4.
 > - Quote the exact library symbols `createSilentRefreshHandler`, `createClientRefreshHandler`, `createLogoutHandler`.
 > - Do not add custom auth logic — the factories are exhaustive. If a use case isn't covered, file it as a library issue.
 > - Do not log bodies, headers, or cookies.
-> Verification:
+>   Verification:
 > - `pnpm --filter @nest-auth-example/web build` — expected: all three routes emitted.
 > - `curl -i -X POST http://localhost:3000/api/auth/logout` — expected: `Set-Cookie` clears tokens + `Location: /auth/login`.
 > - `curl -i http://localhost:3000/api/auth/silent-refresh` — expected: library-documented 401/no-op response.
@@ -241,9 +257,11 @@ Mount the three Next.js route handlers the library exposes via `@bymax-one/nest-
 - **Depends on:** `P12-3`
 
 ### Description
+
 Ship the server-side `requireAuth()` helper every protected RSC in `apps/web/app/dashboard/**` will call at the top of its render. Reads the `access_token` cookie via `next/headers`, verifies it using `verifyJwtToken` from `@bymax-one/nest-auth/nextjs`, and extracts identity via `getUserId` / `getUserRole` / `getTenantId`. On failure, calls `redirect('/auth/login')`. The proxy already gates routes, but this helper gives RSCs a typed identity handle without a second network hop.
 
 ### Acceptance Criteria
+
 - [ ] `apps/web/lib/require-auth.ts` exports `async function requireAuth(): Promise<{ userId: string; role: string; tenantId: string | null; token: string }>`.
 - [ ] Uses `cookies()` from `next/headers` to read the `access_token` cookie (name per library default; honour env override if set).
 - [ ] Calls `verifyJwtToken(token, env.AUTH_JWT_SECRET_FOR_PROXY)`; on throw, calls `redirect('/auth/login')`.
@@ -252,6 +270,7 @@ Ship the server-side `requireAuth()` helper every protected RSC in `apps/web/app
 - [ ] Contains no `console.log` of tokens, cookies, or PII.
 
 ### Files to create / modify
+
 - `apps/web/lib/require-auth.ts` — new.
 
 ### Agent Execution Prompt
@@ -261,11 +280,12 @@ Ship the server-side `requireAuth()` helper every protected RSC in `apps/web/app
 > Objective: Ship `lib/require-auth.ts` with `requireAuth()` and `requireRole()`.
 > Steps: 1. Import `verifyJwtToken`, `getUserId`, `getUserRole`, `getTenantId` from `@bymax-one/nest-auth/nextjs` and `redirect` from `next/navigation`. 2. Read the access-token cookie via `cookies()`. 3. Verify and extract. 4. Author `requireRole(allowed)` that delegates to `requireAuth()` and checks membership.
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2.
 > - Quote the exact library symbols `verifyJwtToken`, `getUserId`, `getUserRole`, `getTenantId`.
 > - Do not make any network calls — everything is local JWT verification.
 > - The helper is server-only; do not add `'use client'`.
-> Verification:
+>   Verification:
 > - `pnpm --filter @nest-auth-example/web typecheck` — expected: green.
 > - Create a placeholder `app/dashboard/page.tsx` that calls `await requireAuth()` and renders `user.userId`; hit it without cookies → redirects to `/auth/login`; with valid cookies → renders the id.
 
@@ -290,9 +310,11 @@ Ship the server-side `requireAuth()` helper every protected RSC in `apps/web/app
 - **Depends on:** `P12-4`
 
 ### Description
+
 Client-side button that POSTs to `/api/auth/logout` (the `createLogoutHandler` endpoint from P12-4), then calls `router.refresh()` so the server tree re-renders post-logout. Used in the dashboard header dropdown in Phase 14; shipping it here makes Phase 12's definition of done end-to-end testable.
 
 ### Acceptance Criteria
+
 - [ ] `apps/web/components/auth/sign-out-button.tsx` is a `'use client'` component exporting `default function SignOutButton()`.
 - [ ] Uses a shadcn `<Button variant="ghost" size="sm">` labelled "Sign out" with a `LogOut` icon from `lucide-react`.
 - [ ] On click: `await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })`; then `router.refresh()` via `useRouter` from `next/navigation`.
@@ -301,6 +323,7 @@ Client-side button that POSTs to `/api/auth/logout` (the `createLogoutHandler` e
 - [ ] Smoke test: mounting it in a test page and clicking leads to `/auth/login` (via the logout handler's redirect).
 
 ### Files to create / modify
+
 - `apps/web/components/auth/sign-out-button.tsx` — new.
 
 ### Agent Execution Prompt
@@ -310,10 +333,11 @@ Client-side button that POSTs to `/api/auth/logout` (the `createLogoutHandler` e
 > Objective: Ship `components/auth/sign-out-button.tsx`.
 > Steps: 1. Author the `'use client'` component with a shadcn `<Button>` and `lucide-react` `LogOut` icon. 2. On click, `fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })`. 3. On 2xx/3xx, `router.refresh()`. 4. On error, `toast.error(...)`. 5. Manage a `isPending` state to disable during the request.
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2.
 > - Do not import `authClient` just for logout — the handler owns the API call.
 > - Do not call `router.push('/auth/login')` explicitly — let the handler's redirect win.
-> Verification:
+>   Verification:
 > - `pnpm --filter @nest-auth-example/web typecheck` — expected: green.
 > - Mount the button on a temp page, click — expected: lands on `/auth/login` with cleared cookies (verify via devtools Application → Cookies).
 

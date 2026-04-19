@@ -8,13 +8,13 @@
 
 ## Task index
 
-| ID | Task | Status | Priority | Size | Depends on |
-| --- | --- | --- | --- | --- | --- |
-| P19-1 | `.github/workflows/ci.yml` — push/PR pipeline | 🔴 | High | M | Phase 17 |
-| P19-2 | `.github/workflows/release.yml` — tag-driven release | 🔴 | High | M | P19-1, P19-3, P19-4 |
-| P19-3 | `apps/api/Dockerfile` — multi-stage production image | 🔴 | High | M | Phase 7 |
-| P19-4 | `apps/web/Dockerfile` — multi-stage production image | 🔴 | High | M | Phase 14 |
-| P19-5 | `docker-compose.prod.yml` + Renovate config | 🔴 | Medium | S | P19-3, P19-4 |
+| ID    | Task                                                 | Status | Priority | Size | Depends on          |
+| ----- | ---------------------------------------------------- | ------ | -------- | ---- | ------------------- |
+| P19-1 | `.github/workflows/ci.yml` — push/PR pipeline        | 🔴     | High     | M    | Phase 17            |
+| P19-2 | `.github/workflows/release.yml` — tag-driven release | 🔴     | High     | M    | P19-1, P19-3, P19-4 |
+| P19-3 | `apps/api/Dockerfile` — multi-stage production image | 🔴     | High     | M    | Phase 7             |
+| P19-4 | `apps/web/Dockerfile` — multi-stage production image | 🔴     | High     | M    | Phase 14            |
+| P19-5 | `docker-compose.prod.yml` + Renovate config          | 🔴     | Medium   | S    | P19-3, P19-4        |
 
 ---
 
@@ -26,9 +26,11 @@
 - **Depends on:** `Phase 17`
 
 ### Description
+
 GitHub Actions pipeline that runs on every push and pull_request. Uses Node 24 + pnpm 10, with `postgres:18` and `redis:7` services. Jobs must run in the exact order specified by `docs/DEVELOPMENT_PLAN.md` §19: `install → lint → typecheck → unit → e2e-api → e2e-web → coverage-report → export-usage-check`.
 
 ### Acceptance Criteria
+
 - [ ] `.github/workflows/ci.yml` exists.
 - [ ] `on: [push, pull_request]` with `pull_request` targeting `main` and `next`.
 - [ ] `runs-on: ubuntu-latest`; `pnpm/action-setup@v4` at version `10.x`; `actions/setup-node@v4` at `node-version: 24`.
@@ -42,6 +44,7 @@ GitHub Actions pipeline that runs on every push and pull_request. Uses Node 24 +
 - [ ] Workflow is green on a trivial README-only PR.
 
 ### Files to create / modify
+
 - `.github/workflows/ci.yml` — new.
 - `docker-compose.test.yml` — confirm CI compatibility (profiles, host networking).
 
@@ -54,6 +57,7 @@ GitHub Actions pipeline that runs on every push and pull_request. Uses Node 24 +
 > Objective: Deliver a reliable, reproducible CI pipeline that fails fast on lint/typecheck and comprehensively on tests + export coverage.
 >
 > Steps:
+>
 > 1. `install` job: checkout, install pnpm 10, `actions/setup-node@v4` with `cache: 'pnpm'`, run `pnpm install --frozen-lockfile`.
 > 2. `lint` / `typecheck` / `unit` jobs: `needs: install`, reuse the pnpm cache, run `pnpm lint`, `pnpm typecheck`, `pnpm test`.
 > 3. `e2e-api`: declare `services:` (postgres, redis); set `DATABASE_URL_TEST` and `REDIS_URL`; run `pnpm --filter api prisma migrate deploy` then `pnpm --filter api test:e2e`. Upload JUnit XML artifact.
@@ -63,12 +67,14 @@ GitHub Actions pipeline that runs on every push and pull_request. Uses Node 24 +
 > 7. Add `concurrency: { group: ci-${{ github.ref }}, cancel-in-progress: true }` to avoid duplicate runs.
 >
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2.
 > - Job names MUST be exactly: `install`, `lint`, `typecheck`, `unit`, `e2e-api`, `e2e-web`, `coverage-report`, `export-usage-check`.
 > - Never print secrets; never hardcode secrets — use `secrets.GITHUB_TOKEN` only where needed.
 > - Prefer `pnpm --filter` over `cd apps/...`.
 >
 > Verification:
+>
 > - `actionlint .github/workflows/ci.yml` — expected: no errors.
 > - Open a trivial PR — expected: all 8 jobs pass in the named order.
 
@@ -93,9 +99,11 @@ GitHub Actions pipeline that runs on every push and pull_request. Uses Node 24 +
 - **Depends on:** `P19-1`, `P19-3`, `P19-4`
 
 ### Description
+
 On push of a tag matching `v*`, build production Docker images for `apps/api` and `apps/web`, push them to GHCR, and append a new row to `docs/RELEASES.md` via a bot commit.
 
 ### Acceptance Criteria
+
 - [ ] `.github/workflows/release.yml` exists.
 - [ ] Trigger: `on: push: tags: ['v*']`.
 - [ ] Job `build-and-push` uses `docker/build-push-action@v6` for both api and web Dockerfiles.
@@ -106,6 +114,7 @@ On push of a tag matching `v*`, build production Docker images for `apps/api` an
 - [ ] Never pushes over a tag's existing image (idempotency guard).
 
 ### Files to create / modify
+
 - `.github/workflows/release.yml` — new.
 - `docs/RELEASES.md` — ensure append-only table shape.
 
@@ -118,6 +127,7 @@ On push of a tag matching `v*`, build production Docker images for `apps/api` an
 > Objective: A `git tag v1.2.3 && git push --tags` publishes both images and records the release.
 >
 > Steps:
+>
 > 1. Job `build-and-push`:
 >    - Checkout, login to GHCR via `docker/login-action@v3`.
 >    - `docker/metadata-action@v5` per image to compute tags + labels.
@@ -130,11 +140,13 @@ On push of a tag matching `v*`, build production Docker images for `apps/api` an
 > 3. Guard idempotency: if `ghcr.io/<owner>/nest-auth-example-api:<tag>` already exists, skip and log.
 >
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2.
 > - Tag matching: only `v*` (strict).
 > - Never `--force` push.
 >
 > Verification:
+>
 > - `actionlint .github/workflows/release.yml` — expected: no errors.
 > - Dry-run by pushing `v0.0.0-test` on a branch — expected: both images appear in GHCR, `docs/RELEASES.md` row appended.
 
@@ -159,9 +171,11 @@ On push of a tag matching `v*`, build production Docker images for `apps/api` an
 - **Depends on:** `Phase 7`
 
 ### Description
+
 Multi-stage Dockerfile for the NestJS api. Uses `pnpm deploy` to produce a slim runtime, runs as a non-root user, sets `NODE_ENV=production`, exposes `$API_PORT`, and runs `prisma migrate deploy` on container start (or via a separate entrypoint documented in DEPLOYMENT.md).
 
 ### Acceptance Criteria
+
 - [ ] `apps/api/Dockerfile` exists.
 - [ ] Stages: `deps` (installs with `pnpm install --frozen-lockfile`), `build` (runs `pnpm --filter api build` and `pnpm --filter api prisma generate`), `deploy` (runs `pnpm --filter api deploy /prod/api --prod`), `runtime` (copies `/prod/api`).
 - [ ] Base image is `node:24-alpine` (or `node:24-slim` if Alpine breaks Prisma engines).
@@ -172,6 +186,7 @@ Multi-stage Dockerfile for the NestJS api. Uses `pnpm deploy` to produce a slim 
 - [ ] Image builds and starts: `docker build -f apps/api/Dockerfile -t nest-auth-example-api . && docker run --rm -p 4000:4000 nest-auth-example-api` boots without crash.
 
 ### Files to create / modify
+
 - `apps/api/Dockerfile` — new.
 - `.dockerignore` — new or updated.
 - `apps/api/docker-entrypoint.sh` — optional, runs `prisma migrate deploy` then `node dist/main.js`.
@@ -185,6 +200,7 @@ Multi-stage Dockerfile for the NestJS api. Uses `pnpm deploy` to produce a slim 
 > Objective: Produce a small, non-root, production-ready image that the release workflow can push.
 >
 > Steps:
+>
 > 1. Write a `deps` stage that copies the workspace (`pnpm-workspace.yaml`, root `package.json`, `apps/api/package.json`, lockfile) and runs `pnpm install --frozen-lockfile --ignore-scripts`.
 > 2. `build` stage: copy source, run `pnpm --filter api prisma generate`, `pnpm --filter api build`.
 > 3. `deploy` stage: `pnpm --filter api deploy --prod /prod/api` to produce a self-contained tree.
@@ -193,12 +209,14 @@ Multi-stage Dockerfile for the NestJS api. Uses `pnpm deploy` to produce a slim 
 > 6. Ensure Prisma engines ship inside the deployed tree (`prisma/schema.prisma` + `node_modules/.prisma/client`).
 >
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2.
 > - `NODE_ENV=production` in the runtime stage.
 > - Non-root (`USER node`) — never run as root.
 > - No dev dependencies in the runtime layer.
 >
 > Verification:
+>
 > - `docker build -f apps/api/Dockerfile -t nest-auth-example-api .` — expected: builds.
 > - `docker run --rm -e DATABASE_URL=... -e REDIS_URL=... -e JWT_SECRET=... -p 4000:4000 nest-auth-example-api` — expected: starts, `/api/health` returns 200.
 
@@ -223,9 +241,11 @@ Multi-stage Dockerfile for the NestJS api. Uses `pnpm deploy` to produce a slim 
 - **Depends on:** `Phase 14`
 
 ### Description
+
 Multi-stage Dockerfile for the Next.js 16 web app. Uses Next.js standalone output for a minimal runtime, runs as a non-root user, sets `NODE_ENV=production`, and exposes `$WEB_PORT`.
 
 ### Acceptance Criteria
+
 - [ ] `apps/web/Dockerfile` exists.
 - [ ] Stages: `deps` (pnpm install), `build` (runs `pnpm --filter web build` with `output: 'standalone'` configured in `next.config.mjs`), `runtime` (copies `.next/standalone`, `.next/static`, `public`).
 - [ ] Base image `node:24-alpine`.
@@ -237,6 +257,7 @@ Multi-stage Dockerfile for the Next.js 16 web app. Uses Next.js standalone outpu
 - [ ] Image builds and starts locally.
 
 ### Files to create / modify
+
 - `apps/web/Dockerfile` — new.
 - `apps/web/next.config.mjs` — ensure `output: 'standalone'`.
 - `.dockerignore` — ensure `apps/web/.next`, `apps/web/node_modules` ignored.
@@ -250,6 +271,7 @@ Multi-stage Dockerfile for the Next.js 16 web app. Uses Next.js standalone outpu
 > Objective: Produce a minimal, non-root, production image for the web app.
 >
 > Steps:
+>
 > 1. `deps` stage: copy workspace manifests + lockfile, `pnpm install --frozen-lockfile --ignore-scripts`.
 > 2. `build` stage: copy source, run `pnpm --filter web build`. Confirm `.next/standalone` is produced.
 > 3. `runtime` stage: `FROM node:24-alpine`, add a non-root user, copy `.next/standalone`, `.next/static`, `public` from the build stage. Set `CMD ["node", "server.js"]`.
@@ -257,12 +279,14 @@ Multi-stage Dockerfile for the Next.js 16 web app. Uses Next.js standalone outpu
 > 5. Add healthcheck + `EXPOSE`.
 >
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2.
 > - `NODE_ENV=production`.
 > - Non-root.
 > - No dev dependencies in runtime.
 >
 > Verification:
+>
 > - `docker build -f apps/web/Dockerfile -t nest-auth-example-web .` — expected: builds.
 > - `docker run --rm -e INTERNAL_API_URL=http://host.docker.internal:4000 -e AUTH_JWT_SECRET_FOR_PROXY=... -p 3000:3000 nest-auth-example-web` — expected: starts, `/` renders.
 
@@ -287,9 +311,11 @@ Multi-stage Dockerfile for the Next.js 16 web app. Uses Next.js standalone outpu
 - **Depends on:** `P19-3`, `P19-4`
 
 ### Description
+
 Optional production-topology compose file for local smoke tests, plus a Renovate (or Dependabot) config that tracks `@bymax-one/nest-auth` once it ships to npm.
 
 ### Acceptance Criteria
+
 - [ ] `docker-compose.prod.yml` exists and references the images built by P19-3 and P19-4 (`ghcr.io/<owner>/nest-auth-example-api:latest`, `...-web:latest`).
 - [ ] Includes postgres, redis, api, web services; no Mailpit in prod profile.
 - [ ] Env vars referenced from a `.env.prod.example` at the repo root (documented in DEPLOYMENT.md).
@@ -298,6 +324,7 @@ Optional production-topology compose file for local smoke tests, plus a Renovate
 - [ ] README snippet (or DEPLOYMENT.md cross-link) shows `docker compose -f docker-compose.prod.yml up` smoke-test flow.
 
 ### Files to create / modify
+
 - `docker-compose.prod.yml` — new.
 - `.env.prod.example` — new.
 - `renovate.json` — new (preferred). Alternatively `.github/dependabot.yml`.
@@ -311,6 +338,7 @@ Optional production-topology compose file for local smoke tests, plus a Renovate
 > Objective: Enable `docker compose -f docker-compose.prod.yml up` to reproduce prod topology, and auto-raise PRs as `@bymax-one/nest-auth` publishes new versions.
 >
 > Steps:
+>
 > 1. Build `docker-compose.prod.yml` with four services: `postgres:18`, `redis:7`, `api` (image from P19-3), `web` (image from P19-4). Use healthchecks for postgres/redis and `depends_on: { service: { condition: service_healthy } }`.
 > 2. Move all secrets to `${VAR}` references; ship a `.env.prod.example` at the repo root.
 > 3. Author `renovate.json` with:
@@ -321,11 +349,13 @@ Optional production-topology compose file for local smoke tests, plus a Renovate
 > 5. Document the smoke-test command in `docs/DEPLOYMENT.md`.
 >
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2.
 > - Never commit real `.env.prod`.
 > - Compose file uses `version: '3.9'` syntax or Compose Spec (no `version:` key) — pick one consistently.
 >
 > Verification:
+>
 > - `docker compose -f docker-compose.prod.yml config` — expected: valid.
 > - `renovate-config-validator renovate.json` — expected: no errors.
 > - On a test PR, Renovate opens a PR for a mock `@bymax-one/nest-auth` bump — expected: within one scheduled run.

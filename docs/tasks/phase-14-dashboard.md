@@ -8,15 +8,15 @@
 
 ## Task index
 
-| ID | Task | Status | Priority | Size | Depends on |
-| --- | --- | --- | --- | --- | --- |
-| P14-1 | Dashboard shell + tenant switcher | 🔴 | High | M | Phase 12, Phase 13 |
-| P14-2 | Account page (profile + password change) | 🔴 | High | M | P14-1 |
-| P14-3 | Security / MFA page (setup, verify, recovery, disable) | 🔴 | High | M | P14-1 |
-| P14-4 | Sessions page (list, revoke, sign out everywhere) | 🔴 | High | M | P14-1 |
-| P14-5 | Team page (admin-only user status management) | 🔴 | Medium | M | P14-1 |
-| P14-6 | Invitations page (admin-only invite / resend / revoke) | 🔴 | Medium | M | P14-1 |
-| P14-7 | Projects page (tenant-scoped CRUD) | 🔴 | Medium | M | P14-1 |
+| ID    | Task                                                   | Status | Priority | Size | Depends on         |
+| ----- | ------------------------------------------------------ | ------ | -------- | ---- | ------------------ |
+| P14-1 | Dashboard shell + tenant switcher                      | 🔴     | High     | M    | Phase 12, Phase 13 |
+| P14-2 | Account page (profile + password change)               | 🔴     | High     | M    | P14-1              |
+| P14-3 | Security / MFA page (setup, verify, recovery, disable) | 🔴     | High     | M    | P14-1              |
+| P14-4 | Sessions page (list, revoke, sign out everywhere)      | 🔴     | High     | M    | P14-1              |
+| P14-5 | Team page (admin-only user status management)          | 🔴     | Medium   | M    | P14-1              |
+| P14-6 | Invitations page (admin-only invite / resend / revoke) | 🔴     | Medium   | M    | P14-1              |
+| P14-7 | Projects page (tenant-scoped CRUD)                     | 🔴     | Medium   | M    | P14-1              |
 
 ---
 
@@ -28,9 +28,11 @@
 - **Depends on:** Phase 12, Phase 13
 
 ### Description
+
 Create the authenticated dashboard shell at `app/dashboard/layout.tsx`. The layout must enforce auth via the `require-auth.ts` helper (redirects to `/login` if no session), render a sidebar whose nav items are role-gated via `useSession().user.role`, and render a top-right `<TenantSwitcher />` plus avatar menu with "Sign out". Ship `components/auth/tenant-switcher.tsx` that calls `GET /api/tenants/me`, persists the chosen tenant id in a non-HttpOnly client cookie, and wires `auth-client` to forward it as `X-Tenant-Id` on every request. Covers FCM row **#20 (multi-tenant isolation)** and **#25 (`useSession` / `useAuth`)**.
 
 ### Acceptance Criteria
+
 - [ ] `app/dashboard/layout.tsx` uses `require-auth.ts` to gate the entire subtree; unauthenticated users redirected to `/login`.
 - [ ] Sidebar renders nav items: Overview, Projects, Team, Invitations, Sessions, Security, Account; admin-only items (`Team`, `Invitations`) hidden for non-admin roles via `useSession().user.role`.
 - [ ] Top-right contains `<TenantSwitcher />` and an avatar menu with `Sign out` that calls `POST /api/auth/logout`.
@@ -40,6 +42,7 @@ Create the authenticated dashboard shell at `app/dashboard/layout.tsx`. The layo
 - [ ] No third-party UI kits are used beyond shadcn/ui primitives already in the project.
 
 ### Files to create / modify
+
 - `apps/web/app/dashboard/layout.tsx` — new layout, wraps children with sidebar + topbar.
 - `apps/web/components/dashboard/sidebar.tsx` — role-gated nav.
 - `apps/web/components/dashboard/topbar.tsx` — tenant switcher + avatar menu.
@@ -56,6 +59,7 @@ Create the authenticated dashboard shell at `app/dashboard/layout.tsx`. The layo
 > Objective: Ship the dashboard shell, role-gated navigation, and the tenant-switcher wiring end to end.
 >
 > Steps:
+>
 > 1. Create `app/dashboard/layout.tsx`. Call `requireAuth()` server-side (from `lib/require-auth.ts`) to bounce unauthenticated users. Render `<Sidebar />` and `<Topbar />` around `{children}`.
 > 2. Inside `<Sidebar />`, use `useSession()` to read `user.role`. Hide the `Team` and `Invitations` items unless the role is `ADMIN` or higher in the hierarchy. Use `lucide-react` icons already in the project.
 > 3. Inside `<Topbar />`, render `<TenantSwitcher />` on the left of the avatar menu. Avatar menu uses shadcn `DropdownMenu`; the sign-out entry posts to `/api/auth/logout` and then calls `router.replace('/login')`.
@@ -64,6 +68,7 @@ Create the authenticated dashboard shell at `app/dashboard/layout.tsx`. The layo
 > 6. Add a Playwright spec that logs in as the seeded admin and asserts the sidebar renders `Team`, while logging in as a seeded member does not.
 >
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2 (strict TS, ESM, no `any`, Tailwind v4 tokens only).
 > - Use `useSession` / `useAuth` / `useAuthStatus` exactly as exported from `@bymax-one/nest-auth/react`. Do not re-implement session state.
 > - The `tenant_id` cookie must NOT be HttpOnly (client code writes it); it MUST be `SameSite=Lax` and `Secure` outside local dev.
@@ -71,6 +76,7 @@ Create the authenticated dashboard shell at `app/dashboard/layout.tsx`. The layo
 > - Do not use any third-party QR/OTP service.
 >
 > Verification:
+>
 > - `pnpm --filter web typecheck` — expected: green.
 > - `pnpm --filter web lint` — expected: green.
 > - `pnpm --filter web test:e2e -- dashboard-shell` — Playwright spec logs in as the seeded admin and asserts the `Team` nav link is visible; expected: green.
@@ -97,9 +103,11 @@ Create the authenticated dashboard shell at `app/dashboard/layout.tsx`. The layo
 - **Depends on:** `P14-1`
 
 ### Description
+
 Build `app/dashboard/account/page.tsx` showing the signed-in user's profile (read-only `email` and `name` from `useSession()`) and a password-change form that requires `currentPassword`, `newPassword`, and `confirmNewPassword`. Because `@bymax-one/nest-auth` does not expose a first-class change-password endpoint, this task must additionally add a custom `POST /api/account/change-password` controller in `apps/api/src/account/` that re-validates the current password and calls the library's password update path. Covers FCM row **#29 (shared error codes)** for surfacing errors to the user.
 
 ### Acceptance Criteria
+
 - [ ] `app/dashboard/account/page.tsx` renders profile card with read-only `email` and `name` sourced from `useSession().user`.
 - [ ] A `PasswordChangeForm` component uses `react-hook-form` + `zod` with fields `currentPassword`, `newPassword`, `confirmNewPassword`; client-side confirms `newPassword === confirmNewPassword`.
 - [ ] Submit posts JSON to `POST /api/account/change-password`; success renders a `sonner` toast and resets the form; failure surfaces the library error code via the shared `auth-errors.ts` map.
@@ -109,6 +117,7 @@ Build `app/dashboard/account/page.tsx` showing the signed-in user's profile (rea
 - [ ] Playwright spec logs in as the seeded member, opens `/dashboard/account`, and asserts the profile email is visible plus the password form exists.
 
 ### Files to create / modify
+
 - `apps/web/app/dashboard/account/page.tsx` — new page.
 - `apps/web/components/dashboard/password-change-form.tsx` — form component.
 - `apps/web/lib/auth-errors.ts` — ensure `INVALID_CREDENTIALS`, `WEAK_PASSWORD` map to user-facing strings (extend if missing).
@@ -127,6 +136,7 @@ Build `app/dashboard/account/page.tsx` showing the signed-in user's profile (rea
 > Objective: Ship a profile + password-change page backed by a new `POST /api/account/change-password` endpoint.
 >
 > Steps:
+>
 > 1. Create `AccountModule`, `AccountController`, and `ChangePasswordDto` (`currentPassword`, `newPassword`, both `@IsString() @MinLength(8)`). Guard with `JwtAuthGuard`.
 > 2. In the handler, load the user via `IUserRepository`, re-validate `currentPassword` against the stored hash using the library's password service (or bcrypt with the library's configured cost if no direct export exists — prefer library exports). On mismatch throw a Nest `UnauthorizedException` whose body matches `AUTH_ERROR_CODES.INVALID_CREDENTIALS`.
 > 3. Update the hash via the library's `updatePassword` path so the library's hashing + hook emission remains authoritative. Fire `AppAuthHooks.onPasswordChanged` if not emitted automatically.
@@ -136,6 +146,7 @@ Build `app/dashboard/account/page.tsx` showing the signed-in user's profile (rea
 > 7. Add a Playwright spec that logs in as the seeded member, asserts the profile card shows the seeded email, and that the password form renders.
 >
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2.
 > - Use `useSession` from `@bymax-one/nest-auth/react` — do not duplicate session state.
 > - All error text comes from `lib/auth-errors.ts`; do not hard-code copy in the form.
@@ -143,6 +154,7 @@ Build `app/dashboard/account/page.tsx` showing the signed-in user's profile (rea
 > - MFA temp tokens (out of scope here) live only in `sessionStorage` across the project — do not introduce `localStorage` usage.
 >
 > Verification:
+>
 > - `pnpm --filter api typecheck && pnpm --filter web typecheck` — expected: green.
 > - `pnpm --filter api test -- account` — unit test asserts `ChangePasswordDto` rejects short passwords; expected: green.
 > - `pnpm --filter web test:e2e -- account-page` — Playwright spec logs in as `member@example.com` and asserts the profile email + password form render; expected: green.
@@ -168,9 +180,11 @@ Build `app/dashboard/account/page.tsx` showing the signed-in user's profile (rea
 - **Depends on:** `P14-1`
 
 ### Description
+
 Build `app/dashboard/security/page.tsx`. Displays current MFA status from `useSession().user.mfaEnabled`. Setup flow: POST `/api/auth/mfa/setup` returns `{ otpauthUri, secret }`; render the QR locally via the `qrcode` npm package (never send the secret to a third-party service); user enters a TOTP; POST `/api/auth/mfa/verify-enable`; on success a modal displays the 8 recovery codes with "Download as .txt" and a required "I saved them" checkbox before it can be dismissed. Disable flow requires an OTP re-confirmation and posts to `/api/auth/mfa/disable`. Covers FCM rows **#8 (TOTP MFA enrollment + QR)**, **#10 (recovery codes)**, **#11 (MFA disable)**.
 
 ### Acceptance Criteria
+
 - [ ] Page shows "MFA is enabled" / "MFA is not enabled" derived from `useSession().user.mfaEnabled`.
 - [ ] Setup step 1 button calls `POST /api/auth/mfa/setup`, receives `{ otpauthUri, secret }`.
 - [ ] QR rendered via `qrcode` npm package (server-side via `QRCode.toString(otpauthUri, { type: 'svg' })` in a server action OR client-side via `qrcode.toDataURL`); no external service is contacted.
@@ -182,6 +196,7 @@ Build `app/dashboard/security/page.tsx`. Displays current MFA status from `useSe
 - [ ] Playwright spec logs in as the seeded member, opens `/dashboard/security`, clicks `Set up MFA`, asserts a QR SVG/image renders.
 
 ### Files to create / modify
+
 - `apps/web/app/dashboard/security/page.tsx` — new page.
 - `apps/web/components/dashboard/mfa-setup-card.tsx` — setup + verify flow.
 - `apps/web/components/dashboard/mfa-disable-card.tsx` — disable flow.
@@ -198,6 +213,7 @@ Build `app/dashboard/security/page.tsx`. Displays current MFA status from `useSe
 > Objective: Ship a security page that covers setup, verify-enable with recovery-code capture, and disable.
 >
 > Steps:
+>
 > 1. Add `qrcode` + `@types/qrcode` to `apps/web`.
 > 2. Build `mfa-setup-card.tsx`: button "Set up MFA" → POST `/api/auth/mfa/setup` → render QR (`qrcode.toDataURL(otpauthUri)`) and a copyable secret. Below: TOTP input (`<OtpInput />` from Phase 13). Submit → POST `/api/auth/mfa/verify-enable`.
 > 3. On verify success, receive `recoveryCodes: string[]` and mount `recovery-codes-modal.tsx`. The modal lists all 8 codes, offers a `Download as .txt` button (constructs a `Blob`, uses `a.download`), and an `I saved them` checkbox that enables `Close`.
@@ -207,6 +223,7 @@ Build `app/dashboard/security/page.tsx`. Displays current MFA status from `useSe
 > 7. Playwright spec: log in as `member@example.com`, visit `/dashboard/security`, click `Set up MFA`, assert a QR image exists (by alt text or data URL).
 >
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2.
 > - Use `useSession` from `@bymax-one/nest-auth/react` to gate UI (e.g., hide setup card if `mfaEnabled`).
 > - No third-party QR or OTP services — generate QR locally via `qrcode`.
@@ -214,6 +231,7 @@ Build `app/dashboard/security/page.tsx`. Displays current MFA status from `useSe
 > - Do not log recovery codes to the browser console or telemetry.
 >
 > Verification:
+>
 > - `pnpm --filter web typecheck && pnpm --filter web lint` — expected: green.
 > - `pnpm --filter web test:e2e -- mfa-setup` — Playwright asserts the QR image renders after clicking `Set up MFA`; expected: green.
 > - Manual: complete the full loop against the dev stack; the modal `Close` button remains disabled until the checkbox is ticked.
@@ -239,9 +257,11 @@ Build `app/dashboard/security/page.tsx`. Displays current MFA status from `useSe
 - **Depends on:** `P14-1`
 
 ### Description
+
 Build `app/dashboard/sessions/page.tsx` that lists the signed-in user's active sessions via `GET /api/auth/sessions`, allows per-row revocation via `DELETE /api/auth/sessions/:id`, and exposes a prominent `Sign out everywhere` action that calls `DELETE /api/auth/sessions/all`. Columns: device, IP, createdAt, lastSeenAt. Covers FCM rows **#4 (JWT revocation / sign out everywhere)**, **#13 (active sessions list + revoke)**, **#14 (FIFO eviction — displayed limit)**, **#15 (new-session email alerts — link to Mailpit in dev)**.
 
 ### Acceptance Criteria
+
 - [ ] Page renders a table of sessions with columns `Device`, `IP`, `Created`, `Last seen`, `Actions`.
 - [ ] Each row has a `Revoke` button → `DELETE /api/auth/sessions/:id`; optimistic update with rollback on error via `sonner`.
 - [ ] A `Sign out everywhere` button → `DELETE /api/auth/sessions/all`; after success, the current session is terminated and the user is redirected to `/login` with a toast confirming.
@@ -251,6 +271,7 @@ Build `app/dashboard/sessions/page.tsx` that lists the signed-in user's active s
 - [ ] Playwright spec logs in as the seeded member and asserts at least one session row is visible with a `This device` badge.
 
 ### Files to create / modify
+
 - `apps/web/app/dashboard/sessions/page.tsx` — new page.
 - `apps/web/components/dashboard/sessions-table.tsx` — table with per-row revoke.
 - `apps/web/components/dashboard/sign-out-everywhere-button.tsx` — confirmation dialog + bulk revoke.
@@ -265,6 +286,7 @@ Build `app/dashboard/sessions/page.tsx` that lists the signed-in user's active s
 > Objective: Ship a sessions page with per-row revoke and a bulk sign-out that fully logs the user out of every device.
 >
 > Steps:
+>
 > 1. Ensure `auth-client.ts` exposes `listSessions()`, `revokeSession(id)`, and `revokeAllSessions()` helpers; all forward cookies + `X-Tenant-Id` as usual.
 > 2. Build `sessions-table.tsx` as a client component. On mount, load sessions. Render the `This device` badge on the row whose id matches the current session (compare against `useSession().session.id` or a dedicated `current` boolean the library returns).
 > 3. Per-row `Revoke` uses an optimistic update — remove locally, call `DELETE /api/auth/sessions/:id`, on 4xx/5xx re-insert the row and show a `sonner` error toast.
@@ -274,12 +296,14 @@ Build `app/dashboard/sessions/page.tsx` that lists the signed-in user's active s
 > 7. Playwright spec: log in as `member@example.com`, visit `/dashboard/sessions`, assert a row with the `This device` badge is present.
 >
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2.
 > - Use `useSession` / `useAuth` from `@bymax-one/nest-auth/react` — do not re-implement session reads.
 > - Do not swallow errors — always surface via `auth-errors.ts` + `sonner`.
 > - Do not introduce `localStorage` usage; any ephemeral state stays in React state.
 >
 > Verification:
+>
 > - `pnpm --filter web typecheck && pnpm --filter web lint` — expected: green.
 > - `pnpm --filter web test:e2e -- sessions-page` — Playwright spec logs in, visits `/dashboard/sessions`, asserts the `This device` badge is visible; expected: green.
 > - Manual: clicking `Sign out everywhere` on device A logs device B out on its next request.
@@ -305,9 +329,11 @@ Build `app/dashboard/sessions/page.tsx` that lists the signed-in user's active s
 - **Depends on:** `P14-1`
 
 ### Description
+
 Build `app/dashboard/team/page.tsx` (admin-only). Lists every user in the current tenant (via a new/existing `GET /api/users` endpoint scoped by `X-Tenant-Id`) with `name`, `email`, `role`, and `status`. Admins can toggle a user's status (`active` ↔ `suspended`) via `PATCH /api/users/:id/status`. UI uses optimistic updates with rollback on error. Covers FCM row **#23 (account status enforcement via `UserStatusGuard` + `blockedStatuses`)**.
 
 ### Acceptance Criteria
+
 - [ ] Page is gated server-side: non-admin users hit `notFound()` (or a 403 page) rather than seeing a partial UI.
 - [ ] Table columns: `Name`, `Email`, `Role`, `Status`, `Actions`.
 - [ ] `Suspend` / `Unsuspend` button per row calls `PATCH /api/users/:id/status` with `{ status: 'SUSPENDED' | 'ACTIVE' }`; optimistic update applied immediately, rolled back on non-2xx.
@@ -317,6 +343,7 @@ Build `app/dashboard/team/page.tsx` (admin-only). Lists every user in the curren
 - [ ] Playwright spec: log in as admin, open `/dashboard/team`, suspend a seeded member, assert the row status cell flips to `Suspended`.
 
 ### Files to create / modify
+
 - `apps/web/app/dashboard/team/page.tsx` — new page (server component).
 - `apps/web/components/dashboard/team-table.tsx` — client component with optimistic updates.
 - `apps/api/src/users/users.controller.ts` — ensure `GET /api/users` (tenant-scoped) and `PATCH /api/users/:id/status` exist; guarded by `JwtAuthGuard`, `RolesGuard` (`ADMIN`), `UserStatusGuard`.
@@ -331,6 +358,7 @@ Build `app/dashboard/team/page.tsx` (admin-only). Lists every user in the curren
 > Objective: Ship the admin-only team page with reliable optimistic updates.
 >
 > Steps:
+>
 > 1. Backend: ensure `UsersController` exposes `GET /api/users` (tenant-scoped via `@CurrentUser()` + `tenantIdResolver`) and `PATCH /api/users/:id/status`. Apply `@UseGuards(JwtAuthGuard, RolesGuard, UserStatusGuard)` + `@Roles('ADMIN')` at the class level. Validate the DTO with `class-validator` `@IsIn(['ACTIVE','SUSPENDED'])`.
 > 2. Server-side in `page.tsx`: read the session, call `notFound()` if `user.role !== 'ADMIN'`.
 > 3. Build `team-table.tsx` as a client component. Fetch the list via `auth-client`. Render shadcn `Table` with a per-row dropdown (`Suspend` or `Unsuspend`).
@@ -339,12 +367,14 @@ Build `app/dashboard/team/page.tsx` (admin-only). Lists every user in the curren
 > 6. Playwright spec: log in as `admin@example.com`, visit `/dashboard/team`, click `Suspend` on a seeded member row, assert the status cell text flips to `Suspended` within the optimistic window.
 >
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2.
 > - Use `useSession` / `useAuth` from `@bymax-one/nest-auth/react`.
 > - Never mutate sessions or cookies from this page — role is read-only; state changes go via the PATCH endpoint.
 > - All error copy flows through `lib/auth-errors.ts`.
 >
 > Verification:
+>
 > - `pnpm --filter api typecheck && pnpm --filter web typecheck` — expected: green.
 > - `pnpm --filter api test -- users-status` — unit test asserts the DTO rejects values other than `ACTIVE|SUSPENDED`; expected: green.
 > - `pnpm --filter web test:e2e -- team-suspend` — Playwright spec suspends a seeded member and asserts the row flips to `Suspended`; expected: green.
@@ -370,9 +400,11 @@ Build `app/dashboard/team/page.tsx` (admin-only). Lists every user in the curren
 - **Depends on:** `P14-1`
 
 ### Description
+
 Build `app/dashboard/invitations/page.tsx` (admin-only). Provides a form to invite a new teammate by `email` + `role`, a table listing pending and accepted invitations (with columns: invitee email, role, invited at, expires at, status), and per-row `Resend` and `Revoke` actions. All calls go to the library's invitations controllers (`POST/GET/DELETE /api/auth/invitations/...`). Covers FCM row **#21 (user invitations)**.
 
 ### Acceptance Criteria
+
 - [ ] Page 404s (or renders a 403 component) for non-admin roles — same gating pattern as P14-5.
 - [ ] Invite form uses `react-hook-form` + `zod`: `email` (valid email), `role` (select among the configured roles). On submit → `POST /api/auth/invitations`.
 - [ ] Table lists pending and accepted invitations fetched from `GET /api/auth/invitations`.
@@ -382,6 +414,7 @@ Build `app/dashboard/invitations/page.tsx` (admin-only). Provides a form to invi
 - [ ] Playwright spec: log in as admin, open `/dashboard/invitations`, fill the form with `newhire@example.com` + `MEMBER`, submit, assert a new row appears in the table.
 
 ### Files to create / modify
+
 - `apps/web/app/dashboard/invitations/page.tsx` — new page.
 - `apps/web/components/dashboard/invite-form.tsx` — form component.
 - `apps/web/components/dashboard/invitations-table.tsx` — list + actions.
@@ -395,6 +428,7 @@ Build `app/dashboard/invitations/page.tsx` (admin-only). Provides a form to invi
 > Objective: Ship the admin invitations page covering invite / list / resend / revoke.
 >
 > Steps:
+>
 > 1. Server component `page.tsx` guards the route (`notFound()` unless `role === 'ADMIN'`).
 > 2. Build `invite-form.tsx` with `react-hook-form` + `zod`: `email: z.string().email()`, `role: z.enum([...configuredRoles])`. On submit, POST and on success append to the local list + toast.
 > 3. Build `invitations-table.tsx`: fetch on mount, render shadcn `Table`. Each pending row exposes `Resend` and `Revoke`. `Revoke` opens a confirmation dialog.
@@ -403,12 +437,14 @@ Build `app/dashboard/invitations/page.tsx` (admin-only). Provides a form to invi
 > 6. Playwright spec: log in as `admin@example.com`, visit `/dashboard/invitations`, fill + submit the form, assert the new row appears within 2 s.
 >
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2.
 > - Use `useSession` from `@bymax-one/nest-auth/react`.
 > - Do not hard-code role values; source them from a shared constants module (the same one used by `team-table.tsx`).
 > - No third-party email previewing service — rely on Mailpit for dev visibility.
 >
 > Verification:
+>
 > - `pnpm --filter web typecheck && pnpm --filter web lint` — expected: green.
 > - `pnpm --filter web test:e2e -- invitations` — Playwright spec invites a new email and asserts the row renders; expected: green.
 > - Manual: the invited user can then accept via `/accept-invitation?token=…` from the Mailpit-captured email.
@@ -434,9 +470,11 @@ Build `app/dashboard/invitations/page.tsx` (admin-only). Provides a form to invi
 - **Depends on:** `P14-1`
 
 ### Description
+
 Build `app/dashboard/projects/page.tsx`. Lists the projects in the current tenant (scoped by `X-Tenant-Id`), and lets admins create new projects or delete existing ones. Read access is available to all authenticated roles in the tenant; create/delete is admin-only. Covers FCM rows **#18 (RBAC with hierarchy via `@Roles` + `RolesGuard`)**, **#19 (`@CurrentUser`, `@Public`, `@SkipMfa` decorators)**, **#20 (multi-tenant isolation)**.
 
 ### Acceptance Criteria
+
 - [ ] Page renders a table/grid of projects in the current tenant fetched via `GET /api/projects`.
 - [ ] `New project` button + dialog (admin-only) posts to `POST /api/projects`.
 - [ ] Per-row `Delete` button (admin-only) with confirmation dialog → `DELETE /api/projects/:id`.
@@ -445,6 +483,7 @@ Build `app/dashboard/projects/page.tsx`. Lists the projects in the current tenan
 - [ ] Playwright spec: log in as admin, open `/dashboard/projects`, create a project named `Playwright Demo`, assert it appears, then delete it and assert it is removed.
 
 ### Files to create / modify
+
 - `apps/web/app/dashboard/projects/page.tsx` — new page.
 - `apps/web/components/dashboard/projects-list.tsx` — client component with list + create/delete dialogs.
 - `apps/web/components/dashboard/create-project-dialog.tsx` — dialog + form.
@@ -458,6 +497,7 @@ Build `app/dashboard/projects/page.tsx`. Lists the projects in the current tenan
 > Objective: Ship a tenant-scoped projects page that exercises RBAC and tenant switching end to end.
 >
 > Steps:
+>
 > 1. Fetch projects client-side via `auth-client.listProjects()` (ensure helper exists).
 > 2. Render a shadcn `Card` grid or `Table`; include an empty state when the current tenant has no projects.
 > 3. Gate create/delete UI on `useSession().user.role` membership in the admin-or-above set. Do not rely solely on UI gating — the API is the source of truth.
@@ -466,12 +506,14 @@ Build `app/dashboard/projects/page.tsx`. Lists the projects in the current tenan
 > 6. Playwright spec: log in as `admin@example.com`, create and then delete `Playwright Demo`, asserting both transitions.
 >
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2.
 > - Use `useSession` from `@bymax-one/nest-auth/react`.
 > - Every request carries `X-Tenant-Id` via `auth-client` (already wired in P14-1).
 > - No third-party QR/OTP/WS services are introduced by this task.
 >
 > Verification:
+>
 > - `pnpm --filter web typecheck && pnpm --filter web lint` — expected: green.
 > - `pnpm --filter web test:e2e -- projects-crud` — Playwright creates and deletes a project; expected: green.
 > - Manual: switching tenants visibly changes the list — a project created in tenant A does not appear under tenant B.

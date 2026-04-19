@@ -8,12 +8,12 @@
 
 ## Task index
 
-| ID | Task | Status | Priority | Size | Depends on |
-| --- | --- | --- | --- | --- | --- |
-| P20-1 | `scripts/audit-library-exports.mjs` + CI wiring | 🔴 | High | M | P19-1 |
-| P20-2 | Close coverage gaps surfaced by the audit | 🔴 | High | M | P20-1 |
-| P20-3 | Security pass — cookies, helmet, CSP, sanitization | 🔴 | High | M | Phase 17 |
-| P20-4 | `CHANGELOG.md` 1.0.0 entry + `v1.0.0` local tag | 🔴 | High | S | P20-1, P20-2, P20-3 |
+| ID    | Task                                               | Status | Priority | Size | Depends on          |
+| ----- | -------------------------------------------------- | ------ | -------- | ---- | ------------------- |
+| P20-1 | `scripts/audit-library-exports.mjs` + CI wiring    | 🔴     | High     | M    | P19-1               |
+| P20-2 | Close coverage gaps surfaced by the audit          | 🔴     | High     | M    | P20-1               |
+| P20-3 | Security pass — cookies, helmet, CSP, sanitization | 🔴     | High     | M    | Phase 17            |
+| P20-4 | `CHANGELOG.md` 1.0.0 entry + `v1.0.0` local tag    | 🔴     | High     | S    | P20-1, P20-2, P20-3 |
 
 ---
 
@@ -25,9 +25,11 @@
 - **Depends on:** `P19-1`
 
 ### Description
+
 Node-only script that parses `node_modules/@bymax-one/nest-auth/dist/*/index.d.ts` (per subpath: server, shared, client, react, nextjs — per Appendix B of the plan), enumerates every exported symbol, then greps the `apps/` tree for each symbol. Exits non-zero with a diff listing missing exports. Wires into CI as the `export-usage-check` job already declared in `P19-1`. Pure Node (`node:fs`, `node:path`) — no bash, no jq.
 
 ### Acceptance Criteria
+
 - [ ] `scripts/audit-library-exports.mjs` exists.
 - [ ] Reads every `index.d.ts` under `node_modules/@bymax-one/nest-auth/dist/` (server/shared/client/react/nextjs) — subpaths discovered dynamically, not hardcoded.
 - [ ] Parses exports via regex on `export` statements: covers `export { Foo }`, `export { Foo as Bar }`, `export type { Foo }`, `export const Foo`, `export class Foo`, `export function Foo`, `export interface Foo`, `export enum Foo`, `export default`.
@@ -39,6 +41,7 @@ Node-only script that parses `node_modules/@bymax-one/nest-auth/dist/*/index.d.t
 - [ ] Pure Node ESM — no external npm deps (uses only `node:fs`, `node:path`, `node:url`, `node:process`).
 
 ### Files to create / modify
+
 - `scripts/audit-library-exports.mjs` — new.
 - `.audit-ignore.json` — new (seeded with nothing; entries added per P20-2).
 - `.github/workflows/ci.yml` — confirm `export-usage-check` calls the script (wire-up expected from P19-1).
@@ -53,6 +56,7 @@ Node-only script that parses `node_modules/@bymax-one/nest-auth/dist/*/index.d.t
 > Objective: Prove at CI time that every public library export is consumed by `apps/`.
 >
 > Steps:
+>
 > 1. Discover subpaths: `fs.readdirSync('node_modules/@bymax-one/nest-auth/dist')` and filter to entries containing `index.d.ts`.
 > 2. For each subpath, read `index.d.ts` as UTF-8. Collect symbols with a set of regexes:
 >    - `/^\s*export\s+\{([^}]+)\}/gm` — split by comma, trim, handle `as` aliases (keep aliased name).
@@ -66,6 +70,7 @@ Node-only script that parses `node_modules/@bymax-one/nest-auth/dist/*/index.d.t
 > 7. Confirm `.github/workflows/ci.yml`'s `export-usage-check` job runs `node scripts/audit-library-exports.mjs` (update if not already wired).
 >
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2.
 > - Pure Node ESM. No bash, no jq, no external npm deps.
 > - Use only `node:fs`, `node:path`, `node:url`, `node:process`.
@@ -73,6 +78,7 @@ Node-only script that parses `node_modules/@bymax-one/nest-auth/dist/*/index.d.t
 > - Never modify source files; this is a read-only audit.
 >
 > Verification:
+>
 > - `node scripts/audit-library-exports.mjs` — expected: prints a report; exit 0 if coverage is complete.
 > - Delete a usage of `createAuthProxy` temporarily → expected: script exits 1 with `Missing in apps/: nextjs.createAuthProxy`.
 > - `actionlint .github/workflows/ci.yml` — expected: no errors.
@@ -99,9 +105,11 @@ Node-only script that parses `node_modules/@bymax-one/nest-auth/dist/*/index.d.t
 - **Depends on:** `P20-1`
 
 ### Description
+
 Run `node scripts/audit-library-exports.mjs`, then for each missing export either (a) wire it into an existing module/page with a natural use-site, or (b) add an entry to `.audit-ignore.json` justifying why it is not demonstrated AND document the gap in `docs/FEATURES.md` with a GitHub issue reference. Script must exit 0 when done.
 
 ### Acceptance Criteria
+
 - [ ] Every missing symbol reported by P20-1 is resolved.
 - [ ] Each resolution is one of: (a) a real import+use in `apps/api/` or `apps/web/`, or (b) an `.audit-ignore.json` entry with a non-empty reason plus a matching `docs/FEATURES.md` note referencing a GitHub issue (`https://github.com/<owner>/nest-auth-example/issues/<n>`).
 - [ ] `node scripts/audit-library-exports.mjs` exits `0` on a clean checkout.
@@ -110,6 +118,7 @@ Run `node scripts/audit-library-exports.mjs`, then for each missing export eithe
 - [ ] Unit test for the `NoOpAuthHooks` + `NoOpEmailProvider` fallbacks (Appendix B calls them out explicitly) exists under `apps/api/src/auth/`.
 
 ### Files to create / modify
+
 - Various `apps/api/**` and `apps/web/**` files — wire missing symbols.
 - `.audit-ignore.json` — additions where wiring is not appropriate.
 - `docs/FEATURES.md` — "intentionally not demonstrated" subsections with issue links.
@@ -124,6 +133,7 @@ Run `node scripts/audit-library-exports.mjs`, then for each missing export eithe
 > Objective: Drive the export audit to zero gaps.
 >
 > Steps:
+>
 > 1. Run `node scripts/audit-library-exports.mjs > audit-report.txt`. Review grouped output.
 > 2. For each missing symbol, decide: demo-worthy OR genuinely not applicable?
 >    - Demo-worthy: add a concrete usage. Prefer a light example (e.g., a guard listed on a single endpoint, a DTO validated in a test, a util in the logger middleware).
@@ -133,11 +143,13 @@ Run `node scripts/audit-library-exports.mjs`, then for each missing export eithe
 > 5. Commit granularly — one logical gap per commit — so reviewers can follow the reasoning.
 >
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2.
 > - Never add a symbol import solely to satisfy the audit — the use must be meaningful.
 > - `.audit-ignore.json` entries without a `FEATURES.md` cross-reference are not accepted.
 >
 > Verification:
+>
 > - `node scripts/audit-library-exports.mjs` — expected: exit 0.
 > - `pnpm --filter api test -- noop-fallbacks` — expected: green.
 > - `pnpm typecheck && pnpm lint` — expected: green.
@@ -163,9 +175,11 @@ Run `node scripts/audit-library-exports.mjs`, then for each missing export eithe
 - **Depends on:** `Phase 17`
 
 ### Description
+
 Final security review per `docs/DEVELOPMENT_PLAN.md` §20 (third bullet). Audit cookie flags, apply `helmet` on `apps/api` and a security-header middleware on `apps/web` (HSTS, CSP, X-Content-Type-Options, Referrer-Policy), ensure `sanitizeHeaders` from the library is used wherever headers are logged, and reconfirm anti-enumeration on login error messages.
 
 ### Acceptance Criteria
+
 - [ ] `apps/api/src/main.ts` registers `helmet()` with production-appropriate defaults (HSTS enabled in prod, frameguard, hidePoweredBy, noSniff, referrerPolicy).
 - [ ] Cookie flags audited: `access_token` / `refresh_token` are `HttpOnly`; `Secure` in production; `SameSite=Lax` (or `Strict` where compatible); refresh cookie's `Path` scoped to `/api/auth`.
 - [ ] `apps/web/middleware.ts` (or a `next.config.mjs` `headers()` block) sets `Strict-Transport-Security`, `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`.
@@ -176,6 +190,7 @@ Final security review per `docs/DEVELOPMENT_PLAN.md` §20 (third bullet). Audit 
 - [ ] `docs/DEPLOYMENT.md` updated with the final header values.
 
 ### Files to create / modify
+
 - `apps/api/src/main.ts` — add `helmet()`.
 - `apps/api/src/logger/logger.middleware.ts` (or equivalent) — route logs through `sanitizeHeaders`.
 - `apps/web/middleware.ts` or `apps/web/next.config.mjs` — add security headers.
@@ -192,6 +207,7 @@ Final security review per `docs/DEVELOPMENT_PLAN.md` §20 (third bullet). Audit 
 > Objective: Ship production-grade defaults and assert them in tests.
 >
 > Steps:
+>
 > 1. Install `helmet` (dep of `apps/api`). In `main.ts`: `app.use(helmet({ hsts: nodeEnv === 'production', contentSecurityPolicy: false /* set on web */ }))`.
 > 2. Cookie audit: open `auth.config.ts` and confirm `cookies.secure`, `sameSite`, `path` are correct per env. Document defaults in `docs/DEPLOYMENT.md`.
 > 3. Web headers: prefer `apps/web/middleware.ts` adding headers via `NextResponse.next().headers.set(...)` for matched routes. CSP source list: `default-src 'self'; script-src 'self' 'unsafe-inline' (dev only); connect-src 'self' <API_URL> <WS_URL>; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none';`.
@@ -200,12 +216,14 @@ Final security review per `docs/DEVELOPMENT_PLAN.md` §20 (third bullet). Audit 
 > 6. Write `security-headers.e2e-spec.ts` asserting helmet headers; write `security-headers.spec.ts` asserting the web response headers.
 >
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2.
 > - Never log cookies, Authorization headers, or raw JWTs.
 > - Never relax CSP in production.
 > - Cite `sanitizeHeaders` from `@bymax-one/nest-auth` in every log sanitization call site.
 >
 > Verification:
+>
 > - `pnpm --filter api test:e2e -- security-headers` — expected: green.
 > - `pnpm --filter web exec playwright test security-headers` — expected: green.
 > - `curl -sI http://localhost:4000/api/health` — expected: `X-Content-Type-Options: nosniff`, `Strict-Transport-Security: ...` (in prod), no `X-Powered-By`.
@@ -232,9 +250,11 @@ Final security review per `docs/DEVELOPMENT_PLAN.md` §20 (third bullet). Audit 
 - **Depends on:** `P20-1`, `P20-2`, `P20-3`
 
 ### Description
+
 Add the initial `CHANGELOG.md` entry and create a local `v1.0.0` tag on `main`. This task documents the tagging procedure; the agent must NOT push the tag — a human operator does that after final review.
 
 ### Acceptance Criteria
+
 - [ ] `CHANGELOG.md` has a `## [1.0.0] — YYYY-MM-DD` section with the line `initial reference app tracking @bymax-one/nest-auth@1.0.0`.
 - [ ] Entry follows the Keep a Changelog structure (`Added`, `Changed`, `Fixed`, etc.) — at minimum an `Added` bullet list summarizing the 32 FCM rows.
 - [ ] Local annotated tag `v1.0.0` exists on `main` (`git tag -a v1.0.0 -m "..."`).
@@ -243,6 +263,7 @@ Add the initial `CHANGELOG.md` entry and create a local `v1.0.0` tag on `main`. 
 - [ ] Procedure section in `CHANGELOG.md` (or a short `docs/tasks/phase-20-audit-hardening.md` appendix) documents the tag+push steps for future releases.
 
 ### Files to create / modify
+
 - `CHANGELOG.md` — new or updated with the 1.0.0 entry.
 - `docs/RELEASES.md` — ensure the 1.0.0 row is present.
 - (Local only) create annotated tag `v1.0.0`.
@@ -256,6 +277,7 @@ Add the initial `CHANGELOG.md` entry and create a local `v1.0.0` tag on `main`. 
 > Objective: Publish the changelog entry and a local tag ready for a human to push.
 >
 > Steps:
+>
 > 1. Verify all prior Phase 20 tasks are 🟢.
 > 2. In `CHANGELOG.md`, add the `## [1.0.0] — YYYY-MM-DD` section at the top, following Keep a Changelog. Summarize FCM rows in an `### Added` list. Cite the library version in the opening line verbatim: `initial reference app tracking @bymax-one/nest-auth@1.0.0`.
 > 3. Cross-check `docs/RELEASES.md` — if the 1.0.0 row is absent, add it with today's date.
@@ -264,12 +286,14 @@ Add the initial `CHANGELOG.md` entry and create a local `v1.0.0` tag on `main`. 
 > 6. In `CHANGELOG.md` (bottom) or a `## Release procedure` section, document the future process: (a) land all gating work on `main`, (b) run the audit, (c) update CHANGELOG, (d) `git tag -a vX.Y.Z -m "..."`, (e) human operator runs `git push origin vX.Y.Z`, (f) `release.yml` handles the rest.
 >
 > Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2.
 > - Never run `git push --tags` or `git push origin v1.0.0` — a human operator must push.
 > - The tag message must be stable (no placeholder dates inside the message).
 > - Prefer creating a new commit for `CHANGELOG.md` + `RELEASES.md` rather than amending.
 >
 > Verification:
+>
 > - `git tag --list v1.0.0` — expected: shows the tag locally.
 > - `git for-each-ref --format='%(refname:short) %(taggername)' refs/tags/v1.0.0` — expected: annotated tag (non-empty tagger).
 > - `git ls-remote --tags origin v1.0.0` — expected: NOT present on remote.

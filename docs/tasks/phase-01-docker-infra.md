@@ -8,13 +8,13 @@
 
 ## Task index
 
-| ID | Task | Status | Priority | Size | Depends on |
-| --- | --- | --- | --- | --- | --- |
-| P1-1 | `docker-compose.yml` — postgres 18, redis 7, mailpit | 🔴 | High | S | — |
-| P1-2 | `docker-compose.override.yml` — dev-only tweaks | 🔴 | High | XS | P1-1 |
-| P1-3 | `docker/postgres/init.sql` + `docker/redis/redis.conf` | 🔴 | High | XS | — |
-| P1-4 | `docker-compose.test.yml` (alt ports 55432/56379/58025) | 🔴 | High | S | P1-1, P1-3 |
-| P1-5 | Root scripts (`infra:up`/`infra:down`/`infra:logs`) + smoke verification | 🔴 | High | S | P1-1..P1-4 |
+| ID   | Task                                                                     | Status | Priority | Size | Depends on |
+| ---- | ------------------------------------------------------------------------ | ------ | -------- | ---- | ---------- |
+| P1-1 | `docker-compose.yml` — postgres 18, redis 7, mailpit                     | 🔴     | High     | S    | —          |
+| P1-2 | `docker-compose.override.yml` — dev-only tweaks                          | 🔴     | High     | XS   | P1-1       |
+| P1-3 | `docker/postgres/init.sql` + `docker/redis/redis.conf`                   | 🔴     | High     | XS   | —          |
+| P1-4 | `docker-compose.test.yml` (alt ports 55432/56379/58025)                  | 🔴     | High     | S    | P1-1, P1-3 |
+| P1-5 | Root scripts (`infra:up`/`infra:down`/`infra:logs`) + smoke verification | 🔴     | High     | S    | P1-1..P1-4 |
 
 ---
 
@@ -26,9 +26,11 @@
 - **Depends on:** `—`
 
 ### Description
+
 Author the canonical `docker-compose.yml` at the repo root that brings up the three local-stack services the apps depend on: Postgres 18, Redis 7, and Mailpit. Volumes persist Postgres data; healthchecks are required so `depends_on.condition: service_healthy` works later.
 
 ### Acceptance Criteria
+
 - [ ] `docker-compose.yml` exists at repo root.
 - [ ] `postgres` service uses `postgres:18-alpine`, maps `5432:5432`, mounts the named volume `pg-data:/var/lib/postgresql/data`, reads `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` from env (defaults `postgres`/`postgres`/`example_app`), healthcheck via `pg_isready -U $POSTGRES_USER`.
 - [ ] `redis` service uses `redis:7-alpine`, maps `6379:6379`, runs `redis-server /usr/local/etc/redis/redis.conf`, healthcheck via `redis-cli ping`.
@@ -37,6 +39,7 @@ Author the canonical `docker-compose.yml` at the repo root that brings up the th
 - [ ] `docker compose config` parses successfully.
 
 ### Files to create / modify
+
 - `docker-compose.yml` — primary compose definition.
 
 ### Agent Execution Prompt
@@ -45,6 +48,7 @@ Author the canonical `docker-compose.yml` at the repo root that brings up the th
 > Context: Task P1-1 of `docs/DEVELOPMENT_PLAN.md` §Phase 1. See OVERVIEW §8 for the service table. §2 requires Docker Compose v2.
 > Objective: Produce `/docker-compose.yml` covering postgres, redis, and mailpit with healthchecks.
 > Steps:
+>
 > 1. Create `/docker-compose.yml` with `services.postgres`, `services.redis`, `services.mailpit`, and the `pg-data` volume.
 > 2. Postgres block example:
 >    ```yaml
@@ -56,12 +60,12 @@ Author the canonical `docker-compose.yml` at the repo root that brings up the th
 >        POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
 >        POSTGRES_DB: ${POSTGRES_DB:-example_app}
 >      ports:
->        - "5432:5432"
+>        - '5432:5432'
 >      volumes:
 >        - pg-data:/var/lib/postgresql/data
 >        - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
 >      healthcheck:
->        test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres}"]
+>        test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER:-postgres}']
 >        interval: 5s
 >        timeout: 5s
 >        retries: 10
@@ -70,10 +74,11 @@ Author the canonical `docker-compose.yml` at the repo root that brings up the th
 > 4. Mailpit exposes ports 1025 and 8025; no volumes.
 > 5. Do NOT set `version:` at the top — Compose v2 no longer needs it.
 > 6. Add `volumes: { pg-data: {} }` at the bottom.
-> Constraints:
+>    Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2 + Phase 1 deliverables.
 > - The bind-mounts for `init.sql` and `redis.conf` resolve files that P1-3 creates; run this after or alongside P1-3 for a smoke test.
-> Verification:
+>   Verification:
 > - `docker compose -f docker-compose.yml config` — expected: valid output, exit 0.
 
 ### Completion Protocol
@@ -100,15 +105,18 @@ If phase reaches 100%, switch its row status in `DEVELOPMENT_PLAN.md` to 🟢.
 - **Depends on:** `P1-1`
 
 ### Description
+
 Compose automatically merges `docker-compose.override.yml` when present, so this is where dev-only conveniences live: `restart: unless-stopped`, exposing extra ports, colored logs, etc. This file is tracked in git but documented as dev-only in README.
 
 ### Acceptance Criteria
+
 - [ ] `docker-compose.override.yml` exists at repo root.
 - [ ] Sets `restart: unless-stopped` on all three services (if not already in base).
 - [ ] Pins `logging.driver: json-file` with small size limits for local noise control.
 - [ ] `docker compose config` (merged) still parses.
 
 ### Files to create / modify
+
 - `docker-compose.override.yml`
 
 ### Agent Execution Prompt
@@ -117,6 +125,7 @@ Compose automatically merges `docker-compose.override.yml` when present, so this
 > Context: Task P1-2 of `docs/DEVELOPMENT_PLAN.md` §Phase 1.
 > Objective: Produce `/docker-compose.override.yml` with dev-only tweaks that Compose auto-merges onto the base file from P1-1.
 > Steps:
+>
 > 1. Create `/docker-compose.override.yml` with:
 >    ```yaml
 >    services:
@@ -124,22 +133,23 @@ Compose automatically merges `docker-compose.override.yml` when present, so this
 >        restart: unless-stopped
 >        logging:
 >          driver: json-file
->          options: { max-size: "10m", max-file: "3" }
+>          options: { max-size: '10m', max-file: '3' }
 >      redis:
 >        restart: unless-stopped
 >        logging:
 >          driver: json-file
->          options: { max-size: "10m", max-file: "3" }
+>          options: { max-size: '10m', max-file: '3' }
 >      mailpit:
 >        restart: unless-stopped
 >        logging:
 >          driver: json-file
->          options: { max-size: "10m", max-file: "3" }
+>          options: { max-size: '10m', max-file: '3' }
 >    ```
 > 2. Do NOT add production-specific overrides (those belong in `docker-compose.prod.yml` in Phase 19).
-> Constraints:
+>    Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2 + Phase 1 deliverables.
-> Verification:
+>   Verification:
 > - `docker compose config` — expected: merged config prints with the override's `restart` + `logging` fields present.
 
 ### Completion Protocol
@@ -166,14 +176,17 @@ If phase reaches 100%, switch its row status in `DEVELOPMENT_PLAN.md` to 🟢.
 - **Depends on:** `—`
 
 ### Description
+
 Provide the two container-side config files bind-mounted by the compose services. `init.sql` creates the app DB and its test sibling at first boot. `redis.conf` turns on AOF persistence, bounded memory policy, and disables snapshot saves (the app cache is not our source of truth).
 
 ### Acceptance Criteria
+
 - [ ] `docker/postgres/init.sql` creates `example_app` and `example_app_test` databases (idempotent with `CREATE DATABASE ... IF NOT EXISTS` via `DO $$` block or using `CREATE DATABASE` gated by a `SELECT` check).
 - [ ] `docker/redis/redis.conf` sets `appendonly yes`, `maxmemory-policy allkeys-lru`, `save ""`.
 - [ ] Both files are UTF-8, LF, final newline (editorconfig compliance).
 
 ### Files to create / modify
+
 - `docker/postgres/init.sql`
 - `docker/redis/redis.conf`
 
@@ -183,6 +196,7 @@ Provide the two container-side config files bind-mounted by the compose services
 > Context: Task P1-3 of `docs/DEVELOPMENT_PLAN.md` §Phase 1. These files are bind-mounted by `docker-compose.yml` (P1-1).
 > Objective: Create the Postgres init script and Redis config file.
 > Steps:
+>
 > 1. Create `/docker/postgres/init.sql`:
 >    ```sql
 >    -- Initial databases for the example app.
@@ -202,10 +216,11 @@ Provide the two container-side config files bind-mounted by the compose services
 >    maxmemory-policy allkeys-lru
 >    ```
 > 3. Make sure both paths exist on disk so the bind-mounts in P1-1 resolve.
-> Constraints:
+>    Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2 + Phase 1.
 > - Do NOT set a Redis password here; auth is added in Phase 19/20 for prod profiles only.
-> Verification:
+>   Verification:
 > - `test -f docker/postgres/init.sql && test -f docker/redis/redis.conf` — expected: both present.
 > - `docker compose run --rm redis redis-server /usr/local/etc/redis/redis.conf --test-memtier` is not required; instead run `docker compose up -d redis` and `docker compose exec redis redis-cli CONFIG GET maxmemory-policy` — expected: `allkeys-lru`.
 
@@ -233,9 +248,11 @@ If phase reaches 100%, switch its row status in `DEVELOPMENT_PLAN.md` to 🟢.
 - **Depends on:** `P1-1`, `P1-3`
 
 ### Description
+
 Create a parallel Compose file CI and the e2e test suite will use. Same services, different host ports (`55432`, `56379`, `58025`) so developers can keep their local dev stack running while tests execute on the side. Data is ephemeral (no named volume).
 
 ### Acceptance Criteria
+
 - [ ] `docker-compose.test.yml` at repo root.
 - [ ] Postgres on host port `55432`, Redis on `56379`, Mailpit UI on `58025`, Mailpit SMTP on an alt port (e.g., `51025`).
 - [ ] No persistent volume for Postgres (uses `tmpfs` or omits the volume).
@@ -243,6 +260,7 @@ Create a parallel Compose file CI and the e2e test suite will use. Same services
 - [ ] `docker compose -f docker-compose.test.yml config` parses.
 
 ### Files to create / modify
+
 - `docker-compose.test.yml`
 
 ### Agent Execution Prompt
@@ -251,7 +269,9 @@ Create a parallel Compose file CI and the e2e test suite will use. Same services
 > Context: Task P1-4 of `docs/DEVELOPMENT_PLAN.md` §Phase 1. CI e2e tests run against this file; see §Phase 17 for the callers.
 > Objective: Produce an ephemeral-infra Compose file that does not collide with the dev stack from P1-1.
 > Steps:
+>
 > 1. Create `/docker-compose.test.yml`:
+>
 >    ```yaml
 >    name: nest-auth-example-test
 >
@@ -263,22 +283,23 @@ Create a parallel Compose file CI and the e2e test suite will use. Same services
 >          POSTGRES_PASSWORD: postgres
 >          POSTGRES_DB: example_app_test
 >        ports:
->          - "55432:5432"
+>          - '55432:5432'
 >        tmpfs:
 >          - /var/lib/postgresql/data
 >        healthcheck:
->          test: ["CMD-SHELL", "pg_isready -U postgres"]
+>          test: ['CMD-SHELL', 'pg_isready -U postgres']
 >          interval: 3s
 >          timeout: 3s
 >          retries: 10
 >
 >      redis:
 >        image: redis:7-alpine
->        command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory-policy", "allkeys-lru"]
+>        command:
+>          ['redis-server', '--save', '', '--appendonly', 'no', '--maxmemory-policy', 'allkeys-lru']
 >        ports:
->          - "56379:6379"
+>          - '56379:6379'
 >        healthcheck:
->          test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+>          test: ['CMD-SHELL', 'redis-cli ping | grep -q PONG']
 >          interval: 3s
 >          timeout: 3s
 >          retries: 10
@@ -286,13 +307,15 @@ Create a parallel Compose file CI and the e2e test suite will use. Same services
 >      mailpit:
 >        image: axllent/mailpit:latest
 >        ports:
->          - "51025:1025"
->          - "58025:8025"
+>          - '51025:1025'
+>          - '58025:8025'
 >    ```
+>
 > 2. Do NOT add a named volume; the database must be fresh per CI run.
-> Constraints:
+>    Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2 + Phase 1 (alt ports 55432/56379/58025).
-> Verification:
+>   Verification:
 > - `docker compose -f docker-compose.test.yml config` — expected: exit 0.
 > - `docker compose -f docker-compose.test.yml up -d && docker compose -f docker-compose.test.yml ps` — expected: three services healthy.
 
@@ -320,9 +343,11 @@ If phase reaches 100%, switch its row status in `DEVELOPMENT_PLAN.md` to 🟢.
 - **Depends on:** `P1-1`, `P1-2`, `P1-3`, `P1-4`
 
 ### Description
+
 Gate task for Phase 1 "Definition of done": expose Compose actions as pnpm scripts, then smoke-verify the whole stack end-to-end (Mailpit UI reachable, Postgres `SELECT 1`, Redis `PING`).
 
 ### Acceptance Criteria
+
 - [ ] Root `package.json` scripts:
   - `"infra:up": "docker compose up -d"`
   - `"infra:down": "docker compose down"`
@@ -337,6 +362,7 @@ Gate task for Phase 1 "Definition of done": expose Compose actions as pnpm scrip
 - [ ] `pnpm infra:down` stops them cleanly.
 
 ### Files to create / modify
+
 - `package.json` — add `infra:*` scripts.
 
 ### Agent Execution Prompt
@@ -345,15 +371,17 @@ Gate task for Phase 1 "Definition of done": expose Compose actions as pnpm scrip
 > Context: Task P1-5 of `docs/DEVELOPMENT_PLAN.md` §Phase 1. Phase DoD: `pnpm infra:up` brings services up green, Mailpit UI reachable, `psql ... select 1` succeeds.
 > Objective: Add the pnpm scripts and smoke-test the local stack.
 > Steps:
+>
 > 1. Edit `/package.json` to add the scripts listed in Acceptance Criteria.
 > 2. Separate `infra:down` (preserves the `pg-data` volume) from `infra:nuke` (`down -v`, destroys data). The plan recommends a confirmation for destructive ops; document the distinction in a comment above the script block (or in README).
 > 3. Run `pnpm infra:up` and wait ≤30s for health.
 > 4. Execute the three smoke commands from Acceptance Criteria. If any fails, diagnose in the corresponding earlier task (P1-1..P1-4).
 > 5. Run `pnpm infra:down` to leave the workspace clean.
-> Constraints:
+>    Constraints:
+>
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2 + Phase 1.
 > - Do NOT run `docker compose down -v` as part of the default `infra:down` script; destruction is opt-in.
-> Verification:
+>   Verification:
 > - `pnpm infra:up && sleep 10 && docker compose ps --format json` — expected: all services `running` with `healthy` status.
 > - `curl -sf -o /dev/null -w "%{http_code}" http://localhost:8025/` — expected: `200`.
 > - `docker compose exec -T postgres psql -U postgres -d example_app -c 'select 1;'` — expected: `1` in the output.

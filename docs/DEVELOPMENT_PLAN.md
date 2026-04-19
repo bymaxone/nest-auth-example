@@ -35,7 +35,7 @@
 - [Phase 15 — Platform Admin Area (Frontend)](#phase-15--platform-admin-area-frontend)
 - [Phase 16 — WebSocket Consumer + Notification Toast](#phase-16--websocket-consumer--notification-toast)
 - [Phase 17 — Testing (Unit, E2E, Playwright)](#phase-17--testing-unit-e2e-playwright)
-- [Phase 18 — Documentation (docs/*)](#phase-18--documentation-docs)
+- [Phase 18 — Documentation (docs/\*)](#phase-18--documentation-docs)
 - [Phase 19 — CI/CD, Release Automation, Production Build](#phase-19--cicd-release-automation-production-build)
 - [Phase 20 — Coverage Audit & Hardening](#phase-20--coverage-audit--hardening)
 - [Appendix A — Environment Variable Registry](#appendix-a--environment-variable-registry)
@@ -49,31 +49,31 @@
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🟢 Done · ⚪ Blocked · 🔵 In Review
 >
-> **Overall progress:** 🔴 0 / 126 tasks done (0%)
+> **Overall progress:** 🟡 10 / 126 tasks done (8%)
 
-| # | Phase | Tasks file | Done / Total | % | Status |
-| -- | --- | --- | --- | --- | --- |
-| 0 | Repository Foundation & Tooling | [phase-00](./tasks/phase-00-repo-foundation.md) | 0 / 10 | 0% | 🔴 |
-| 1 | Local Infrastructure (Docker) | [phase-01](./tasks/phase-01-docker-infra.md) | 0 / 5 | 0% | 🔴 |
-| 2 | Library Linking & Workspace Bootstrap | [phase-02](./tasks/phase-02-library-linking.md) | 0 / 4 | 0% | 🔴 |
-| 3 | `apps/api` Skeleton (NestJS 11) | [phase-03](./tasks/phase-03-api-skeleton.md) | 0 / 6 | 0% | 🔴 |
-| 4 | Prisma Schema, Migrations & Seed | [phase-04](./tasks/phase-04-prisma-schema.md) | 0 / 6 | 0% | 🔴 |
-| 5 | Infrastructure Modules (Prisma, Redis, Health, Config) | [phase-05](./tasks/phase-05-infra-modules.md) | 0 / 5 | 0% | 🔴 |
-| 6 | Library Wiring (auth.config, repos, email, hooks) | [phase-06](./tasks/phase-06-library-wiring.md) | 0 / 6 | 0% | 🔴 |
-| 7 | `BymaxAuthModule.registerAsync` + Demo Domain | [phase-07](./tasks/phase-07-auth-module-demo-domain.md) | 0 / 8 | 0% | 🔴 |
-| 8 | OAuth (Google) & Invitations Backends | [phase-08](./tasks/phase-08-oauth-invitations.md) | 0 / 5 | 0% | 🔴 |
-| 9 | Platform Admin Context (Backend) | [phase-09](./tasks/phase-09-platform-backend.md) | 0 / 4 | 0% | 🔴 |
-| 10 | WebSocket Auth (Backend) | [phase-10](./tasks/phase-10-websocket-backend.md) | 0 / 3 | 0% | 🔴 |
-| 11 | `apps/web` Skeleton (Next.js 16 + Tailwind + shadcn/ui) | [phase-11](./tasks/phase-11-web-skeleton.md) | 0 / 6 | 0% | 🔴 |
-| 12 | Frontend Auth Wiring (Client, Provider, Proxy, Refresh, Logout) | [phase-12](./tasks/phase-12-frontend-auth-wiring.md) | 0 / 6 | 0% | 🔴 |
-| 13 | Public Auth Pages (`app/(auth)`) | [phase-13](./tasks/phase-13-public-auth-pages.md) | 0 / 8 | 0% | 🔴 |
-| 14 | Dashboard (Account, Security, Sessions, Team, Invitations) | [phase-14](./tasks/phase-14-dashboard.md) | 0 / 7 | 0% | 🔴 |
-| 15 | Platform Admin Area (Frontend) | [phase-15](./tasks/phase-15-platform-frontend.md) | 0 / 4 | 0% | 🔴 |
-| 16 | WebSocket Consumer + Notification Toast | [phase-16](./tasks/phase-16-websocket-frontend.md) | 0 / 3 | 0% | 🔴 |
-| 17 | Testing (Unit, E2E, Playwright) | [phase-17](./tasks/phase-17-testing.md) | 0 / 10 | 0% | 🔴 |
-| 18 | Documentation (docs/*) | [phase-18](./tasks/phase-18-documentation.md) | 0 / 11 | 0% | 🔴 |
-| 19 | CI/CD, Release Automation, Production Build | [phase-19](./tasks/phase-19-cicd.md) | 0 / 5 | 0% | 🔴 |
-| 20 | Coverage Audit & Hardening | [phase-20](./tasks/phase-20-audit-hardening.md) | 0 / 4 | 0% | 🔴 |
+| #   | Phase                                                           | Tasks file                                              | Done / Total | %    | Status |
+| --- | --------------------------------------------------------------- | ------------------------------------------------------- | ------------ | ---- | ------ |
+| 0   | Repository Foundation & Tooling                                 | [phase-00](./tasks/phase-00-repo-foundation.md)         | 10 / 10      | 100% | 🟢     |
+| 1   | Local Infrastructure (Docker)                                   | [phase-01](./tasks/phase-01-docker-infra.md)            | 0 / 5        | 0%   | 🔴     |
+| 2   | Library Linking & Workspace Bootstrap                           | [phase-02](./tasks/phase-02-library-linking.md)         | 0 / 4        | 0%   | 🔴     |
+| 3   | `apps/api` Skeleton (NestJS 11)                                 | [phase-03](./tasks/phase-03-api-skeleton.md)            | 0 / 6        | 0%   | 🔴     |
+| 4   | Prisma Schema, Migrations & Seed                                | [phase-04](./tasks/phase-04-prisma-schema.md)           | 0 / 6        | 0%   | 🔴     |
+| 5   | Infrastructure Modules (Prisma, Redis, Health, Config)          | [phase-05](./tasks/phase-05-infra-modules.md)           | 0 / 5        | 0%   | 🔴     |
+| 6   | Library Wiring (auth.config, repos, email, hooks)               | [phase-06](./tasks/phase-06-library-wiring.md)          | 0 / 6        | 0%   | 🔴     |
+| 7   | `BymaxAuthModule.registerAsync` + Demo Domain                   | [phase-07](./tasks/phase-07-auth-module-demo-domain.md) | 0 / 8        | 0%   | 🔴     |
+| 8   | OAuth (Google) & Invitations Backends                           | [phase-08](./tasks/phase-08-oauth-invitations.md)       | 0 / 5        | 0%   | 🔴     |
+| 9   | Platform Admin Context (Backend)                                | [phase-09](./tasks/phase-09-platform-backend.md)        | 0 / 4        | 0%   | 🔴     |
+| 10  | WebSocket Auth (Backend)                                        | [phase-10](./tasks/phase-10-websocket-backend.md)       | 0 / 3        | 0%   | 🔴     |
+| 11  | `apps/web` Skeleton (Next.js 16 + Tailwind + shadcn/ui)         | [phase-11](./tasks/phase-11-web-skeleton.md)            | 0 / 6        | 0%   | 🔴     |
+| 12  | Frontend Auth Wiring (Client, Provider, Proxy, Refresh, Logout) | [phase-12](./tasks/phase-12-frontend-auth-wiring.md)    | 0 / 6        | 0%   | 🔴     |
+| 13  | Public Auth Pages (`app/(auth)`)                                | [phase-13](./tasks/phase-13-public-auth-pages.md)       | 0 / 8        | 0%   | 🔴     |
+| 14  | Dashboard (Account, Security, Sessions, Team, Invitations)      | [phase-14](./tasks/phase-14-dashboard.md)               | 0 / 7        | 0%   | 🔴     |
+| 15  | Platform Admin Area (Frontend)                                  | [phase-15](./tasks/phase-15-platform-frontend.md)       | 0 / 4        | 0%   | 🔴     |
+| 16  | WebSocket Consumer + Notification Toast                         | [phase-16](./tasks/phase-16-websocket-frontend.md)      | 0 / 3        | 0%   | 🔴     |
+| 17  | Testing (Unit, E2E, Playwright)                                 | [phase-17](./tasks/phase-17-testing.md)                 | 0 / 10       | 0%   | 🔴     |
+| 18  | Documentation (docs/\*)                                         | [phase-18](./tasks/phase-18-documentation.md)           | 0 / 11       | 0%   | 🔴     |
+| 19  | CI/CD, Release Automation, Production Build                     | [phase-19](./tasks/phase-19-cicd.md)                    | 0 / 5        | 0%   | 🔴     |
+| 20  | Coverage Audit & Hardening                                      | [phase-20](./tasks/phase-20-audit-hardening.md)         | 0 / 4        | 0%   | 🔴     |
 
 ### How to update this dashboard
 
@@ -150,22 +150,22 @@ Phase 1 (Docker) ┘                                                            
 
 ## 2. Global Conventions
 
-| Concern | Convention |
-| --- | --- |
-| Package manager | `pnpm@^10.8` with workspace mode |
-| Node version | `>=24` (pinned via `.nvmrc` and `engines.node`) |
-| TypeScript | `strict: true`, `noUncheckedIndexedAccess: true`, `exactOptionalPropertyTypes: true` |
-| Module system | ESM everywhere (`"type": "module"`); both apps are ESM-only to match the library |
-| Lint / format | ESLint v9 flat config, Prettier 3, Husky + lint-staged |
-| Commit style | Conventional Commits, enforced via `commitlint` |
-| Env loading | `dotenv-safe` against `.env.example` (root) + per-app `.env` |
-| Logging | `nestjs-pino` for `apps/api`, `pino` for edge/API routes on `apps/web` |
-| HTTP client | `@bymax-one/nest-auth/client` only — no manual `fetch` calls against auth routes |
-| UI kit | shadcn/ui + Tailwind CSS v4; components generated into `apps/web/components/ui/` |
-| Form / validation | `react-hook-form` + `zod` (shared schemas in `apps/web/lib/schemas/`) |
-| Icons | `lucide-react` |
-| Date | `date-fns` (no moment, no dayjs) |
-| PR requirement | Every PR updates the matching row in `docs/OVERVIEW.md` §6 (status column) |
+| Concern           | Convention                                                                           |
+| ----------------- | ------------------------------------------------------------------------------------ |
+| Package manager   | `pnpm@^10.8` with workspace mode                                                     |
+| Node version      | `>=24` (pinned via `.nvmrc` and `engines.node`)                                      |
+| TypeScript        | `strict: true`, `noUncheckedIndexedAccess: true`, `exactOptionalPropertyTypes: true` |
+| Module system     | ESM everywhere (`"type": "module"`); both apps are ESM-only to match the library     |
+| Lint / format     | ESLint v9 flat config, Prettier 3, Husky + lint-staged                               |
+| Commit style      | Conventional Commits, enforced via `commitlint`                                      |
+| Env loading       | `dotenv-safe` against `.env.example` (root) + per-app `.env`                         |
+| Logging           | `nestjs-pino` for `apps/api`, `pino` for edge/API routes on `apps/web`               |
+| HTTP client       | `@bymax-one/nest-auth/client` only — no manual `fetch` calls against auth routes     |
+| UI kit            | shadcn/ui + Tailwind CSS v4; components generated into `apps/web/components/ui/`     |
+| Form / validation | `react-hook-form` + `zod` (shared schemas in `apps/web/lib/schemas/`)                |
+| Icons             | `lucide-react`                                                                       |
+| Date              | `date-fns` (no moment, no dayjs)                                                     |
+| PR requirement    | Every PR updates the matching row in `docs/OVERVIEW.md` §6 (status column)           |
 
 ---
 
@@ -237,8 +237,8 @@ Phase 1 (Docker) ┘                                                            
   3. Idempotent (no-op if already linked).
   4. Emits a diagnostic: prints resolved path of the linked package (using `node -p`).
 - [ ] `scripts/unlink-library.sh` — reverse. Used when switching back to the published package.
-- [ ] Root `package.json` adds dependency placeholder: `"@bymax-one/nest-auth": "link:../nest-auth"` *only* while the package is unpublished. Document the swap in `docs/GETTING_STARTED.md` (Phase 18).
-- [ ] TypeScript path alias *not* used — the pnpm link resolves naturally via `node_modules`. Do not leak monorepo paths into `tsconfig`.
+- [ ] Root `package.json` adds dependency placeholder: `"@bymax-one/nest-auth": "link:../nest-auth"` _only_ while the package is unpublished. Document the swap in `docs/GETTING_STARTED.md` (Phase 18).
+- [ ] TypeScript path alias _not_ used — the pnpm link resolves naturally via `node_modules`. Do not leak monorepo paths into `tsconfig`.
 - [ ] Probe file `apps/api/src/auth/_probe.ts` (temporary — deleted after Phase 3) that imports one symbol from each subpath to confirm typings:
   ```ts
   import type { BymaxAuthModuleOptions } from '@bymax-one/nest-auth';
@@ -487,6 +487,7 @@ Phase 1 (Docker) ┘                                                            
   - Admin-gate on the creation side via `@Roles('ADMIN')` (library handles this; document in `docs/FEATURES.md`).
 
 **Definition of done.** E2E:
+
 - OAuth: launching `GET /api/auth/oauth/google` redirects to Google's `accounts.google.com`; callback (mocked in tests) logs the user in and sets cookies.
 - Invitations: admin creates invitation → Mailpit captures email → recipient hits `/api/auth/invitations/accept` with token → new user row appears in Prisma.
 
@@ -808,7 +809,7 @@ Phase 1 (Docker) ┘                                                            
 
 ---
 
-## Phase 18 — Documentation (docs/*)
+## Phase 18 — Documentation (docs/\*)
 
 **Goal.** Every document promised by `docs/OVERVIEW.md` §5 exists and is accurate.
 
@@ -902,41 +903,41 @@ Phase 1 (Docker) ┘                                                            
 
 ### Shared
 
-| Var | Required | Example | Notes |
-| --- | --- | --- | --- |
-| `NODE_ENV` | ✓ | `development` | `development` / `test` / `production` |
-| `LOG_LEVEL` | ✗ | `info` | `fatal`/`error`/`warn`/`info`/`debug`/`trace` |
-| `PUBLIC_DOMAIN` | ✗ | `example.com` | Used by `cookies.resolveDomains` in prod |
+| Var             | Required | Example       | Notes                                         |
+| --------------- | -------- | ------------- | --------------------------------------------- |
+| `NODE_ENV`      | ✓        | `development` | `development` / `test` / `production`         |
+| `LOG_LEVEL`     | ✗        | `info`        | `fatal`/`error`/`warn`/`info`/`debug`/`trace` |
+| `PUBLIC_DOMAIN` | ✗        | `example.com` | Used by `cookies.resolveDomains` in prod      |
 
 ### `apps/api`
 
-| Var | Required | Example | Notes |
-| --- | --- | --- | --- |
-| `API_PORT` | ✓ | `4000` | |
-| `DATABASE_URL` | ✓ | `postgres://postgres:postgres@localhost:5432/example_app` | |
-| `DATABASE_URL_TEST` | ✗ | `postgres://...:55432/example_app_test` | For e2e |
-| `REDIS_URL` | ✓ | `redis://localhost:6379` | |
-| `JWT_SECRET` | ✓ | *32+ chars, high entropy* | `openssl rand -hex 64` |
-| `MFA_ENCRYPTION_KEY` | ✓ (when mfa) | *base64 32 bytes* | `openssl rand -base64 32` |
-| `EMAIL_PROVIDER` | ✗ | `mailpit` | `mailpit` \| `resend` |
-| `SMTP_HOST` | ✓ if mailpit | `localhost` | |
-| `SMTP_PORT` | ✓ if mailpit | `1025` | |
-| `SMTP_FROM` | ✓ | `no-reply@nest-auth-example.dev` | |
-| `RESEND_API_KEY` | ✓ if resend | | |
-| `OAUTH_GOOGLE_CLIENT_ID` | ✗ | | Presence flips OAuth on |
-| `OAUTH_GOOGLE_CLIENT_SECRET` | ✗ | | |
-| `OAUTH_GOOGLE_CALLBACK_URL` | ✗ | `http://localhost:4000/api/auth/oauth/google/callback` | |
-| `PASSWORD_RESET_METHOD` | ✗ | `token` | `token` \| `otp` |
+| Var                          | Required     | Example                                                   | Notes                     |
+| ---------------------------- | ------------ | --------------------------------------------------------- | ------------------------- |
+| `API_PORT`                   | ✓            | `4000`                                                    |                           |
+| `DATABASE_URL`               | ✓            | `postgres://postgres:postgres@localhost:5432/example_app` |                           |
+| `DATABASE_URL_TEST`          | ✗            | `postgres://...:55432/example_app_test`                   | For e2e                   |
+| `REDIS_URL`                  | ✓            | `redis://localhost:6379`                                  |                           |
+| `JWT_SECRET`                 | ✓            | _32+ chars, high entropy_                                 | `openssl rand -hex 64`    |
+| `MFA_ENCRYPTION_KEY`         | ✓ (when mfa) | _base64 32 bytes_                                         | `openssl rand -base64 32` |
+| `EMAIL_PROVIDER`             | ✗            | `mailpit`                                                 | `mailpit` \| `resend`     |
+| `SMTP_HOST`                  | ✓ if mailpit | `localhost`                                               |                           |
+| `SMTP_PORT`                  | ✓ if mailpit | `1025`                                                    |                           |
+| `SMTP_FROM`                  | ✓            | `no-reply@nest-auth-example.dev`                          |                           |
+| `RESEND_API_KEY`             | ✓ if resend  |                                                           |                           |
+| `OAUTH_GOOGLE_CLIENT_ID`     | ✗            |                                                           | Presence flips OAuth on   |
+| `OAUTH_GOOGLE_CLIENT_SECRET` | ✗            |                                                           |                           |
+| `OAUTH_GOOGLE_CALLBACK_URL`  | ✗            | `http://localhost:4000/api/auth/oauth/google/callback`    |                           |
+| `PASSWORD_RESET_METHOD`      | ✗            | `token`                                                   | `token` \| `otp`          |
 
 ### `apps/web`
 
-| Var | Required | Example | Notes |
-| --- | --- | --- | --- |
-| `NEXT_PUBLIC_API_URL` | ✓ | `http://localhost:3000/api` | Browser-visible |
-| `INTERNAL_API_URL` | ✓ | `http://localhost:4000` | Server-to-server only |
-| `AUTH_JWT_SECRET_FOR_PROXY` | ✓ | *same as API `JWT_SECRET`* | Edge middleware verifies HS256 |
-| `NEXT_PUBLIC_WS_URL` | ✗ | `ws://localhost:4000` | WebSocket base |
-| `NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED` | ✗ | `false` | Shows/hides UI button |
+| Var                                | Required | Example                     | Notes                          |
+| ---------------------------------- | -------- | --------------------------- | ------------------------------ |
+| `NEXT_PUBLIC_API_URL`              | ✓        | `http://localhost:3000/api` | Browser-visible                |
+| `INTERNAL_API_URL`                 | ✓        | `http://localhost:4000`     | Server-to-server only          |
+| `AUTH_JWT_SECRET_FOR_PROXY`        | ✓        | _same as API `JWT_SECRET`_  | Edge middleware verifies HS256 |
+| `NEXT_PUBLIC_WS_URL`               | ✗        | `ws://localhost:4000`       | WebSocket base                 |
+| `NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED` | ✗        | `false`                     | Shows/hides UI button          |
 
 ---
 
@@ -946,57 +947,57 @@ Phase 1 (Docker) ┘                                                            
 
 ### From `@bymax-one/nest-auth` (server)
 
-| Export | Kind | First-class home in the example |
-| --- | --- | --- |
-| `BymaxAuthModule` | Module | `apps/api/src/auth/auth.module.ts` |
-| `BYMAX_AUTH_USER_REPOSITORY` | Token | `apps/api/src/auth/auth.module.ts` |
-| `BYMAX_AUTH_PLATFORM_USER_REPOSITORY` | Token | `apps/api/src/auth/auth.module.ts` |
-| `BYMAX_AUTH_EMAIL_PROVIDER` | Token | `apps/api/src/auth/auth.module.ts` |
-| `BYMAX_AUTH_HOOKS` | Token | `apps/api/src/auth/auth.module.ts` |
-| `BYMAX_AUTH_REDIS_CLIENT` | Token | `apps/api/src/redis/redis.provider.ts` |
-| `BYMAX_AUTH_OPTIONS` | Token | `apps/api/src/auth/auth.config.ts` (consumed if needed) |
-| `AuthService` / `SessionService` / `MfaService` / `OAuthService` / `PasswordResetService` / `TokenManagerService` / `OtpService` / `PasswordService` / `TokenDeliveryService` | Service | Implicitly mounted by module; smoke-test in e2e |
-| `JwtAuthGuard` / `JwtPlatformGuard` / `RolesGuard` / `PlatformRolesGuard` / `MfaRequiredGuard` / `UserStatusGuard` / `OptionalAuthGuard` / `SelfOrAdminGuard` / `WsJwtGuard` | Guard | `apps/api/src/projects/projects.controller.ts` + `apps/api/src/notifications/notifications.gateway.ts` |
-| `@Public` / `@CurrentUser` / `@Roles` / `@PlatformRoles` / `@SkipMfa` | Decorator | `apps/api/src/projects/*` + `apps/api/src/platform/*` |
-| `RegisterDto` / `LoginDto` / `MfaChallengeDto` / `MfaDisableDto` / `CreateInvitationDto` / `AcceptInvitationDto` / `ForgotPasswordDto` / `ResetPasswordDto` / `VerifyEmailDto` / `VerifyOtpDto` / `ResendVerificationDto` / `ResendOtpDto` / `PlatformLoginDto` | DTO | Used by library controllers; schema assertions in e2e |
-| `IUserRepository` / `IPlatformUserRepository` / `IEmailProvider` / `IAuthHooks` | Interface | `apps/api/src/auth/prisma-user.repository.ts` / `prisma-platform-user.repository.ts` / `mailpit-email.provider.ts` / `app-auth.hooks.ts` |
-| `AUTH_ERROR_CODES` / `AuthException` | Errors | `apps/api/src/auth/auth-exception.filter.ts` |
-| `AUTH_THROTTLE_CONFIGS` | Config | `apps/api/src/app.module.ts` (ThrottlerModule) |
-| `NoOpAuthHooks` / `NoOpEmailProvider` | Fallback | Referenced in `docs/FEATURES.md` + a unit test |
-| `encrypt` / `decrypt` / `sha256` / `hmacSha256` / `generateSecureToken` / `timingSafeCompare` | Crypto | Used in a test helper (`apps/api/test/crypto-roundtrip.spec.ts`) |
-| `hasRole` / `sanitizeHeaders` / `sleep` | Util | Logger middleware + RBAC tests |
+| Export                                                                                                                                                                                                                                                          | Kind      | First-class home in the example                                                                                                          |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `BymaxAuthModule`                                                                                                                                                                                                                                               | Module    | `apps/api/src/auth/auth.module.ts`                                                                                                       |
+| `BYMAX_AUTH_USER_REPOSITORY`                                                                                                                                                                                                                                    | Token     | `apps/api/src/auth/auth.module.ts`                                                                                                       |
+| `BYMAX_AUTH_PLATFORM_USER_REPOSITORY`                                                                                                                                                                                                                           | Token     | `apps/api/src/auth/auth.module.ts`                                                                                                       |
+| `BYMAX_AUTH_EMAIL_PROVIDER`                                                                                                                                                                                                                                     | Token     | `apps/api/src/auth/auth.module.ts`                                                                                                       |
+| `BYMAX_AUTH_HOOKS`                                                                                                                                                                                                                                              | Token     | `apps/api/src/auth/auth.module.ts`                                                                                                       |
+| `BYMAX_AUTH_REDIS_CLIENT`                                                                                                                                                                                                                                       | Token     | `apps/api/src/redis/redis.provider.ts`                                                                                                   |
+| `BYMAX_AUTH_OPTIONS`                                                                                                                                                                                                                                            | Token     | `apps/api/src/auth/auth.config.ts` (consumed if needed)                                                                                  |
+| `AuthService` / `SessionService` / `MfaService` / `OAuthService` / `PasswordResetService` / `TokenManagerService` / `OtpService` / `PasswordService` / `TokenDeliveryService`                                                                                   | Service   | Implicitly mounted by module; smoke-test in e2e                                                                                          |
+| `JwtAuthGuard` / `JwtPlatformGuard` / `RolesGuard` / `PlatformRolesGuard` / `MfaRequiredGuard` / `UserStatusGuard` / `OptionalAuthGuard` / `SelfOrAdminGuard` / `WsJwtGuard`                                                                                    | Guard     | `apps/api/src/projects/projects.controller.ts` + `apps/api/src/notifications/notifications.gateway.ts`                                   |
+| `@Public` / `@CurrentUser` / `@Roles` / `@PlatformRoles` / `@SkipMfa`                                                                                                                                                                                           | Decorator | `apps/api/src/projects/*` + `apps/api/src/platform/*`                                                                                    |
+| `RegisterDto` / `LoginDto` / `MfaChallengeDto` / `MfaDisableDto` / `CreateInvitationDto` / `AcceptInvitationDto` / `ForgotPasswordDto` / `ResetPasswordDto` / `VerifyEmailDto` / `VerifyOtpDto` / `ResendVerificationDto` / `ResendOtpDto` / `PlatformLoginDto` | DTO       | Used by library controllers; schema assertions in e2e                                                                                    |
+| `IUserRepository` / `IPlatformUserRepository` / `IEmailProvider` / `IAuthHooks`                                                                                                                                                                                 | Interface | `apps/api/src/auth/prisma-user.repository.ts` / `prisma-platform-user.repository.ts` / `mailpit-email.provider.ts` / `app-auth.hooks.ts` |
+| `AUTH_ERROR_CODES` / `AuthException`                                                                                                                                                                                                                            | Errors    | `apps/api/src/auth/auth-exception.filter.ts`                                                                                             |
+| `AUTH_THROTTLE_CONFIGS`                                                                                                                                                                                                                                         | Config    | `apps/api/src/app.module.ts` (ThrottlerModule)                                                                                           |
+| `NoOpAuthHooks` / `NoOpEmailProvider`                                                                                                                                                                                                                           | Fallback  | Referenced in `docs/FEATURES.md` + a unit test                                                                                           |
+| `encrypt` / `decrypt` / `sha256` / `hmacSha256` / `generateSecureToken` / `timingSafeCompare`                                                                                                                                                                   | Crypto    | Used in a test helper (`apps/api/test/crypto-roundtrip.spec.ts`)                                                                         |
+| `hasRole` / `sanitizeHeaders` / `sleep`                                                                                                                                                                                                                         | Util      | Logger middleware + RBAC tests                                                                                                           |
 
 ### From `@bymax-one/nest-auth/shared`
 
-| Export | Home |
-| --- | --- |
-| `AUTH_ERROR_CODES` / `AuthClientError` / `AuthErrorResponse` | `apps/web/lib/auth-errors.ts` |
-| Cookie & route constants | `apps/web/proxy.ts`, `apps/web/lib/auth-client.ts` |
-| JWT payload types | `apps/web/middleware.ts` (typed decoder), `apps/api` typing |
+| Export                                                       | Home                                                        |
+| ------------------------------------------------------------ | ----------------------------------------------------------- |
+| `AUTH_ERROR_CODES` / `AuthClientError` / `AuthErrorResponse` | `apps/web/lib/auth-errors.ts`                               |
+| Cookie & route constants                                     | `apps/web/proxy.ts`, `apps/web/lib/auth-client.ts`          |
+| JWT payload types                                            | `apps/web/middleware.ts` (typed decoder), `apps/api` typing |
 
 ### From `@bymax-one/nest-auth/client`
 
-| Export | Home |
-| --- | --- |
+| Export                                                                                   | Home                          |
+| ---------------------------------------------------------------------------------------- | ----------------------------- |
 | `createAuthClient` / `createAuthFetch` / `AuthClient` / `AuthClientConfig` / input types | `apps/web/lib/auth-client.ts` |
 
 ### From `@bymax-one/nest-auth/react`
 
-| Export | Home |
-| --- | --- |
-| `AuthProvider` | `apps/web/app/providers.tsx` |
+| Export                                     | Home                                                      |
+| ------------------------------------------ | --------------------------------------------------------- |
+| `AuthProvider`                             | `apps/web/app/providers.tsx`                              |
 | `useSession` / `useAuth` / `useAuthStatus` | `apps/web/components/auth/*`, `apps/web/app/dashboard/**` |
 
 ### From `@bymax-one/nest-auth/nextjs`
 
-| Export | Home |
-| --- | --- |
-| `createAuthProxy` | `apps/web/proxy.ts` |
-| `createSilentRefreshHandler` / `SILENT_REFRESH_ROUTE` | `apps/web/app/api/auth/silent-refresh/route.ts` |
-| `createClientRefreshHandler` / `CLIENT_REFRESH_ROUTE` | `apps/web/app/api/auth/client-refresh/route.ts` |
-| `createLogoutHandler` / `LOGOUT_ROUTE` | `apps/web/app/api/auth/logout/route.ts` |
-| `decodeJwtToken` / `verifyJwtToken` / `isTokenExpired` / `getUserId` / `getUserRole` / `getTenantId` | `apps/web/lib/require-auth.ts` (server helper) |
-| `isBackgroundRequest` / `buildSilentRefreshUrl` / `parseSetCookieHeader` / `dedupeSetCookieHeaders` / `getSetCookieHeaders` | Covered by proxy tests |
+| Export                                                                                                                      | Home                                            |
+| --------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `createAuthProxy`                                                                                                           | `apps/web/proxy.ts`                             |
+| `createSilentRefreshHandler` / `SILENT_REFRESH_ROUTE`                                                                       | `apps/web/app/api/auth/silent-refresh/route.ts` |
+| `createClientRefreshHandler` / `CLIENT_REFRESH_ROUTE`                                                                       | `apps/web/app/api/auth/client-refresh/route.ts` |
+| `createLogoutHandler` / `LOGOUT_ROUTE`                                                                                      | `apps/web/app/api/auth/logout/route.ts`         |
+| `decodeJwtToken` / `verifyJwtToken` / `isTokenExpired` / `getUserId` / `getUserRole` / `getTenantId`                        | `apps/web/lib/require-auth.ts` (server helper)  |
+| `isBackgroundRequest` / `buildSilentRefreshUrl` / `parseSetCookieHeader` / `dedupeSetCookieHeaders` / `getSetCookieHeaders` | Covered by proxy tests                          |
 
 ---
 
