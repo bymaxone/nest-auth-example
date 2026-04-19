@@ -2,23 +2,68 @@
 
 Type-safe database access for `apps/api`.
 
-- **Package**: `@prisma/client`, `prisma` (dev)
+- **Packages**: `@prisma/client`, `@prisma/adapter-pg`, `prisma` (dev)
 - **Version**: `^7.7.x`
 - **Database**: PostgreSQL 18 (see [postgres-guidelines.md](postgres-guidelines.md))
 - **Schema location**: `apps/api/prisma/schema.prisma`
+- **CLI config**: `apps/api/prisma.config.ts`
 - **Official docs**: https://www.prisma.io/docs
 
 ---
 
 ## When to read this
 
-Before touching `apps/api/prisma/schema.prisma`, writing a query, adding a migration, or implementing an `IUserRepository` / `IPlatformUserRepository` for `@bymax-one/nest-auth`.
+Before touching `apps/api/prisma/schema.prisma`, writing a query, adding a migration, working with `prisma.config.ts`, or implementing an `IUserRepository` / `IPlatformUserRepository` for `@bymax-one/nest-auth`.
+
+---
+
+## Prisma 7 architecture
+
+Prisma 7 introduced a driver-adapter model that replaces the built-in Rust query engine. The `DATABASE_URL` no longer lives in `schema.prisma`; it moves to the CLI config file. The runtime client requires an explicit driver adapter.
+
+### What changed from Prisma 6
+
+| Concern        | Prisma 6                                        | Prisma 7                                       |
+| -------------- | ----------------------------------------------- | ---------------------------------------------- |
+| Connection URL | `url = env("DATABASE_URL")` in `schema.prisma`  | `datasource.url` in `prisma.config.ts`         |
+| CLI config     | `package.json` `"prisma"` key                   | `prisma.config.ts` (`defineConfig`)            |
+| Runtime driver | Built-in Rust engine                            | Explicit driver adapter (`@prisma/adapter-pg`) |
+| `PrismaClient` | `new PrismaClient()`                            | `new PrismaClient({ adapter })`                |
+| Seed command   | `"prisma": { "seed": "..." }` in `package.json` | `migrations.seed` in `prisma.config.ts`        |
+
+---
+
+## `prisma.config.ts`
+
+The CLI configuration file. It lives at `apps/api/prisma.config.ts` and is the single source of truth for CLI operations: schema path, datasource URL, and seed command. The `dotenv/config` import must come first so `env()` can read `.env`.
+
+```ts
+// apps/api/prisma.config.ts
+import 'dotenv/config';
+import { defineConfig, env } from 'prisma/config';
+
+export default defineConfig({
+  schema: 'prisma/schema.prisma',
+  migrations: {
+    seed: 'tsx prisma/seed.ts',
+  },
+  datasource: {
+    url: env('DATABASE_URL'),
+  },
+});
+```
+
+**Rules**:
+
+- `import 'dotenv/config'` must be the first line — `env()` reads from `process.env`, which must be populated before `defineConfig` runs.
+- `env('DATABASE_URL')` throws at CLI startup if the variable is missing — fast failure, no silent `undefined`.
+- Do not duplicate the datasource URL in `schema.prisma`; the `datasource db` block contains only `provider`.
 
 ---
 
 ## Schema organization
 
-One `schema.prisma` file. Split into logical sections with comment headers. Prisma 7 supports multi-file schemas via `prismaSchemaFolder`; we keep it single-file for now — switch only if the schema exceeds ~500 lines.
+One `schema.prisma` file. Split into logical sections with comment headers. Prisma 7 supports multi-file schemas via `prismaSchemaFolder`; keep it single-file until the schema exceeds ~500 lines.
 
 ```prisma
 generator client {
@@ -26,106 +71,138 @@ generator client {
   previewFeatures = []
 }
 
+// No `url` field here — connection URL lives in prisma.config.ts (Prisma 7)
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // ---------- Auth (mirrors @bymax-one/nest-auth contract) ----------
-model User { ... }
+model User        { ... }
 model PlatformUser { ... }
-model Invitation { ... }
+model Invitation  { ... }
 
 // ---------- Audit ----------
 model AuditLog { ... }
 
 // ---------- Example domain ----------
-model Tenant { ... }
+model Tenant  { ... }
 model Project { ... }
 ```
 
 ### Non-negotiables
 
-1. **`passwordHash`, `mfaSecret`, `mfaRecoveryCodes` are stored verbatim** as the library returns them. Never re-hash, never transform, never `String(...)` them.
-2. Every table has `createdAt @default(now())` and `updatedAt @updatedAt`.
+1. **`passwordHash`, `mfaSecret`, `mfaRecoveryCodes` are stored verbatim** as the library returns them. Never re-hash, never transform.
+2. Every mutable table has `createdAt @default(now())` and `updatedAt @updatedAt`. Append-only tables (e.g., `AuditLog`) intentionally omit `updatedAt` — add a comment explaining why.
 3. Every user-facing table with a tenant scope has `tenantId String` + `@@index([tenantId])`.
 4. IDs are `String @id @default(cuid())` unless the library contract says otherwise.
 5. Nullable columns have an explicit `?`; `String` defaults to `NOT NULL`.
-6. Every `@relation` gets an explicit `name: "..."` when the model has more than one relation to the same other model.
+6. Use Prisma enums (`enum Role { OWNER ADMIN MEMBER VIEWER }`) for column types that have a bounded domain; do not use raw `String` for enum-like values.
+
+---
+
+## Enums
+
+Define enums at the top of the schema, before the models that reference them.
+
+```prisma
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum UserStatus {
+  ACTIVE
+  PENDING
+  SUSPENDED
+  BANNED
+  INACTIVE
+}
+
+enum PlatformRole {
+  SUPER_ADMIN
+  SUPPORT
+}
+```
+
+Enum values are uppercase in Prisma and stored as uppercase strings in PostgreSQL. The `@bymax-one/nest-auth` library expects uppercase string values matching these names — do not rename them.
 
 ---
 
 ## User model (library contract)
 
-The `User` fields map 1:1 with `IUserRepository`. Do not add required fields — they break library-issued inserts.
+The `User` fields map 1:1 with `IUserRepository`. Do not add required fields without nullable defaults — they break library-issued inserts.
 
 ```prisma
 model User {
-  id                String   @id @default(cuid())
-  tenantId          String
-  email             String
-  name              String?
-  passwordHash      String?  // null for OAuth-only accounts
-  role              String   @default("member")
-  status            String   @default("active") // active | pending | suspended | locked
-  emailVerified     Boolean  @default(false)
-  mfaEnabled        Boolean  @default(false)
-  mfaSecret         String?  // encrypted at rest by the library
-  mfaRecoveryCodes  String[] // hashed by the library
-  oauthProvider     String?
-  oauthProviderId   String?
-  lastLoginAt       DateTime?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id               String     @id @default(cuid())
+  tenantId         String
+  email            String
+  name             String
+  passwordHash     String?                        // null for OAuth-only accounts
+  role             Role       @default(MEMBER)
+  status           UserStatus @default(ACTIVE)
+  emailVerified    Boolean    @default(false)
+  mfaEnabled       Boolean    @default(false)
+  mfaSecret        String?                        // encrypted at rest by the library
+  mfaRecoveryCodes String[]                       // hashed by the library
+  oauthProvider    String?
+  oauthProviderId  String?
+  lastLoginAt      DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, email])
   @@unique([oauthProvider, oauthProviderId])
   @@index([tenantId])
-  @@index([status])
 }
 ```
 
-`[tenantId, email]` is the natural uniqueness — two tenants can legitimately own the same email.
+`[tenantId, email]` is the natural uniqueness constraint — two tenants can legitimately own the same email address.
 
 ---
 
-## Migrations
+## Driver adapter (`@prisma/adapter-pg`)
 
-Use `prisma migrate dev` locally. Production uses `prisma migrate deploy` only.
+Prisma 7 requires an explicit driver adapter at runtime. `@prisma/adapter-pg` wraps the `pg` client.
 
-```bash
-# Locally after a schema change
-pnpm --filter @nest-auth-example/api prisma:migrate -- --name <descriptive_snake_case>
+```ts
+import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from '@prisma/client';
 
-# Generate client without migrating
-pnpm --filter @nest-auth-example/api prisma:generate
-
-# Production deploy (CI / release pipeline)
-pnpm --filter @nest-auth-example/api prisma:migrate:deploy
+const adapter = new PrismaPg({ connectionString: process.env['DATABASE_URL'] });
+const prisma = new PrismaClient({ adapter });
 ```
 
-**Rules**:
-
-- One migration = one schema change with a clear purpose. Name it like a conventional commit scope: `add_audit_log`, `add_project_tenant_fk`, `soften_user_name_nullability`.
-- Never hand-edit a migration SQL file after it has been applied outside your local box. Create a follow-up migration instead.
-- Destructive migrations (dropping columns, renaming) — review the generated SQL, then add a comment at the top explaining why.
-- Never commit a migration without running it locally end-to-end at least once.
+- `connectionString` is a PostgreSQL connection string: `postgresql://user:pass@host:port/db`.
+- The adapter is created once and passed to `PrismaClient` at construction time.
+- In `PrismaService` (NestJS), inject the connection string from `ConfigService` — never `process.env` directly.
 
 ---
 
-## Prisma client
+## Prisma client (NestJS)
 
-One `PrismaService` per app. Extend `PrismaClient`; implement `OnModuleInit` / `OnModuleDestroy`.
+One `PrismaService` per app. It creates the adapter from config and passes it to `PrismaClient`. Extend `PrismaClient`; implement `OnModuleInit` / `OnModuleDestroy`.
 
 ```ts
 // apps/api/src/prisma/prisma.service.ts
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { ConfigService } from '@nestjs/config';
+import type { Env } from '../config/env.js';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
-  constructor() {
+  constructor(config: ConfigService<Env, true>) {
+    const adapter = new PrismaPg({
+      connectionString: config.get('DATABASE_URL', { infer: true }),
+    });
     super({
+      adapter,
       log: [
         { level: 'warn', emit: 'event' },
         { level: 'error', emit: 'event' },
@@ -133,18 +210,22 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     });
   }
 
-  async onModuleInit() {
+  async onModuleInit(): Promise<void> {
     await this.$connect();
   }
 
-  async onModuleDestroy() {
+  async onModuleDestroy(): Promise<void> {
     await this.$disconnect();
   }
 }
 ```
 
+**Rules**:
+
 - **Single instance**. Never `new PrismaClient()` outside `PrismaService`.
-- **Log events, not stdout strings** — forward to `nestjs-pino` (see [logging-guidelines.md](logging-guidelines.md)).
+- **Adapter required** — omitting it causes a Prisma 7 runtime error.
+- **Config via `ConfigService`** — never `process.env.DATABASE_URL` inside NestJS modules.
+- **Log events, not stdout strings** — forward `warn`/`error` events to `nestjs-pino` (see [logging-guidelines.md](logging-guidelines.md)).
 - **Graceful shutdown**: `enableShutdownHooks` on the Nest app fires `onModuleDestroy` → `$disconnect`. Absence of this causes open connections after container SIGTERM.
 
 ---
@@ -177,6 +258,89 @@ export class PrismaUserRepository implements IUserRepository {
 
 ---
 
+## Migrations
+
+Use `prisma migrate dev` locally via the pnpm script or `npx`/direct invocation. Production uses `prisma migrate deploy` only.
+
+```bash
+# Locally after a schema change — run from apps/api/
+npx prisma migrate dev --name <descriptive_snake_case>
+
+# Or via pnpm script (no --name passthrough due to pnpm arg bug — omit to get interactive prompt)
+pnpm --filter @nest-auth-example/api prisma:migrate
+
+# Generate client without migrating
+pnpm --filter @nest-auth-example/api prisma:generate
+
+# Production deploy (CI / release pipeline)
+pnpm --filter @nest-auth-example/api prisma:migrate:deploy
+```
+
+> **Note on `--name` with pnpm**: `pnpm --filter ... prisma:migrate -- --name foo` passes a literal `--` to the Prisma CLI, causing it to ignore `--name`. Run migrations requiring a specific name directly with `npx prisma migrate dev --name foo` from `apps/api/`.
+
+**Rules**:
+
+- One migration = one schema change with a clear purpose. Name it like a conventional commit scope: `add_audit_log`, `add_project_tenant_fk`, `soften_user_name_nullability`.
+- Never hand-edit a migration SQL file after it has been applied outside your local box. Create a follow-up migration instead.
+- Destructive migrations (dropping columns, renaming) — review the generated SQL and add a comment at the top explaining why.
+- Never commit a migration without running it locally end-to-end at least once.
+
+---
+
+## Seeding
+
+`apps/api/prisma/seed.ts`. Pure TS, no runtime framework. Fills a reproducible demo state — tenants, users per role, platform admin.
+
+The seed command is configured in `prisma.config.ts` under `migrations.seed`, not in `package.json`.
+
+```bash
+pnpm --filter @nest-auth-example/api prisma:seed
+```
+
+**Seed rules**:
+
+- **Idempotent**: every write uses `upsert` keyed on the natural unique constraint. Running the seed twice must produce identical state.
+- **Use `bcryptjs`** for password hashing — pure-JS bcrypt, no native addon, identical `$2b$` hash format. Import as `import bcryptjs from 'bcryptjs'`. Never use `bcrypt` (requires native build scripts blocked by pnpm 10 by default).
+- **Import `dotenv/config`** at the top of `seed.ts` — the seed script runs outside NestJS, so env vars must be loaded explicitly.
+- **Use the `PrismaPg` adapter** in seed scripts — same as production, so connection behavior is identical.
+- **Error logging**: catch errors and log only `err.message`, never the full error object — Prisma/pg errors may embed `DATABASE_URL` in the stack.
+- **Known passwords**: document the seed password in `GETTING_STARTED.md` and mark it clearly as dev-only. Never reuse a seed password in production.
+
+```ts
+// apps/api/prisma/seed.ts — minimal skeleton
+import 'dotenv/config';
+import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import bcryptjs from 'bcryptjs';
+
+const databaseUrl = process.env['DATABASE_URL'];
+if (!databaseUrl) throw new Error('[seed] DATABASE_URL is not set.');
+
+const adapter = new PrismaPg({ connectionString: databaseUrl });
+const prisma = new PrismaClient({ adapter });
+
+async function main(): Promise<void> {
+  const passwordHash = await bcryptjs.hash('Passw0rd!Passw0rd', 12);
+  await prisma.tenant.upsert({
+    where: { slug: 'acme' },
+    update: {},
+    create: { name: 'Acme Corp', slug: 'acme' },
+  });
+  // ... more upserts
+}
+
+main()
+  .catch((err: unknown) => {
+    console.error('[seed] Fatal error:', err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  })
+  .finally(() => {
+    void prisma.$disconnect();
+  });
+```
+
+---
+
 ## Query patterns
 
 ### Prefer narrow `select` over `include`
@@ -189,7 +353,7 @@ this.prisma.project.findMany({
 });
 ```
 
-- Keep payloads minimal — never fetch `passwordHash` unless the library asks for it.
+- Keep payloads minimal — never fetch `passwordHash` unless the library explicitly asks for it.
 - `include` only when the caller genuinely needs the whole relation shape.
 
 ### Transactions
@@ -198,18 +362,24 @@ this.prisma.project.findMany({
 await this.prisma.$transaction(async (tx) => {
   const project = await tx.project.create({ data: { tenantId, name } });
   await tx.auditLog.create({
-    data: { type: 'PROJECT_CREATED', actorId: userId, refId: project.id },
+    data: {
+      event: 'PROJECT_CREATED',
+      actorUserId: userId,
+      tenantId,
+      payload: { projectId: project.id },
+    },
   });
   return project;
 });
 ```
 
-- Use interactive transactions for anything multi-step that must be atomic.
+- Use interactive transactions (async closure form) for anything multi-step that must be atomic.
+- Avoid the batch form (`$transaction([q1, q2])`) when operations depend on each other's results.
 - Keep the closure short — long transactions hold row locks. Anything > 200 ms is suspicious.
 
 ### Pagination
 
-Cursor-based, never `skip` on large tables. `skip` scans the offset:
+Cursor-based, never `skip` on large tables. `skip` scans the full offset:
 
 ```ts
 this.prisma.auditLog.findMany({
@@ -219,20 +389,6 @@ this.prisma.auditLog.findMany({
   ...(cursor && { cursor: { id: cursor }, skip: 1 }),
 });
 ```
-
----
-
-## Seeding
-
-`apps/api/prisma/seed.ts`. Pure TS, no runtime framework. Fills a repeatable demo state — tenants, admin user, member user, sample project.
-
-```bash
-pnpm --filter @nest-auth-example/api prisma:seed
-```
-
-- Idempotent: `upsert` by unique key. Running `prisma:seed` twice must not duplicate rows.
-- Uses `@bymax-one/nest-auth` password hasher for the demo password — never `bcrypt.hash()` directly.
-- Passwords in seed files are documented in README (`demo/demo1234!`) and rotated whenever a snapshot is published.
 
 ---
 
@@ -248,20 +404,27 @@ See [testing-guidelines.md](testing-guidelines.md) for the full pattern.
 
 ## Common pitfalls
 
-1. **Re-hashing `passwordHash`** — library signs tokens against the stored hash. Any mutation locks every user out.
-2. **`update` where you meant `upsert`** on seed scripts — non-idempotent seeds break `pnpm infra:up && pnpm seed` cycles.
-3. **Missing `@@unique([tenantId, email])`** — multi-tenant isolation leaks; two tenants can claim the same email with race conditions.
-4. **Forgetting `@@index([tenantId])`** — every dashboard query becomes a seq scan as the table grows.
-5. **`$transaction([q1, q2])` batch form** for operations that depend on previous results — use the async closure form.
-6. **`select: { passwordHash: true }` in a general repository read** — leaks hash to logs, audit trails, serializers.
-7. **`prisma db push` on main branches** — always go through a migration. `db push` is only for throwaway prototypes.
-8. **Running migrations in tests with data in them** — tests use `migrate reset` before each suite; never migrate forward against dev data.
+1. **Omitting the driver adapter** — `new PrismaClient()` without `{ adapter }` throws in Prisma 7. Every instantiation (service, seed, tests) needs `PrismaPg`.
+2. **`url` in `schema.prisma` datasource block** — Prisma 7 removed support for `url` in the schema file. Remove it; the URL lives in `prisma.config.ts` only.
+3. **Missing `import 'dotenv/config'` in `prisma.config.ts` or `seed.ts`** — these scripts run outside NestJS; env vars are not loaded automatically. The import must be first.
+4. **Using `bcrypt` instead of `bcryptjs`** — `bcrypt` requires a native build script that pnpm 10 blocks by default. Use `bcryptjs`; it produces identical `$2b$` hashes with no native addon.
+5. **`pnpm --filter ... -- --name foo` passthrough bug** — the literal `--` is passed to Prisma, which ignores `--name`. Run migrations from `apps/api/` with `npx prisma migrate dev --name foo`.
+6. **Re-hashing `passwordHash`** — the library signs tokens against the stored hash. Any mutation invalidates all sessions for that user.
+7. **`update` where you meant `upsert` in seed scripts** — non-idempotent seeds break `pnpm infra:up && prisma:seed` cycles.
+8. **Missing `@@unique([tenantId, email])`** — multi-tenant isolation leaks; two users in different tenants can collide in race conditions without this constraint.
+9. **Forgetting `@@index([tenantId])`** — every per-tenant dashboard query becomes a sequential scan as the table grows.
+10. **`$transaction([q1, q2])` batch form for dependent operations** — use the async closure form when `q2` depends on `q1`'s result.
+11. **`select: { passwordHash: true }` in a general repository read** — leaks the hash to logs, audit trails, and serializers.
+12. **`prisma db push` on main branches** — always go through a migration. `db push` is only for throwaway prototypes.
+13. **Logging the full Prisma error object** — errors may embed `DATABASE_URL` in their stack. Log only `err.message`.
 
 ---
 
 ## References
 
-- Prisma docs: https://www.prisma.io/docs
+- Prisma 7 docs: https://www.prisma.io/docs
 - Schema reference: https://www.prisma.io/docs/orm/reference/prisma-schema-reference
+- Prisma config reference: https://www.prisma.io/docs/orm/reference/prisma-config-reference
+- Driver adapters: https://www.prisma.io/docs/orm/overview/databases/database-drivers
 - `@bymax-one/nest-auth` repository contracts: [nest-auth-guidelines.md](nest-auth-guidelines.md)
 - PostgreSQL specifics: [postgres-guidelines.md](postgres-guidelines.md)

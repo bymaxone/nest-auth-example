@@ -61,7 +61,8 @@
   "pnpm": {
     "overrides": {
       "@hono/node-server": ">=1.19.13"
-    }
+    },
+    "onlyBuiltDependencies": []
   },
   "devDependencies": {
     "@bymax-one/nest-auth": "link:../nest-auth",

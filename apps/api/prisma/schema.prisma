@@ -1,0 +1,198 @@
+// -----------------------------------------------------------------------------
+// Prisma schema — nest-auth-example
+//
+// Layer    : Persistence
+// Purpose  : Defines the full database schema backing @bymax-one/nest-auth
+//            contracts (IUserRepository, IPlatformUserRepository) plus the
+//            example domain models (Tenant, Project, Invitation, AuditLog).
+// Constraints:
+//   - All auth-related fields (passwordHash, mfaSecret, mfaRecoveryCodes) are
+//     stored verbatim as the library returns them — never re-hash or transform.
+//   - Every user-facing table with tenant scope has tenantId + @@index([tenantId]).
+//   - IDs use cuid() for URL-opacity and global uniqueness.
+//   - Connection URL is provided via prisma.config.ts (Prisma 7); not here.
+// -----------------------------------------------------------------------------
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = []
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+// Values must match @bymax-one/nest-auth role/status string constants exactly.
+
+/** Tenant-user roles, consumed verbatim by the library's RBAC guards. */
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+/** User account lifecycle states, used by UserStatusGuard blockedStatuses. */
+enum UserStatus {
+  ACTIVE
+  PENDING
+  SUSPENDED
+  BANNED
+  INACTIVE
+}
+
+/** Platform-admin roles (global, not tenant-scoped). */
+enum PlatformRole {
+  SUPER_ADMIN
+  SUPPORT
+}
+
+// ─── Platform User ───────────────────────────────────────────────────────────
+// Mirrors AuthPlatformUser required by IPlatformUserRepository.
+// Platform users are NOT tenant-scoped — they have their own JWT context
+// (JwtPlatformGuard) and never appear in tenant-user queries.
+
+/** Global operator identity for the platform admin context (FCM #22). */
+model PlatformUser {
+  id               String       @id @default(cuid())
+  email            String       @unique
+  name             String
+  /** Required for platform users — OAuth is not supported here. */
+  passwordHash     String
+  role             PlatformRole @default(SUPPORT)
+  /** Reuses the same UserStatus enum as tenant users. */
+  status           UserStatus   @default(ACTIVE)
+  mfaEnabled       Boolean      @default(false)
+  mfaSecret        String?
+  mfaRecoveryCodes String[]
+  platformId       String?
+  lastLoginAt      DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+}
+
+// ─── Tenant ──────────────────────────────────────────────────────────────────
+
+/** Tenant represents an isolated organisational unit in the multi-tenant app. */
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  /** URL-safe identifier, e.g. "acme" or "globex". Unique across all tenants. */
+  slug      String   @unique
+  /** Optional custom domain (e.g. "acme.example.com"). */
+  domain    String?  @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users       User[]
+  invitations Invitation[]
+  auditLogs   AuditLog[]
+  projects    Project[]
+}
+
+// ─── User ─────────────────────────────────────────────────────────────────────
+// Mirrors the AuthUser shape required by IUserRepository.
+// NEVER re-hash passwordHash, mfaSecret, or mfaRecoveryCodes — they are
+// stored verbatim as the library produces them.
+
+/** Tenant-scoped user account. Maps 1:1 to IUserRepository's AuthUser shape. */
+model User {
+  id               String     @id @default(cuid())
+  tenantId         String
+  email            String
+  name             String
+  /** Null for OAuth-only accounts. Stored verbatim — never re-hashed. */
+  passwordHash     String?
+  role             Role       @default(MEMBER)
+  status           UserStatus @default(ACTIVE)
+  emailVerified    Boolean    @default(false)
+  mfaEnabled       Boolean    @default(false)
+  /** AES-encrypted TOTP secret. Stored verbatim as the library returns it. */
+  mfaSecret        String?
+  /** Bcrypt-hashed recovery codes. Stored verbatim as the library returns them. */
+  mfaRecoveryCodes String[]
+  oauthProvider    String?
+  oauthProviderId  String?
+  lastLoginAt      DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Two tenants may share the same email — uniqueness is scoped to the tenant.
+  @@unique([tenantId, email])
+  // NULLs are not equal in Postgres unique indexes, so rows without OAuth IDs
+  // don't conflict. Rows with the same (provider, providerId) pair are rejected.
+  @@unique([oauthProvider, oauthProviderId])
+  @@index([tenantId])
+}
+
+// ─── Invitation ───────────────────────────────────────────────────────────────
+// Backs FCM #21 (invitations). Token stores the SHA-256 hex digest of the raw
+// invite token — the raw token is only ever sent in email and never persisted.
+
+/** Pending or accepted invitation to join a tenant. */
+model Invitation {
+  id             String    @id @default(cuid())
+  tenantId       String
+  email          String
+  role           Role
+  /** SHA-256 hex digest of the raw invite token. Never store the raw token. */
+  token          String    @unique
+  invitedByUserId String
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+}
+
+// ─── Audit Log ────────────────────────────────────────────────────────────────
+// Written by AppAuthHooks (IAuthHooks) for every library lifecycle event.
+// Append-only — rows are never updated or deleted.
+// tenantId is nullable because platform-admin events are tenantless.
+// updatedAt is intentionally absent: AuditLog is immutable by design. Adding
+// @updatedAt would imply mutability, which contradicts the append-only contract.
+
+/** Immutable audit record for every auth lifecycle event. */
+model AuditLog {
+  id                  String   @id @default(cuid())
+  /** Null for platform-level events (login as SUPER_ADMIN, etc.). */
+  tenantId            String?
+  actorUserId         String?
+  actorPlatformUserId String?
+  /** Event slug, e.g. "user.login.succeeded" or "mfa.enabled". */
+  event               String
+  /** Structured event payload. Never contains tokens, hashes, or OTPs. */
+  payload             Json
+  ip                  String?
+  userAgent           String?
+  createdAt           DateTime @default(now())
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([event, createdAt(sort: Desc)])
+}
+
+// ─── Project (example domain) ─────────────────────────────────────────────────
+// Toy resource used to demonstrate @Roles RBAC and tenantId scoping (FCM #18–#20).
+
+/** Example domain entity demonstrating tenant-scoped RBAC. */
+model Project {
+  id           String   @id @default(cuid())
+  tenantId     String
+  name         String
+  ownerUserId  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}

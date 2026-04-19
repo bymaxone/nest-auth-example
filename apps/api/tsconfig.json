@@ -4,12 +4,11 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "target": "ES2023",
-    "rootDir": "src",
     "outDir": "dist",
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "isolatedModules": false,
     "skipLibCheck": true
   },
-  "include": ["src/**/*", "test/**/*", "jest.config.ts"]
+  "include": ["src/**/*", "test/**/*", "jest.config.ts", "prisma.config.ts", "prisma/**/*"]
 }

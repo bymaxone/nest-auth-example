@@ -5,7 +5,7 @@ How env vars are defined, validated, and consumed across `apps/api`, `apps/web`,
 - **Schema location**: `apps/api/src/config/env.schema.ts` (Zod), `apps/web/lib/env.ts` (Zod)
 - **Loader (api)**: `@nestjs/config` with `validate: (raw) => envSchema.parse(raw)`
 - **Registry**: `docs/DEVELOPMENT_PLAN.md` Appendix A
-- **Example file**: `.env.example` at the repo root
+- **Example files**: `.env.example` (root, full stack) + `apps/<name>/.env.example` (per-app CLI scripts)
 
 ---
 
@@ -21,7 +21,7 @@ Before adding, renaming, or removing an env var, tweaking `.env.example`, or cha
 2. **No direct `process.env.*` reads** in application code. All reads go through `ConfigService` (api) or `env` (web).
 3. **Secrets never live in the repo.** `.env` is gitignored; `.env.example` carries shape + placeholder values only.
 4. **Defaults live in code, not `.env.example`.** Listing `LOG_LEVEL=info` with a default is fine; listing `JWT_SECRET=changeme` is not.
-5. **One `.env.example` at the repo root** — no per-app example files. Grouping headers inside the file (`# apps/api`, `# Docker`) keep it navigable.
+5. **Two-level `.env.example` pattern**: the root `.env.example` is the complete reference for the full Docker Compose stack (all apps + infra). Each app workspace that runs CLI scripts outside NestJS (e.g., `apps/api` with `prisma.config.ts` and `seed.ts`) keeps its own `apps/<name>/.env.example` covering only the vars that those scripts load via `dotenv/config`. The root file is what a new developer copies first; the per-app file is what they reference when working in isolation on a single workspace.
 6. **`NEXT_PUBLIC_*`** is the only prefix that may leak into the browser bundle. Everything else is server-only.
 7. **Production refuses dev defaults** — Zod refinements reject `EMAIL_PROVIDER=mailpit` when `NODE_ENV=production`.
 
@@ -197,6 +197,28 @@ export const env = schema.parse({
 | DB target        | `example_app` | `example_app_test` | separate instance       | separate cluster        |
 
 `NODE_ENV=production` also unlocks `cookies.secure: true` via derivation inside `auth.config.ts`.
+
+---
+
+## CLI scripts and standalone tools
+
+Prisma CLI scripts (`prisma.config.ts`, `prisma/seed.ts`) run outside NestJS and have no access to `ConfigService`. These are the **only** locations where `process.env` reads and direct `dotenv` usage are allowed.
+
+```ts
+// First line of any standalone CLI script
+import 'dotenv/config';
+
+// Then read env vars directly — acceptable only here
+const databaseUrl = process.env['DATABASE_URL'];
+if (!databaseUrl) throw new Error('[seed] DATABASE_URL is not set.');
+```
+
+**Rules for CLI scripts**:
+
+- `import 'dotenv/config'` must be the first import — it populates `process.env` before anything else runs.
+- Validate required vars with an explicit `if (!value) throw` — no silent `undefined` propagation.
+- Use bracket notation (`process.env['KEY']`) to satisfy the no-direct-env-access linter rule that applies to application code.
+- Never read `process.env` directly inside `src/` — that is NestJS application code and must go through `ConfigService`.
 
 ---
 

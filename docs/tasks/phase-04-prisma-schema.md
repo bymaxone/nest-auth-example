@@ -2,7 +2,7 @@
 
 > **Source:** [`../DEVELOPMENT_PLAN.md`](../DEVELOPMENT_PLAN.md#phase-4--prisma-schema-migrations--seed) §Phase 4
 > **Total tasks:** 6
-> **Progress:** 🔴 0 / 6 done (0%)
+> **Progress:** 🟢 6 / 6 done (100%)
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🔵 In Review · 🟢 Done · ⚪ Blocked
 
@@ -10,12 +10,12 @@
 
 | ID   | Task                                                             | Status | Priority | Size | Depends on |
 | ---- | ---------------------------------------------------------------- | ------ | -------- | ---- | ---------- |
-| P4-1 | Install & initialize Prisma (`prisma init`, wire `DATABASE_URL`) | 🔴     | High     | S    | Phase 3    |
-| P4-2 | Model `Tenant` + `User` with `Role` / `UserStatus` enums         | 🔴     | High     | M    | `P4-1`     |
-| P4-3 | Model `PlatformUser` + `PlatformRole` enum                       | 🔴     | High     | S    | `P4-2`     |
-| P4-4 | Model `Invitation`, `AuditLog`, `Project` with indexes           | 🔴     | High     | M    | `P4-3`     |
-| P4-5 | Generate initial migration + write idempotent `seed.ts`          | 🔴     | High     | M    | `P4-4`     |
-| P4-6 | Verification — `migrate dev -n init` + `db seed` on fresh stack  | 🔴     | High     | S    | `P4-5`     |
+| P4-1 | Install & initialize Prisma (`prisma init`, wire `DATABASE_URL`) | 🟢     | High     | S    | Phase 3    |
+| P4-2 | Model `Tenant` + `User` with `Role` / `UserStatus` enums         | 🟢     | High     | M    | `P4-1`     |
+| P4-3 | Model `PlatformUser` + `PlatformRole` enum                       | 🟢     | High     | S    | `P4-2`     |
+| P4-4 | Model `Invitation`, `AuditLog`, `Project` with indexes           | 🟢     | High     | M    | `P4-3`     |
+| P4-5 | Generate initial migration + write idempotent `seed.ts`          | 🟢     | High     | M    | `P4-4`     |
+| P4-6 | Verification — `migrate dev -n init` + `db seed` on fresh stack  | 🟢     | High     | S    | `P4-5`     |
 
 ---
 
@@ -413,3 +413,10 @@ Run the Phase 4 "definition of done" against a freshly-booted Docker stack: `doc
 ---
 
 ## Completion log
+
+- P4-1 ✅ 2026-04-19 — Prisma 7 schema initialized with prisma.config.ts (datasource url moved per Prisma 7 breaking change), seed.ts placeholder, DATABASE_URL env wired
+- P4-2 ✅ 2026-04-19 — Role, UserStatus enums + Tenant, User models with @@unique([tenantId,email]) and @@index([tenantId])
+- P4-3 ✅ 2026-04-19 — PlatformRole enum + PlatformUser model (tenantless, reuses UserStatus)
+- P4-4 ✅ 2026-04-19 — Invitation, AuditLog, Project models with required indexes; Tenant gains inverse relations
+- P4-5 ✅ 2026-04-19 — Initial migration 20260419165350_init generated; idempotent seed with bcryptjs, 2 tenants, 8 users, 1 platform admin
+- P4-6 ✅ 2026-04-19 — Fresh docker stack verified: User=8, PlatformUser=1, Tenant=2; seed idempotent (second run unchanged); security+code review applied (updatedAt added to Invitation/Project, error logging hardened)
