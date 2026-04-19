@@ -2,7 +2,7 @@
 
 > **Source:** [`../DEVELOPMENT_PLAN.md`](../DEVELOPMENT_PLAN.md#phase-2--library-linking--workspace-bootstrap) §Phase 2
 > **Total tasks:** 4
-> **Progress:** 🔴 0 / 4 done (0%)
+> **Progress:** 🟢 4 / 4 done (100%)
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🔵 In Review · 🟢 Done · ⚪ Blocked
 
@@ -10,16 +10,16 @@
 
 | ID   | Task                                                                     | Status | Priority | Size | Depends on       |
 | ---- | ------------------------------------------------------------------------ | ------ | -------- | ---- | ---------------- |
-| P2-1 | `scripts/link-library.sh` (build + link --global + link into example)    | 🔴     | High     | S    | —                |
-| P2-2 | `scripts/unlink-library.sh`                                              | 🔴     | High     | XS   | P2-1             |
-| P2-3 | Root `package.json` entry + probe file                                   | 🔴     | High     | S    | P2-1             |
-| P2-4 | Verification — `pnpm typecheck` green; probe cleanup flagged for Phase 3 | 🔴     | High     | XS   | P2-1, P2-2, P2-3 |
+| P2-1 | `scripts/link-library.sh` (build + link --global + link into example)    | 🟢     | High     | S    | —                |
+| P2-2 | `scripts/unlink-library.sh`                                              | 🟢     | High     | XS   | P2-1             |
+| P2-3 | Root `package.json` entry + probe file                                   | 🟢     | High     | S    | P2-1             |
+| P2-4 | Verification — `pnpm typecheck` green; probe cleanup flagged for Phase 3 | 🟢     | High     | XS   | P2-1, P2-2, P2-3 |
 
 ---
 
 ## P2-1 — `scripts/link-library.sh` (build + `pnpm link --global` + link into example)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S (30–90 min)
 - **Depends on:** `—`
@@ -30,13 +30,13 @@ Author the helper that performs the full link dance: build `../nest-auth`, regis
 
 ### Acceptance Criteria
 
-- [ ] `scripts/link-library.sh` exists and has the executable bit set (`chmod +x`).
-- [ ] First line is `#!/usr/bin/env bash` followed by `set -euo pipefail`.
-- [ ] Verifies `../nest-auth` exists; exits with a clear error message if not.
-- [ ] Runs `pnpm install && pnpm build && pnpm link --global` inside `../nest-auth`.
-- [ ] Runs `pnpm link --global @bymax-one/nest-auth` inside this repo.
-- [ ] Idempotent — second invocation completes green with no duplicate work warnings.
-- [ ] Emits the resolved path via `node -p "require.resolve('@bymax-one/nest-auth')"`.
+- [x] `scripts/link-library.sh` exists and has the executable bit set (`chmod +x`).
+- [x] First line is `#!/usr/bin/env bash` followed by `set -euo pipefail`.
+- [x] Verifies `../nest-auth` exists; exits with a clear error message if not.
+- [x] Runs `pnpm install && pnpm build && pnpm link --global` inside `../nest-auth`.
+- [x] Runs `pnpm link --global @bymax-one/nest-auth` inside this repo.
+- [x] Idempotent — second invocation completes green with no duplicate work warnings.
+- [x] Emits the resolved path via `node -p "require.resolve('@bymax-one/nest-auth')"`.
 
 ### Files to create / modify
 
@@ -105,7 +105,7 @@ If phase reaches 100%, switch its row status in `DEVELOPMENT_PLAN.md` to 🟢.
 
 ## P2-2 — `scripts/unlink-library.sh`
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** XS (<30 min)
 - **Depends on:** `P2-1`
@@ -116,11 +116,11 @@ Mirror of `link-library.sh` that reverses the operation when a contributor wants
 
 ### Acceptance Criteria
 
-- [ ] `scripts/unlink-library.sh` exists and is executable.
-- [ ] Starts with `#!/usr/bin/env bash` + `set -euo pipefail`.
-- [ ] Runs `pnpm unlink --global @bymax-one/nest-auth` inside this repo (ignore failure if already unlinked).
-- [ ] Runs `pnpm unlink --global` inside `../nest-auth` if that path exists.
-- [ ] Prints a final "reminder" message: `run 'pnpm install' to restore the published dependency`.
+- [x] `scripts/unlink-library.sh` exists and is executable.
+- [x] Starts with `#!/usr/bin/env bash` + `set -euo pipefail`.
+- [x] Runs `pnpm unlink --global @bymax-one/nest-auth` inside this repo (ignore failure if already unlinked).
+- [x] Runs `pnpm unlink --global` inside `../nest-auth` if that path exists.
+- [x] Prints a final "reminder" message: `run 'pnpm install' to restore the published dependency`.
 
 ### Files to create / modify
 
@@ -180,7 +180,7 @@ If phase reaches 100%, switch its row status in `DEVELOPMENT_PLAN.md` to 🟢.
 
 ## P2-3 — Root `package.json` Entry `"@bymax-one/nest-auth": "link:../nest-auth"` + Probe File
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S (30–90 min)
 - **Depends on:** `P2-1`
@@ -191,12 +191,12 @@ Register the library as a `link:` dependency at the workspace root while the pac
 
 ### Acceptance Criteria
 
-- [ ] Root `package.json` has `"dependencies": { "@bymax-one/nest-auth": "link:../nest-auth" }` (or `devDependencies`; root is fine since apps will declare their own deps later).
-- [ ] After `pnpm install`, `node_modules/@bymax-one/nest-auth` resolves to `../nest-auth` (confirmed via `node -p "require.resolve('@bymax-one/nest-auth')"`).
-- [ ] A minimal workspace package `packages/_probe/` exists with its own `package.json` (`"name": "@nest-auth-example/_probe"`, `"private": true`, `"type": "module"`) and `tsconfig.json` extending `../../tsconfig.base.json`, plus a `typecheck` script running `tsc --noEmit`.
-- [ ] `packages/_probe/src/probe.ts` imports one symbol from each of: `@bymax-one/nest-auth`, `@bymax-one/nest-auth/shared`, `@bymax-one/nest-auth/client`, `@bymax-one/nest-auth/react`, `@bymax-one/nest-auth/nextjs`.
-- [ ] The probe file includes a top-of-file comment: `// TEMPORARY — delete during Phase 3 (see docs/DEVELOPMENT_PLAN.md §Phase 3)`.
-- [ ] `pnpm typecheck` passes with the probe present.
+- [x] Root `package.json` has `"dependencies": { "@bymax-one/nest-auth": "link:../nest-auth" }` (or `devDependencies`; root is fine since apps will declare their own deps later).
+- [x] After `pnpm install`, `node_modules/@bymax-one/nest-auth` resolves to `../nest-auth` (confirmed via `node -p "require.resolve('@bymax-one/nest-auth')"`).
+- [x] A minimal workspace package `packages/_probe/` exists with its own `package.json` (`"name": "@nest-auth-example/_probe"`, `"private": true`, `"type": "module"`) and `tsconfig.json` extending `../../tsconfig.base.json`, plus a `typecheck` script running `tsc --noEmit`.
+- [x] `packages/_probe/src/probe.ts` imports one symbol from each of: `@bymax-one/nest-auth`, `@bymax-one/nest-auth/shared`, `@bymax-one/nest-auth/client`, `@bymax-one/nest-auth/react`, `@bymax-one/nest-auth/nextjs`.
+- [x] The probe file includes a top-of-file comment: `// TEMPORARY — delete during Phase 3 (see docs/DEVELOPMENT_PLAN.md §Phase 3)`.
+- [x] `pnpm typecheck` passes with the probe present.
 
 ### Files to create / modify
 
@@ -294,7 +294,7 @@ If phase reaches 100%, switch its row status in `DEVELOPMENT_PLAN.md` to 🟢.
 
 ## P2-4 — Verification: `pnpm typecheck` Passes; Probe Cleanup Flagged for Phase 3
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** XS (<30 min)
 - **Depends on:** `P2-1`, `P2-2`, `P2-3`
@@ -305,10 +305,10 @@ Gate task for Phase 2 DoD: with the link + probe wired, `pnpm typecheck` at the 
 
 ### Acceptance Criteria
 
-- [ ] `pnpm typecheck` exits 0.
-- [ ] `scripts/link-library.sh --dry-run` or plain `./scripts/link-library.sh` completes cleanly on a machine with `../nest-auth` present.
-- [ ] A follow-up reminder is captured: either an entry in `CHANGELOG.md` under `[Unreleased]` (`- Phase 3 follow-up: delete packages/_probe (introduced by Phase 2).`) OR a GitHub issue referenced by URL in this task's Completion log entry.
-- [ ] Running `pnpm --filter @nest-auth-example/_probe run typecheck` exits 0.
+- [x] `pnpm typecheck` exits 0.
+- [x] `scripts/link-library.sh --dry-run` or plain `./scripts/link-library.sh` completes cleanly on a machine with `../nest-auth` present.
+- [x] A follow-up reminder is captured: entry added in `CHANGELOG.md` under `[Unreleased]`: "Phase 3 follow-up: delete `packages/_probe` (introduced by Phase 2; verifies subpath typings)."
+- [x] Running `pnpm --filter @nest-auth-example/_probe run typecheck` exits 0.
 
 ### Files to create / modify
 
@@ -350,3 +350,8 @@ If phase reaches 100%, switch its row status in `DEVELOPMENT_PLAN.md` to 🟢.
 ---
 
 ## Completion log
+
+- P2-1 ✅ 2026-04-19 — Created `scripts/link-library.sh`: builds `../nest-auth`, registers global link, links into workspace, prints resolved path.
+- P2-2 ✅ 2026-04-19 — Created `scripts/unlink-library.sh`: reverses global link with `|| true` for idempotency, prints restore reminder.
+- P2-3 ✅ 2026-04-19 — Added `"@bymax-one/nest-auth": "link:../nest-auth"` to root `package.json`; created `packages/_probe` workspace with probe.ts importing one symbol from all 5 library subpaths; `pnpm install` confirmed link resolves to `../nest-auth/dist/server/index.cjs`.
+- P2-4 ✅ 2026-04-19 — `pnpm -r --if-present run typecheck` exits 0; Phase 3 follow-up captured in CHANGELOG.md under [Unreleased]; added stub tsconfigs (`files:[]`) for apps/api and apps/web so typecheck passes before Phase 3 bootstrap.

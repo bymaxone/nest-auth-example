@@ -59,6 +59,7 @@
     "infra:test:down": "docker compose -f docker-compose.test.yml down -v"
   },
   "devDependencies": {
+    "@bymax-one/nest-auth": "link:../nest-auth",
     "@commitlint/cli": "^20.5.0",
     "@commitlint/config-conventional": "^20.5.0",
     "@eslint/js": "^10.0.1",

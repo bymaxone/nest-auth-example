@@ -1,0 +1,16 @@
+{
+  "$comment": "TEMPORARY — delete during Phase 3 (see docs/DEVELOPMENT_PLAN.md §Phase 3). link:../../nest-auth path is relative to this package, same pattern used in apps/api and apps/web.",
+  "name": "@nest-auth-example/_probe",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@bymax-one/nest-auth": "link:../../nest-auth"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

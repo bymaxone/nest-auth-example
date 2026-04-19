@@ -1,0 +1,8 @@
+{
+  "$comment": "TEMPORARY stub — replaced in Phase 3 (see docs/DEVELOPMENT_PLAN.md §Phase 3). files:[] lets typecheck pass before source files exist.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "files": []
+}
