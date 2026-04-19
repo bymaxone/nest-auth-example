@@ -1,8 +1,15 @@
 {
-  "$comment": "TEMPORARY stub — replaced in Phase 3 (see docs/DEVELOPMENT_PLAN.md §Phase 3). files:[] lets typecheck pass before source files exist.",
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "noEmit": true
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2023",
+    "rootDir": "src",
+    "outDir": "dist",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "isolatedModules": false,
+    "skipLibCheck": true
   },
-  "files": []
+  "include": ["src/**/*", "test/**/*", "jest.config.ts"]
 }

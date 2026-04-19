@@ -49,14 +49,14 @@
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🟢 Done · ⚪ Blocked · 🔵 In Review
 >
-> **Overall progress:** 🟡 19 / 126 tasks done (15%)
+> **Overall progress:** 🟡 25 / 126 tasks done (20%)
 
 | #   | Phase                                                           | Tasks file                                              | Done / Total | %    | Status |
 | --- | --------------------------------------------------------------- | ------------------------------------------------------- | ------------ | ---- | ------ |
 | 0   | Repository Foundation & Tooling                                 | [phase-00](./tasks/phase-00-repo-foundation.md)         | 10 / 10      | 100% | 🟢     |
 | 1   | Local Infrastructure (Docker)                                   | [phase-01](./tasks/phase-01-docker-infra.md)            | 5 / 5        | 100% | 🟢     |
 | 2   | Library Linking & Workspace Bootstrap                           | [phase-02](./tasks/phase-02-library-linking.md)         | 4 / 4        | 100% | 🟢     |
-| 3   | `apps/api` Skeleton (NestJS 11)                                 | [phase-03](./tasks/phase-03-api-skeleton.md)            | 0 / 6        | 0%   | 🔴     |
+| 3   | `apps/api` Skeleton (NestJS 11)                                 | [phase-03](./tasks/phase-03-api-skeleton.md)            | 6 / 6        | 100% | 🟢     |
 | 4   | Prisma Schema, Migrations & Seed                                | [phase-04](./tasks/phase-04-prisma-schema.md)           | 0 / 6        | 0%   | 🔴     |
 | 5   | Infrastructure Modules (Prisma, Redis, Health, Config)          | [phase-05](./tasks/phase-05-infra-modules.md)           | 0 / 5        | 0%   | 🔴     |
 | 6   | Library Wiring (auth.config, repos, email, hooks)               | [phase-06](./tasks/phase-06-library-wiring.md)          | 0 / 6        | 0%   | 🔴     |
