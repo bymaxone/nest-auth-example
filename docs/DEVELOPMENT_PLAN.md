@@ -49,7 +49,7 @@
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🟢 Done · ⚪ Blocked · 🔵 In Review
 >
-> **Overall progress:** 🟡 31 / 126 tasks done (25%)
+> **Overall progress:** 🟡 36 / 126 tasks done (29%)
 
 | #   | Phase                                                           | Tasks file                                              | Done / Total | %    | Status |
 | --- | --------------------------------------------------------------- | ------------------------------------------------------- | ------------ | ---- | ------ |
@@ -58,7 +58,7 @@
 | 2   | Library Linking & Workspace Bootstrap                           | [phase-02](./tasks/phase-02-library-linking.md)         | 4 / 4        | 100% | 🟢     |
 | 3   | `apps/api` Skeleton (NestJS 11)                                 | [phase-03](./tasks/phase-03-api-skeleton.md)            | 6 / 6        | 100% | 🟢     |
 | 4   | Prisma Schema, Migrations & Seed                                | [phase-04](./tasks/phase-04-prisma-schema.md)           | 6 / 6        | 100% | 🟢     |
-| 5   | Infrastructure Modules (Prisma, Redis, Health, Config)          | [phase-05](./tasks/phase-05-infra-modules.md)           | 0 / 5        | 0%   | 🔴     |
+| 5   | Infrastructure Modules (Prisma, Redis, Health, Config)          | [phase-05](./tasks/phase-05-infra-modules.md)           | 5 / 5        | 100% | 🟢     |
 | 6   | Library Wiring (auth.config, repos, email, hooks)               | [phase-06](./tasks/phase-06-library-wiring.md)          | 0 / 6        | 0%   | 🔴     |
 | 7   | `BymaxAuthModule.registerAsync` + Demo Domain                   | [phase-07](./tasks/phase-07-auth-module-demo-domain.md) | 0 / 8        | 0%   | 🔴     |
 | 8   | OAuth (Google) & Invitations Backends                           | [phase-08](./tasks/phase-08-oauth-invitations.md)       | 0 / 5        | 0%   | 🔴     |

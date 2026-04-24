@@ -2,41 +2,37 @@
  * @file app.module.ts
  * @description Root NestJS module for `@nest-auth-example/api`.
  *
- * Phase 3 skeleton: mounts only structured Pino logging and the health-check module.
- * Subsequent phases layer in ConfigModule (Phase 5), PrismaModule (Phase 5),
- * RedisModule (Phase 5), and BymaxAuthModule (Phase 7) without rewriting this shape.
+ * Phase 5: Registers all infrastructure modules (Config, Logger, Prisma, Redis)
+ * and the health-check module. Later phases layer in `BymaxAuthModule` (Phase 7),
+ * `ThrottlerModule` globally (Phase 7), and domain modules (Tenants, Projects).
+ *
+ * Import order is intentional:
+ * 1. `AppConfigModule` must be first — it registers `ConfigService` globally so
+ *    every subsequent module's async factories can inject it.
+ * 2. `AppLoggerModule` comes next to capture all subsequent bootstrap logs.
+ * 3. `PrismaModule` and `RedisModule` are infrastructure with no ordering constraint
+ *    relative to each other.
  *
  * @layer root
  */
 
 import { Module } from '@nestjs/common';
-import { LoggerModule } from 'nestjs-pino';
 
+import { AppConfigModule } from './config/config.module.js';
+import { AppLoggerModule } from './logger/logger.module.js';
+import { PrismaModule } from './prisma/prisma.module.js';
+import { RedisModule } from './redis/redis.module.js';
 import { HealthModule } from './health/health.module.js';
 
 /**
  * Application root module.
  *
- * TODO(phase-5): Replace direct process.env reads below with ConfigService<Env, true>
- * once ConfigModule with the Zod env schema is registered globally.
+ * Contains no business logic — only wires infrastructure and feature modules.
  *
  * @public
  */
 @Module({
-  imports: [
-    LoggerModule.forRoot({
-      pinoHttp: {
-        // TODO(phase-5): read via ConfigService to enforce Pino level enum.
-        level: process.env['LOG_LEVEL'] ?? 'info',
-        // Guard strictly on 'development' so that unset NODE_ENV in a production
-        // image does not attempt to load pino-pretty (a devDependency only).
-        ...(process.env['NODE_ENV'] === 'development'
-          ? { transport: { target: 'pino-pretty' } }
-          : {}),
-      },
-    }),
-    HealthModule,
-  ],
+  imports: [AppConfigModule, AppLoggerModule, PrismaModule, RedisModule, HealthModule],
   controllers: [],
   providers: [],
 })

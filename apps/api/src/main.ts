@@ -7,6 +7,10 @@
  * cookie delivery by @bymax-one/nest-auth), the `/api` global prefix, a global
  * ValidationPipe, and graceful shutdown hooks.
  *
+ * Phase 5: Migrates `API_PORT` and `WEB_ORIGIN` from `process.env.*` reads to
+ * `ConfigService<Env, true>`, eliminating the risk of silent `undefined` values
+ * that bypassed Zod validation.
+ *
  * @layer bootstrap
  */
 
@@ -15,38 +19,19 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ExpressAdapter } from '@nestjs/platform-express';
+import { ConfigService } from '@nestjs/config';
 import { Logger } from 'nestjs-pino';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module.js';
-
-/**
- * Validates that a port value is a usable integer in the range 1–65535.
- *
- * Uses `process.env.API_PORT` directly because ConfigService (Phase 5) is not
- * available yet at bootstrap time. Phase 5 migrates this to ConfigService with
- * a Zod coerce.number().int().min(1).max(65535) refinement.
- *
- * @returns A validated port number; throws on invalid input to prevent silent misrouting.
- */
-function resolvePort(): number {
-  const raw = process.env['API_PORT'] ?? '4000';
-  const port = Number(raw);
-
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error(`Invalid API_PORT "${raw}": must be an integer in the range 1–65535`);
-  }
-
-  return port;
-}
+import type { Env } from './config/env.schema.js';
 
 /**
  * Bootstrap the NestJS application.
  *
- * Phase 3 reads WEB_ORIGIN and API_PORT directly from process.env.
- * TODO(phase-5): migrate both to ConfigService<Env, true> once ConfigModule
- * with the Zod env schema is in place.
+ * Reads `API_PORT` and `WEB_ORIGIN` from `ConfigService<Env, true>` after the
+ * application module is created so the Zod-validated values are always used.
  */
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, new ExpressAdapter(), {
@@ -58,19 +43,19 @@ async function bootstrap(): Promise<void> {
   app.useLogger(pinoLogger);
   app.flushLogs();
 
+  const config = app.get<ConfigService<Env, true>>(ConfigService);
+
   // Helmet sets secure response headers (X-Content-Type-Options, X-Frame-Options,
   // Strict-Transport-Security, Referrer-Policy, etc.) before any route responds.
   app.use(helmet());
 
   // CORS is restricted to the single WEB_ORIGIN; credentials are required for
   // the HttpOnly cookie-based token delivery used by @bymax-one/nest-auth.
-  // Phase 12 adds the Next.js proxy layer on top; the API keeps its own CORS
-  // guard regardless so it is safe when called directly.
-  const webOrigin = process.env['WEB_ORIGIN'];
+  const webOrigin = config.getOrThrow<string>('WEB_ORIGIN');
   app.enableCors({
-    origin: webOrigin ?? false,
+    origin: webOrigin,
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
     allowedHeaders: ['Content-Type', 'X-Tenant-Id', 'X-Request-Id'],
   });
 
@@ -84,15 +69,23 @@ async function bootstrap(): Promise<void> {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
-      transformOptions: { enableImplicitConversion: true },
+      transformOptions: { enableImplicitConversion: false },
     }),
   );
 
   app.enableShutdownHooks();
 
-  const port = resolvePort();
+  const port = config.getOrThrow<number>('API_PORT');
+
   await app.listen(port);
   pinoLogger.log(`API listening on :${port}`, 'Bootstrap');
 }
 
-void bootstrap();
+bootstrap().catch((err: unknown) => {
+  // Bootstrap-level crash — Pino is not yet initialised, so write only the
+  // error message (never the full chain) to stderr to avoid accidentally
+  // printing raw process.env values captured by some config loaders.
+  const message = err instanceof Error ? err.message : String(err);
+  process.stderr.write(`[Bootstrap] Fatal startup error: ${message}\n`);
+  process.exit(1);
+});

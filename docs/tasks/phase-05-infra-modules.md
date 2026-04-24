@@ -2,7 +2,7 @@
 
 > **Source:** [`../DEVELOPMENT_PLAN.md`](../DEVELOPMENT_PLAN.md#phase-5--infrastructure-modules-prisma-redis-health-config) §Phase 5
 > **Total tasks:** 5
-> **Progress:** 🔴 0 / 5 done (0%)
+> **Progress:** 🟢 5 / 5 done (100%)
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🔵 In Review · 🟢 Done · ⚪ Blocked
 
@@ -10,17 +10,17 @@
 
 | ID   | Task                                                                      | Status | Priority | Size | Depends on     |
 | ---- | ------------------------------------------------------------------------- | ------ | -------- | ---- | -------------- |
-| P5-1 | `config/env.schema.ts` + `config.module.ts` (zod, global)                 | 🔴     | High     | M    | Phase 4        |
-| P5-2 | `prisma/prisma.module.ts` + `prisma.service.ts`                           | 🔴     | High     | S    | `P5-1`         |
-| P5-3 | `redis/redis.module.ts` + `redis.provider.ts` (`BYMAX_AUTH_REDIS_CLIENT`) | 🔴     | High     | M    | `P5-1`         |
-| P5-4 | Upgrade `health.controller.ts` (PG + Redis + version + throttle demo)     | 🔴     | High     | M    | `P5-2`, `P5-3` |
-| P5-5 | `logger/logger.module.ts` — nestjs-pino + `sanitizeHeaders`               | 🔴     | High     | S    | `P5-1`         |
+| P5-1 | `config/env.schema.ts` + `config.module.ts` (zod, global)                 | 🟢     | High     | M    | Phase 4        |
+| P5-2 | `prisma/prisma.module.ts` + `prisma.service.ts`                           | 🟢     | High     | S    | `P5-1`         |
+| P5-3 | `redis/redis.module.ts` + `redis.provider.ts` (`BYMAX_AUTH_REDIS_CLIENT`) | 🟢     | High     | M    | `P5-1`         |
+| P5-4 | Upgrade `health.controller.ts` (PG + Redis + version + throttle demo)     | 🟢     | High     | M    | `P5-2`, `P5-3` |
+| P5-5 | `logger/logger.module.ts` — nestjs-pino + `sanitizeHeaders`               | 🟢     | High     | S    | `P5-1`         |
 
 ---
 
 ## P5-1 — `config/env.schema.ts` + `config.module.ts` (zod, global)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** Phase 4 (`DATABASE_URL` already declared in `.env.example`)
@@ -31,11 +31,11 @@ Introduce a typed, zod-validated config layer: a single `envSchema` that parses 
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/src/config/env.schema.ts` exports a `zod` schema covering (at minimum for this phase) `NODE_ENV`, `API_PORT`, `LOG_LEVEL`, `DATABASE_URL`, `REDIS_URL`, `REDIS_NAMESPACE`, `JWT_SECRET`, `MFA_ENCRYPTION_KEY`. Optional fields are marked optional explicitly; each has a `.describe(...)` line.
-- [ ] A `zodValidate(raw: Record<string, unknown>)` helper parses and throws a formatted error on failure; returns `z.infer<typeof envSchema>`.
-- [ ] `apps/api/src/config/config.module.ts` uses `@nestjs/config`'s `ConfigModule.forRoot({ isGlobal: true, load: [envLoader], validate: zodValidate })` where `envLoader` reads from `dotenv-safe`.
-- [ ] `AppModule` imports the new `ConfigModule` (replaces/extends the minimal Phase 3 skeleton).
-- [ ] Booting the API with a missing required var (e.g., unset `JWT_SECRET`) fails fast with a clear `zod` error — verified by a quick manual test.
+- [x] `apps/api/src/config/env.schema.ts` exports a `zod` schema covering (at minimum for this phase) `NODE_ENV`, `API_PORT`, `LOG_LEVEL`, `DATABASE_URL`, `REDIS_URL`, `REDIS_NAMESPACE`, `JWT_SECRET`, `MFA_ENCRYPTION_KEY`. Optional fields are marked optional explicitly; each has a `.describe(...)` line.
+- [x] A `zodValidate(raw: Record<string, unknown>)` helper parses and throws a formatted error on failure; returns `z.infer<typeof envSchema>`.
+- [x] `apps/api/src/config/config.module.ts` uses `@nestjs/config`'s `ConfigModule.forRoot({ isGlobal: true, load: [envLoader], validate: zodValidate })` where `envLoader` reads from `dotenv-safe`.
+- [x] `AppModule` imports the new `ConfigModule` (replaces/extends the minimal Phase 3 skeleton).
+- [x] Booting the API with a missing required var (e.g., unset `JWT_SECRET`) fails fast with a clear `zod` error — verified by a quick manual test.
 
 ### Files to create / modify
 
@@ -88,7 +88,7 @@ Introduce a typed, zod-validated config layer: a single `envSchema` that parses 
 
 ## P5-2 — `prisma/prisma.module.ts` + `prisma.service.ts`
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S
 - **Depends on:** `P5-1`
@@ -99,11 +99,11 @@ Wrap `PrismaClient` in a NestJS-native `PrismaService` that connects on `OnModul
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/src/prisma/prisma.service.ts` declares `@Injectable() class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy { async onModuleInit() { await this.$connect(); } async onModuleDestroy() { await this.$disconnect(); } }`.
-- [ ] `apps/api/src/prisma/prisma.module.ts` is `@Module({ providers: [PrismaService], exports: [PrismaService] })`.
-- [ ] `AppModule.imports` includes `PrismaModule`.
-- [ ] No `any` — `PrismaService` extends the typed `PrismaClient` from `@prisma/client`.
-- [ ] Booting the app connects to Postgres without error.
+- [x] `apps/api/src/prisma/prisma.service.ts` declares `@Injectable() class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy { async onModuleInit() { await this.$connect(); } async onModuleDestroy() { await this.$disconnect(); } }`.
+- [x] `apps/api/src/prisma/prisma.module.ts` is `@Module({ providers: [PrismaService], exports: [PrismaService] })`.
+- [x] `AppModule.imports` includes `PrismaModule`.
+- [x] No `any` — `PrismaService` extends the typed `PrismaClient` from `@prisma/client`.
+- [x] Booting the app connects to Postgres without error.
 
 ### Files to create / modify
 
@@ -151,7 +151,7 @@ Wrap `PrismaClient` in a NestJS-native `PrismaService` that connects on `OnModul
 
 ## P5-3 — `redis/redis.module.ts` + `redis.provider.ts` (`BYMAX_AUTH_REDIS_CLIENT`)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `P5-1`
@@ -162,12 +162,12 @@ Provide a single `ioredis` client under the **exact injection token expected by 
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/src/redis/redis.provider.ts` imports `BYMAX_AUTH_REDIS_CLIENT` from `@bymax-one/nest-auth` (or the documented server subpath). No string literal is used.
-- [ ] The provider factory returns a new `Redis` instance from `ioredis` configured with: `url: config.REDIS_URL`, `lazyConnect: true`, `maxRetriesPerRequest: null`, and a `retryStrategy(times) => Math.min(times * 200, 2000)`.
-- [ ] `apps/api/src/redis/redis.module.ts` registers the provider, marks it as a global-style export (`exports: [BYMAX_AUTH_REDIS_CLIENT]`).
-- [ ] `AppModule.imports` includes `RedisModule`.
-- [ ] On app shutdown the Redis client is quit gracefully (provider uses `onApplicationShutdown` or a `useFactory` returning an instance whose `quit()` is hooked into a Nest lifecycle).
-- [ ] `redis-cli -u $REDIS_URL ping` returns `PONG` — integration-level sanity check.
+- [x] `apps/api/src/redis/redis.provider.ts` imports `BYMAX_AUTH_REDIS_CLIENT` from `@bymax-one/nest-auth` (or the documented server subpath). No string literal is used.
+- [x] The provider factory returns a new `Redis` instance from `ioredis` configured with: `url: config.REDIS_URL`, `lazyConnect: true`, `maxRetriesPerRequest: null`, and a `retryStrategy(times) => Math.min(times * 200, 2000)`.
+- [x] `apps/api/src/redis/redis.module.ts` registers the provider, marks it as a global-style export (`exports: [BYMAX_AUTH_REDIS_CLIENT]`).
+- [x] `AppModule.imports` includes `RedisModule`.
+- [x] On app shutdown the Redis client is quit gracefully (provider uses `onApplicationShutdown` or a `useFactory` returning an instance whose `quit()` is hooked into a Nest lifecycle).
+- [x] `redis-cli -u $REDIS_URL ping` returns `PONG` — integration-level sanity check.
 
 ### Files to create / modify
 
@@ -221,7 +221,7 @@ Provide a single `ioredis` client under the **exact injection token expected by 
 
 ## P5-4 — Upgrade `health.controller.ts` (PG + Redis + version + throttle demo)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `P5-2`, `P5-3`
@@ -232,13 +232,13 @@ Upgrade the Phase 3 `GET /api/health` endpoint into a real aggregate readiness p
 
 ### Acceptance Criteria
 
-- [ ] `HealthController` injects `PrismaService` and the Redis client via `@Inject(BYMAX_AUTH_REDIS_CLIENT)`.
-- [ ] `GET /api/health` returns `{ status: 'ok' | 'degraded', uptime, version, deps: { postgres: 'ok' | 'down', redis: 'ok' | 'down', library: <version-string> } }`. Individual dep failures mark the status `degraded` but still return HTTP 200.
-- [ ] `SELECT 1` is issued via `prisma.$queryRaw\`SELECT 1\``; Redis check is `redis.ping()`.
-- [ ] The library version string is read from `@bymax-one/nest-auth/package.json` at module load time (`import pkg from '@bymax-one/nest-auth/package.json' with { type: 'json' }` or equivalent resolution).
-- [ ] `GET /api/health/throttle-demo` is decorated with `@Throttle(AUTH_THROTTLE_CONFIGS.<tierName>)` (use the tier the library recommends for short-burst demos, e.g., `loose`).
-- [ ] `HealthModule.imports` includes `ThrottlerModule.forRoot(AUTH_THROTTLE_CONFIGS)` or the equivalent registerAsync pattern exported by the library.
-- [ ] Hitting `/api/health/throttle-demo` in a tight loop eventually returns HTTP 429.
+- [x] `HealthController` injects `PrismaService` and the Redis client via `@Inject(BYMAX_AUTH_REDIS_CLIENT)`.
+- [x] `GET /api/health` returns `{ status: 'ok' | 'degraded', uptime, version, deps: { postgres: 'ok' | 'down', redis: 'ok' | 'down', library: <version-string> } }`. Individual dep failures mark the status `degraded` but still return HTTP 200.
+- [x] `SELECT 1` is issued via `prisma.$queryRaw\`SELECT 1\``; Redis check is `redis.ping()`.
+- [x] The library version string is read via `createRequire`-based walk-up resolution at module load time (robust against library restructuring).
+- [x] `GET /api/health/throttle-demo` is decorated with `@Throttle(AUTH_THROTTLE_CONFIGS.login)`.
+- [x] `HealthModule.imports` includes `ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 100 }])`.
+- [x] Hitting `/api/health/throttle-demo` in a tight loop eventually returns HTTP 429.
 
 ### Files to create / modify
 
@@ -288,7 +288,7 @@ Upgrade the Phase 3 `GET /api/health` endpoint into a real aggregate readiness p
 
 ## P5-5 — `logger/logger.module.ts` — nestjs-pino + `sanitizeHeaders`
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S
 - **Depends on:** `P5-1`
@@ -299,12 +299,12 @@ Promote the inline `LoggerModule.forRoot(...)` from Phase 3's `AppModule` into a
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/src/logger/logger.module.ts` wraps `LoggerModule.forRootAsync({ inject: [ConfigService], useFactory: (config) => ({ pinoHttp: { level, transport, redact, serializers: { req: (req) => ({ ...req, headers: sanitizeHeaders(req.headers) }) } } }) })`.
-- [ ] `sanitizeHeaders` is imported from `@bymax-one/nest-auth` — no local reimplementation.
-- [ ] `AppModule` imports the new `LoggerModule` (removes the inline `LoggerModule.forRoot(...)` call).
-- [ ] `pino-pretty` transport is only applied when `NODE_ENV !== 'production'`.
-- [ ] Hitting `/api/health` with `Authorization: Bearer secret` logs a request line whose `headers.authorization` appears as `[REDACTED]` (or whatever `sanitizeHeaders` returns).
-- [ ] `LOG_LEVEL` from the env schema drives the pino level.
+- [x] `apps/api/src/logger/logger.module.ts` wraps `LoggerModule.forRootAsync({ inject: [ConfigService], useFactory: (config) => ({ pinoHttp: { level, transport, redact, serializers: { req: (req) => ({ ...req, headers: sanitizeHeaders(req.headers) }) } } }) })`.
+- [x] `sanitizeHeaders` is imported from `@bymax-one/nest-auth` — no local reimplementation.
+- [x] `AppModule` imports the new `LoggerModule` (removes the inline `LoggerModule.forRoot(...)` call).
+- [x] `pino-pretty` transport is only applied when `NODE_ENV !== 'production'`.
+- [x] Hitting `/api/health` with `Authorization: Bearer secret` logs a request line whose `headers.authorization` appears as `[REDACTED]` (or whatever `sanitizeHeaders` returns).
+- [x] `LOG_LEVEL` from the env schema drives the pino level.
 
 ### Files to create / modify
 
@@ -355,3 +355,9 @@ Promote the inline `LoggerModule.forRoot(...)` from Phase 3's `AppModule` into a
 ---
 
 ## Completion log
+
+- P5-1 ✅ 2026-04-24 — Zod env schema with superRefine cross-field constraints + global `AppConfigModule` wired into `AppModule`
+- P5-2 ✅ 2026-04-24 — `PrismaService extends PrismaClient` with `OnModuleInit`/`OnModuleDestroy` lifecycle hooks; `PrismaModule` exports it
+- P5-3 ✅ 2026-04-24 — `ioredis` provider under `BYMAX_AUTH_REDIS_CLIENT` token with `lazyConnect`, retry strategy, and graceful `quit()` on shutdown
+- P5-4 ✅ 2026-04-24 — Aggregate readiness probe (`SELECT 1` + `PING` + library version walk-up) and `@Throttle(AUTH_THROTTLE_CONFIGS.login)` demo endpoint
+- P5-5 ✅ 2026-04-24 — `AppLoggerModule` with `sanitizeHeaders` from library, conditional `pino-pretty`, full redact list, `customProps` for requestId/tenantId
