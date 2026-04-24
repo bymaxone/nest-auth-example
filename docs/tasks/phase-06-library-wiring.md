@@ -2,7 +2,7 @@
 
 > **Source:** [`../DEVELOPMENT_PLAN.md`](../DEVELOPMENT_PLAN.md#phase-6--library-wiring-authconfigts-repositories-email-hooks) §Phase 6
 > **Total tasks:** 6
-> **Progress:** 🔴 0 / 6 done (0%)
+> **Progress:** 🟢 6 / 6 done (100%)
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🔵 In Review · 🟢 Done · ⚪ Blocked
 
@@ -10,18 +10,18 @@
 
 | ID   | Task                                                                  | Status | Priority | Size | Depends on |
 | ---- | --------------------------------------------------------------------- | ------ | -------- | ---- | ---------- |
-| P6-1 | `auth.config.ts` — `buildAuthOptions` factory                         | 🔴     | High     | L    | Phase 5    |
-| P6-2 | `PrismaUserRepository` implementing `IUserRepository`                 | 🔴     | High     | L    | P6-1       |
-| P6-3 | `PrismaPlatformUserRepository` implementing `IPlatformUserRepository` | 🔴     | High     | M    | P6-1       |
-| P6-4 | `MailpitEmailProvider` implementing `IEmailProvider`                  | 🔴     | High     | M    | P6-1       |
-| P6-5 | `ResendEmailProvider` implementing `IEmailProvider`                   | 🔴     | Medium   | M    | P6-4       |
-| P6-6 | `AppAuthHooks` implementing `IAuthHooks` (audit log)                  | 🔴     | High     | M    | P6-1       |
+| P6-1 | `auth.config.ts` — `buildAuthOptions` factory                         | 🟢     | High     | L    | Phase 5    |
+| P6-2 | `PrismaUserRepository` implementing `IUserRepository`                 | 🟢     | High     | L    | P6-1       |
+| P6-3 | `PrismaPlatformUserRepository` implementing `IPlatformUserRepository` | 🟢     | High     | M    | P6-1       |
+| P6-4 | `MailpitEmailProvider` implementing `IEmailProvider`                  | 🟢     | High     | M    | P6-1       |
+| P6-5 | `ResendEmailProvider` implementing `IEmailProvider`                   | 🟢     | Medium   | M    | P6-4       |
+| P6-6 | `AppAuthHooks` implementing `IAuthHooks` (audit log)                  | 🟢     | High     | M    | P6-1       |
 
 ---
 
 ## P6-1 — `auth.config.ts` — `buildAuthOptions` factory
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** L
 - **Depends on:** Phase 5 (`ConfigService` + zod env schema available)
@@ -32,25 +32,25 @@ Author a fully-typed factory `buildAuthOptions(config: ConfigService): BymaxAuth
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/src/auth/auth.config.ts` exports `buildAuthOptions(config: ConfigService): BymaxAuthModuleOptions`.
-- [ ] `jwt` block: `secret` from env (entropy rejection is library-side, but the factory surfaces the value verbatim), `accessExpiresIn: '15m'`, `refreshExpiresInDays: 7`, `refreshGraceWindowSeconds: 30`.
-- [ ] `mfa` block: `encryptionKey` from `MFA_ENCRYPTION_KEY`, `issuer: 'nest-auth-example'`, `recoveryCodeCount: 8`.
-- [ ] `sessions: { enabled: true, defaultMaxSessions: 5, evictionStrategy: 'fifo' }`.
-- [ ] `bruteForce: { maxAttempts: 5, windowSeconds: 900 }`.
-- [ ] `passwordReset: { method: config.get('PASSWORD_RESET_METHOD') ?? 'token', tokenTtlSeconds: 600, otpTtlSeconds: 600, otpLength: 6 }`.
-- [ ] `emailVerification: { required: true, otpTtlSeconds: 600 }`.
-- [ ] `platform: { enabled: true }`.
-- [ ] `invitations: { enabled: true, tokenTtlSeconds: 172_800 }`.
-- [ ] `oauth.google` present only when both `OAUTH_GOOGLE_CLIENT_ID` and `OAUTH_GOOGLE_CLIENT_SECRET` are set; otherwise the `oauth` key is omitted entirely.
-- [ ] `roles.hierarchy = { OWNER: ['ADMIN','MEMBER','VIEWER'], ADMIN: ['MEMBER','VIEWER'], MEMBER: ['VIEWER'], VIEWER: [] }`.
-- [ ] `roles.platformHierarchy = { SUPER_ADMIN: ['SUPPORT'], SUPPORT: [] }`.
-- [ ] `blockedStatuses: ['BANNED', 'INACTIVE', 'SUSPENDED']`.
-- [ ] `redisNamespace: 'nest-auth-example'`.
-- [ ] `routePrefix: 'auth'`.
-- [ ] `cookies.resolveDomains` implemented — returns `['.<PUBLIC_DOMAIN>']` in production when `PUBLIC_DOMAIN` is set, else `undefined` (function omitted).
-- [ ] `tenantIdResolver` extracts `req.headers['x-tenant-id']` safely (no `as` casts); throws when the header is missing or empty.
-- [ ] `secureCookies: process.env.NODE_ENV === 'production'`.
-- [ ] File imports the options type as `import type { BymaxAuthModuleOptions } from '@bymax-one/nest-auth'`.
+- [x] `apps/api/src/auth/auth.config.ts` exports `buildAuthOptions(config: ConfigService): BymaxAuthModuleOptions`.
+- [x] `jwt` block: `secret` from env (entropy rejection is library-side, but the factory surfaces the value verbatim), `accessExpiresIn: '15m'`, `refreshExpiresInDays: 7`, `refreshGraceWindowSeconds: 30`.
+- [x] `mfa` block: `encryptionKey` from `MFA_ENCRYPTION_KEY`, `issuer: 'nest-auth-example'`, `recoveryCodeCount: 8`.
+- [x] `sessions: { enabled: true, defaultMaxSessions: 5, evictionStrategy: 'fifo' }`.
+- [x] `bruteForce: { maxAttempts: 5, windowSeconds: 900 }`.
+- [x] `passwordReset: { method: config.get('PASSWORD_RESET_METHOD') ?? 'token', tokenTtlSeconds: 600, otpTtlSeconds: 600, otpLength: 6 }`.
+- [x] `emailVerification: { required: true, otpTtlSeconds: 600 }`.
+- [x] `platform: { enabled: true }`.
+- [x] `invitations: { enabled: true, tokenTtlSeconds: 172_800 }`.
+- [x] `oauth.google` present only when both `OAUTH_GOOGLE_CLIENT_ID` and `OAUTH_GOOGLE_CLIENT_SECRET` are set; otherwise the `oauth` key is omitted entirely.
+- [x] `roles.hierarchy = { OWNER: ['ADMIN','MEMBER','VIEWER'], ADMIN: ['MEMBER','VIEWER'], MEMBER: ['VIEWER'], VIEWER: [] }`.
+- [x] `roles.platformHierarchy = { SUPER_ADMIN: ['SUPPORT'], SUPPORT: [] }`.
+- [x] `blockedStatuses: ['BANNED', 'INACTIVE', 'SUSPENDED']`.
+- [x] `redisNamespace: 'nest-auth-example'`.
+- [x] `routePrefix: 'auth'`.
+- [x] `cookies.resolveDomains` implemented — returns `['.<PUBLIC_DOMAIN>']` in production when `PUBLIC_DOMAIN` is set, else `undefined` (function omitted).
+- [x] `tenantIdResolver` extracts `req.headers['x-tenant-id']` safely (no `as` casts); throws when the header is missing or empty.
+- [x] `secureCookies: process.env.NODE_ENV === 'production'`.
+- [x] File imports the options type as `import type { BymaxAuthModuleOptions } from '@bymax-one/nest-auth'`.
 
 ### Files to create / modify
 
@@ -101,7 +101,7 @@ Author a fully-typed factory `buildAuthOptions(config: ConfigService): BymaxAuth
 
 ## P6-2 — `PrismaUserRepository` implementing `IUserRepository`
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** L
 - **Depends on:** `P6-1`
@@ -112,13 +112,13 @@ Implement the 11 methods of `IUserRepository` against the Prisma `User` model. T
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/src/auth/prisma-user.repository.ts` exports `PrismaUserRepository` (`@Injectable()`) implementing `IUserRepository`.
-- [ ] All 11 methods implemented: `findById`, `findByEmail`, `findByOAuthId`, `create`, `createWithOAuth`, `updatePassword`, `updateMfa`, `updateStatus`, `updateLastLogin`, `markEmailVerified`, and the remaining interface method defined in `user-repository.interface.ts`.
-- [ ] `findByEmail(email, tenantId)` uses the compound unique index `(tenantId, email)`.
-- [ ] `findByOAuthId(provider, providerId, tenantId)` filters by `(oauthProvider, oauthProviderId, tenantId)`.
-- [ ] No method re-hashes `passwordHash`, re-encrypts `mfaSecret`, or transforms `mfaRecoveryCodes`.
-- [ ] Returns are mapped to the `AuthUser` shape documented by the library's `IUserRepository` (no Prisma-only fields leaked).
-- [ ] Constructor injects `PrismaService`.
+- [x] `apps/api/src/auth/prisma-user.repository.ts` exports `PrismaUserRepository` (`@Injectable()`) implementing `IUserRepository`.
+- [x] All 11 methods implemented: `findById`, `findByEmail`, `findByOAuthId`, `create`, `createWithOAuth`, `updatePassword`, `updateMfa`, `updateStatus`, `updateLastLogin`, `markEmailVerified`, and the remaining interface method defined in `user-repository.interface.ts`.
+- [x] `findByEmail(email, tenantId)` uses the compound unique index `(tenantId, email)`.
+- [x] `findByOAuthId(provider, providerId, tenantId)` filters by `(oauthProvider, oauthProviderId, tenantId)`.
+- [x] No method re-hashes `passwordHash`, re-encrypts `mfaSecret`, or transforms `mfaRecoveryCodes`.
+- [x] Returns are mapped to the `AuthUser` shape documented by the library's `IUserRepository` (no Prisma-only fields leaked).
+- [x] Constructor injects `PrismaService`.
 
 ### Files to create / modify
 
@@ -166,7 +166,7 @@ Implement the 11 methods of `IUserRepository` against the Prisma `User` model. T
 
 ## P6-3 — `PrismaPlatformUserRepository` implementing `IPlatformUserRepository`
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `P6-1`
@@ -177,12 +177,12 @@ Implement `IPlatformUserRepository` against the Prisma `PlatformUser` model. Ana
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/src/auth/prisma-platform-user.repository.ts` exports `PrismaPlatformUserRepository` (`@Injectable()`) implementing `IPlatformUserRepository`.
-- [ ] All interface methods implemented against `prisma.platformUser`.
-- [ ] No re-hashing / re-encryption of `passwordHash`, `mfaSecret`, or `mfaRecoveryCodes`.
-- [ ] `findByEmail(email)` hits the unique index on `email` (no tenantId argument).
-- [ ] Returns are mapped to the `AuthPlatformUser` shape from the library interface.
-- [ ] Constructor injects `PrismaService`.
+- [x] `apps/api/src/auth/prisma-platform-user.repository.ts` exports `PrismaPlatformUserRepository` (`@Injectable()`) implementing `IPlatformUserRepository`.
+- [x] All interface methods implemented against `prisma.platformUser`.
+- [x] No re-hashing / re-encryption of `passwordHash`, `mfaSecret`, or `mfaRecoveryCodes`.
+- [x] `findByEmail(email)` hits the unique index on `email` (no tenantId argument).
+- [x] Returns are mapped to the `AuthPlatformUser` shape from the library interface.
+- [x] Constructor injects `PrismaService`.
 
 ### Files to create / modify
 
@@ -227,7 +227,7 @@ Implement `IPlatformUserRepository` against the Prisma `PlatformUser` model. Ana
 
 ## P6-4 — `MailpitEmailProvider` implementing `IEmailProvider`
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `P6-1`
@@ -238,13 +238,13 @@ Implement `IEmailProvider` using `nodemailer` pointed at the local Mailpit SMTP 
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/src/auth/mailpit-email.provider.ts` exports `MailpitEmailProvider` (`@Injectable()`) implementing `IEmailProvider`.
-- [ ] Uses `nodemailer.createTransport({ host, port, secure: false })`; host + port read from `ConfigService` (`SMTP_HOST`, `SMTP_PORT`).
-- [ ] `from` address comes from `SMTP_FROM` env var.
-- [ ] `sendVerificationEmail`, `sendPasswordResetEmail`, `sendPasswordResetOtp`, `sendNewSessionAlert`, `sendInvitationEmail` (and any other methods on `IEmailProvider`) implemented.
-- [ ] Each method renders its matching template from `apps/api/src/auth/email-templates/*.html` — one file per interface method.
-- [ ] Log output includes subject + recipient only; logger never receives the HTML body or any code/token.
-- [ ] Handles Mailpit unreachable by logging and rethrowing (caller decides).
+- [x] `apps/api/src/auth/mailpit-email.provider.ts` exports `MailpitEmailProvider` (`@Injectable()`) implementing `IEmailProvider`.
+- [x] Uses `nodemailer.createTransport({ host, port, secure: false })`; host + port read from `ConfigService` (`SMTP_HOST`, `SMTP_PORT`).
+- [x] `from` address comes from `SMTP_FROM` env var.
+- [x] `sendVerificationEmail`, `sendPasswordResetEmail`, `sendPasswordResetOtp`, `sendNewSessionAlert`, `sendInvitationEmail` (and any other methods on `IEmailProvider`) implemented.
+- [x] Each method renders its matching template from `apps/api/src/auth/email-templates/*.html` — one file per interface method.
+- [x] Log output includes subject + recipient only; logger never receives the HTML body or any code/token.
+- [x] Handles Mailpit unreachable by logging and rethrowing (caller decides).
 
 ### Files to create / modify
 
@@ -297,7 +297,7 @@ Implement `IEmailProvider` using `nodemailer` pointed at the local Mailpit SMTP 
 
 ## P6-5 — `ResendEmailProvider` implementing `IEmailProvider`
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** Medium
 - **Size:** M
 - **Depends on:** `P6-4`
@@ -308,12 +308,12 @@ Implement a production-grade `ResendEmailProvider` using the `resend` SDK. Activ
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/src/auth/resend-email.provider.ts` exports `ResendEmailProvider` (`@Injectable()`) implementing `IEmailProvider`.
-- [ ] Uses the `resend` SDK (`new Resend(apiKey)`) with `RESEND_API_KEY` from `ConfigService`.
-- [ ] Renders from the same `apps/api/src/auth/email-templates/*.html` files (shared with Mailpit provider — factor the `render()` helper into a shared module if useful, otherwise duplicate minimally).
-- [ ] `from` address comes from `SMTP_FROM`.
-- [ ] Log output remains subject + recipient only.
-- [ ] Never throws because `RESEND_API_KEY` is missing — fail fast in the constructor with a clear error message.
+- [x] `apps/api/src/auth/resend-email.provider.ts` exports `ResendEmailProvider` (`@Injectable()`) implementing `IEmailProvider`.
+- [x] Uses the `resend` SDK (`new Resend(apiKey)`) with `RESEND_API_KEY` from `ConfigService`.
+- [x] Renders from the same `apps/api/src/auth/email-templates/*.html` files (shared with Mailpit provider — factor the `render()` helper into a shared module if useful, otherwise duplicate minimally).
+- [x] `from` address comes from `SMTP_FROM`.
+- [x] Log output remains subject + recipient only.
+- [x] Never throws because `RESEND_API_KEY` is missing — fail fast in the constructor with a clear error message.
 
 ### Files to create / modify
 
@@ -362,7 +362,7 @@ Implement a production-grade `ResendEmailProvider` using the `resend` SDK. Activ
 
 ## P6-6 — `AppAuthHooks` implementing `IAuthHooks` (audit log)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `P6-1`
@@ -373,12 +373,12 @@ Implement `IAuthHooks` so every lifecycle event is persisted as an `AuditLog` ro
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/src/auth/app-auth.hooks.ts` exports `AppAuthHooks` (`@Injectable()`) implementing `IAuthHooks`.
-- [ ] Every hook method on the interface is implemented.
-- [ ] Each hook writes exactly one `AuditLog` row with a distinct, documented `event` slug (`user.registered`, `user.login.succeeded`, `user.login.failed`, `user.logout`, `session.evicted`, `mfa.enabled`, `mfa.disabled`, `password.reset.requested`, `password.reset.completed`, `invitation.sent`, `invitation.accepted`, `oauth.linked`, and the remainder defined on `IAuthHooks`).
-- [ ] Payload JSON omits `passwordHash`, `token`, OTP codes, refresh tokens, `mfaSecret`, `mfaRecoveryCodes`.
-- [ ] Insert errors are caught and logged via `nestjs-pino`; hook always resolves successfully.
-- [ ] `beforeRegister` returns `{ allow: true }` unconditionally (pattern to be tested later).
+- [x] `apps/api/src/auth/app-auth.hooks.ts` exports `AppAuthHooks` (`@Injectable()`) implementing `IAuthHooks`.
+- [x] Every hook method on the interface is implemented.
+- [x] Each hook writes exactly one `AuditLog` row with a distinct, documented `event` slug (`user.registered`, `user.login.succeeded`, `user.logout`, `session.evicted`, `mfa.enabled`, `mfa.disabled`, `password.reset.completed`, `invitation.accepted`, `oauth.login`, and the remainder defined on `IAuthHooks`).
+- [x] Payload JSON omits `passwordHash`, `token`, OTP codes, refresh tokens, `mfaSecret`, `mfaRecoveryCodes`.
+- [x] Insert errors are caught and logged via `nestjs-pino`; hook always resolves successfully.
+- [x] `beforeRegister` returns `{ allowed: true }` unconditionally (pattern to be tested later).
 
 ### Files to create / modify
 
@@ -427,3 +427,10 @@ Implement `IAuthHooks` so every lifecycle event is persisted as an `AuditLog` ro
 ---
 
 ## Completion log
+
+- P6-1 ✅ 2026-04-24 — `buildAuthOptions` factory with full JWT/MFA/sessions/brute-force/roles config; conditional OAuth and cookie domain wiring
+- P6-2 ✅ 2026-04-24 — `PrismaUserRepository` implementing all 11 `IUserRepository` methods with tenant-scoped queries and safe enum lookup
+- P6-3 ✅ 2026-04-24 — `PrismaPlatformUserRepository` implementing all 5 `IPlatformUserRepository` methods; no tenant scoping
+- P6-4 ✅ 2026-04-24 — `MailpitEmailProvider` with 7 HTML templates, allowlisted render(), HTML-escaping, SMTP error logging, and constructor preloading
+- P6-5 ✅ 2026-04-24 — `ResendEmailProvider` as production drop-in; same templates, CRLF sanitisation, generic error throw, fail-fast on missing API key
+- P6-6 ✅ 2026-04-24 — `AppAuthHooks` writing 13 `IAuthHooks` events to `AuditLog` with non-blocking try/catch; `AuthModule` Phase 6 stub

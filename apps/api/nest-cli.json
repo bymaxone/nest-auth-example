@@ -4,6 +4,13 @@
   "sourceRoot": "src",
   "compilerOptions": {
     "tsConfigPath": "tsconfig.build.json",
-    "deleteOutDir": true
+    "deleteOutDir": true,
+    "assets": [
+      {
+        "include": "auth/email-templates/**/*.html",
+        "outDir": "dist",
+        "watchAssets": true
+      }
+    ]
   }
 }

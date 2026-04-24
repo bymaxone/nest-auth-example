@@ -16,6 +16,19 @@ export default tseslint.config(
         tsconfigRootDir: import.meta.dirname,
       },
     },
+    rules: {
+      // Allow intentionally unused parameters/variables prefixed with `_`.
+      // This is the standard TypeScript convention for satisfying interface
+      // contracts where a parameter is structurally required but unused.
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
+    },
   },
   prettier,
 );

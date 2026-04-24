@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>You've been invited — nest-auth-example</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f9fafb; margin: 0; padding: 40px 16px; }
+    .card { background: #ffffff; border-radius: 8px; max-width: 520px; margin: 0 auto; padding: 40px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .brand { font-size: 18px; font-weight: 700; color: #1e293b; margin-bottom: 32px; }
+    h1 { font-size: 22px; font-weight: 600; color: #1e293b; margin: 0 0 12px; }
+    p { font-size: 15px; color: #475569; line-height: 1.6; margin: 0 0 20px; }
+    .org-name { font-weight: 700; color: #1e293b; }
+    .btn { display: inline-block; background: #2563eb; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 6px; font-size: 15px; font-weight: 600; margin: 16px 0; }
+    .url-fallback { font-size: 12px; color: #64748b; word-break: break-all; }
+    .expiry { font-size: 13px; color: #64748b; }
+    .footer { font-size: 12px; color: #94a3b8; margin-top: 32px; border-top: 1px solid #e2e8f0; padding-top: 20px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">nest-auth-example</div>
+    <h1>You've been invited</h1>
+    <p><strong>{{inviterName}}</strong> has invited you to join <span class="org-name">{{tenantName}}</span> on nest-auth-example.</p>
+
+    <p>Click the button below to accept the invitation and set up your account.</p>
+
+    <a class="btn" href="{{acceptUrl}}">Accept invitation</a>
+
+    <p class="expiry">This invitation expires on {{expiresAt}}.</p>
+
+    <p>If the button doesn't work, copy and paste this URL into your browser:</p>
+    <p class="url-fallback">{{acceptUrl}}</p>
+
+    <p>If you weren't expecting this invitation, you can safely ignore this email.</p>
+
+    <div class="footer">
+      This is an automated message from nest-auth-example. Do not reply to this email.
+    </div>
+  </div>
+</body>
+</html>

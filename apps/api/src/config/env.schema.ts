@@ -136,12 +136,16 @@ const base = z.object({
     .default(1025)
     .describe('SMTP port (Mailpit dev default: 1025)'),
 
-  /** From address for all outgoing emails. */
+  /**
+   * Sender address for all outbound emails — used by both Mailpit and Resend providers.
+   *
+   * When `EMAIL_PROVIDER=resend` this address must be verified in the Resend dashboard.
+   * The default is for local dev only; set a real verified address for production.
+   */
   SMTP_FROM: z
-    .string()
     .email()
     .default('no-reply@nest-auth-example.dev')
-    .describe('From address for outbound emails'),
+    .describe('Sender address for all outbound emails (must be Resend-verified in production)'),
 
   /** Resend API key. Required only when `EMAIL_PROVIDER=resend`. */
   RESEND_API_KEY: z
@@ -167,6 +171,35 @@ const base = z.object({
     .url()
     .optional()
     .describe('Google OAuth redirect URL — required when OAuth is enabled'),
+
+  // ---------------------------------------------------------------------------
+  // Password reset
+  // ---------------------------------------------------------------------------
+  /**
+   * Password reset delivery method.
+   *
+   * `token` (default) sends a signed link; `otp` sends a short numeric code.
+   * Both modes are available in this example to cover FCM rows #6 and #7.
+   */
+  PASSWORD_RESET_METHOD: z
+    .enum(['token', 'otp'])
+    .default('token')
+    .describe('Password reset method: token (link via email) | otp (numeric code via email)'),
+
+  // ---------------------------------------------------------------------------
+  // Cookie domain (production only)
+  // ---------------------------------------------------------------------------
+  /**
+   * Public domain used by `cookies.resolveDomains` to set the cookie `Domain`
+   * attribute for all sub-domains (e.g. `example.com` → cookie on `.example.com`).
+   *
+   * Only effective in production and only when set. Leave unset in local dev.
+   */
+  PUBLIC_DOMAIN: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Public apex domain for cookie domain resolution in production'),
 });
 
 /**
