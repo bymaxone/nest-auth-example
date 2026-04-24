@@ -30,5 +30,20 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // Relax unsafe-type rules in test files: Jest globals (describe/it/expect) and
+    // supertest response objects are unresolvable at the ESLint level without full
+    // jest type augmentation, producing false-positive no-unsafe-* errors.
+    files: ['**/*.spec.ts', '**/*.e2e-spec.ts', '**/test/**/*.ts'],
+    languageOptions: {
+      globals: { ...globals.node, ...globals.jest },
+    },
+    rules: {
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+    },
+  },
   prettier,
 );

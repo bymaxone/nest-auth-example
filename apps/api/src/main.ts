@@ -25,6 +25,7 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module.js';
+import { AuthExceptionFilter } from './auth/auth-exception.filter.js';
 import type { Env } from './config/env.schema.js';
 
 /**
@@ -72,6 +73,11 @@ async function bootstrap(): Promise<void> {
       transformOptions: { enableImplicitConversion: false },
     }),
   );
+
+  // Maps every AuthException from @bymax-one/nest-auth to { code, message, statusCode }
+  // so the frontend error-code map (apps/web/lib/auth-errors.ts) has a deterministic
+  // response envelope. Must be registered before the app starts listening.
+  app.useGlobalFilters(new AuthExceptionFilter());
 
   app.enableShutdownHooks();
 

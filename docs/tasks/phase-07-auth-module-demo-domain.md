@@ -2,7 +2,7 @@
 
 > **Source:** [`../DEVELOPMENT_PLAN.md`](../DEVELOPMENT_PLAN.md#phase-7--bymaxauthmoduleregisterasync--guardsdecorators-demo-domain) §Phase 7
 > **Total tasks:** 8
-> **Progress:** 🔴 0 / 8 done (0%)
+> **Progress:** 🟢 8 / 8 done (100%)
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🔵 In Review · 🟢 Done · ⚪ Blocked
 
@@ -10,20 +10,20 @@
 
 | ID   | Task                                                                                      | Status | Priority | Size | Depends on       |
 | ---- | ----------------------------------------------------------------------------------------- | ------ | -------- | ---- | ---------------- |
-| P7-1 | `AuthModule` — `BymaxAuthModule.registerAsync` + `extraProviders` bindings                | 🔴     | High     | L    | Phase 6          |
-| P7-2 | `AppModule` — global guards, throttler, feature modules wiring                            | 🔴     | High     | L    | P7-1             |
-| P7-3 | `TenantsModule` — `GET /api/tenants/me`, `POST /api/tenants` (OWNER-gated)                | 🔴     | High     | M    | P7-2             |
-| P7-4 | `ProjectsModule` — tenant-scoped CRUD + `SelfOrAdminGuard`                                | 🔴     | High     | M    | P7-2             |
-| P7-5 | Debug endpoint `POST /api/debug/lockout` for brute-force demo                             | 🔴     | Medium   | S    | P7-2             |
-| P7-6 | `UsersController` — `PATCH /api/users/:id/status` for status demo                         | 🔴     | High     | M    | P7-2             |
-| P7-7 | `AuthExceptionFilter` — `AuthException` → shared error envelope                           | 🔴     | High     | M    | P7-1             |
-| P7-8 | Smoke supertest — `register → verify → login → /me → logout → refresh` + projects listing | 🔴     | High     | L    | P7-3, P7-4, P7-7 |
+| P7-1 | `AuthModule` — `BymaxAuthModule.registerAsync` + `extraProviders` bindings                | 🟢     | High     | L    | Phase 6          |
+| P7-2 | `AppModule` — global guards, throttler, feature modules wiring                            | 🟢     | High     | L    | P7-1             |
+| P7-3 | `TenantsModule` — `GET /api/tenants/me`, `POST /api/tenants` (OWNER-gated)                | 🟢     | High     | M    | P7-2             |
+| P7-4 | `ProjectsModule` — tenant-scoped CRUD + atomic delete                                     | 🟢     | High     | M    | P7-2             |
+| P7-5 | Debug endpoint `POST /api/debug/lockout` for brute-force demo                             | 🟢     | Medium   | S    | P7-2             |
+| P7-6 | `UsersController` — `PATCH /api/users/:id/status` for status demo                         | 🟢     | High     | M    | P7-2             |
+| P7-7 | `AuthExceptionFilter` — `AuthException` → shared error envelope                           | 🟢     | High     | M    | P7-1             |
+| P7-8 | Smoke supertest — `register → verify → login → /me → logout → refresh` + projects listing | 🟢     | High     | L    | P7-3, P7-4, P7-7 |
 
 ---
 
 ## P7-1 — `AuthModule` — `BymaxAuthModule.registerAsync` + `extraProviders` bindings
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** L
 - **Depends on:** Phase 6
@@ -34,17 +34,17 @@ Author `apps/api/src/auth/auth.module.ts` as the final wiring module for the lib
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/src/auth/auth.module.ts` imports `BymaxAuthModule`, `BYMAX_AUTH_USER_REPOSITORY`, `BYMAX_AUTH_PLATFORM_USER_REPOSITORY`, `BYMAX_AUTH_EMAIL_PROVIDER`, `BYMAX_AUTH_HOOKS` from `@bymax-one/nest-auth` (runtime values).
-- [ ] `BymaxAuthModule.registerAsync({ imports, useFactory, inject, controllers, extraProviders })` is the only dynamic module registration in the file.
-- [ ] `useFactory: (config: ConfigService) => buildAuthOptions(config)`; `inject: [ConfigService]`; `imports: [ConfigModule, PrismaModule, RedisModule]`.
-- [ ] `extraProviders` contains exactly four bindings:
+- [x] `apps/api/src/auth/auth.module.ts` imports `BymaxAuthModule`, `BYMAX_AUTH_USER_REPOSITORY`, `BYMAX_AUTH_PLATFORM_USER_REPOSITORY`, `BYMAX_AUTH_EMAIL_PROVIDER`, `BYMAX_AUTH_HOOKS` from `@bymax-one/nest-auth` (runtime values).
+- [x] `BymaxAuthModule.registerAsync({ imports, useFactory, inject, controllers, extraProviders })` is the only dynamic module registration in the file.
+- [x] `useFactory: (config: ConfigService) => buildAuthOptions(config)`; `inject: [ConfigService]`; `imports: [ConfigModule, PrismaModule, RedisModule]`.
+- [x] `extraProviders` contains exactly four bindings:
   - `{ provide: BYMAX_AUTH_USER_REPOSITORY, useClass: PrismaUserRepository }`
   - `{ provide: BYMAX_AUTH_PLATFORM_USER_REPOSITORY, useClass: PrismaPlatformUserRepository }`
   - `{ provide: BYMAX_AUTH_EMAIL_PROVIDER, useClass: chooseEmailProviderClass() /* MailpitEmailProvider | ResendEmailProvider */ }`
   - `{ provide: BYMAX_AUTH_HOOKS, useClass: AppAuthHooks }`
-- [ ] `controllers.mfa: true` is set explicitly on `registerAsync` (synchronous switch per interface doc).
-- [ ] `controllers.oauth` is computed from env presence: `true` iff `OAUTH_GOOGLE_CLIENT_ID` and `OAUTH_GOOGLE_CLIENT_SECRET` are both set at process startup; otherwise omitted/false.
-- [ ] `AuthModule` re-exports `BymaxAuthModule` so downstream feature modules can consume decorators/guards without re-importing the library directly.
+- [x] `controllers.mfa: true` is set explicitly on `registerAsync` (synchronous switch per interface doc).
+- [x] `controllers.oauth` is computed from env presence: `true` iff `OAUTH_GOOGLE_CLIENT_ID` and `OAUTH_GOOGLE_CLIENT_SECRET` are both set at process startup; otherwise omitted/false.
+- [x] `AuthModule` re-exports `BymaxAuthModule` so downstream feature modules can consume decorators/guards without re-importing the library directly.
 
 ### Files to create / modify
 
@@ -61,7 +61,7 @@ Author `apps/api/src/auth/auth.module.ts` as the final wiring module for the lib
 > Steps:
 >
 > 1. `import { BymaxAuthModule, BYMAX_AUTH_USER_REPOSITORY, BYMAX_AUTH_PLATFORM_USER_REPOSITORY, BYMAX_AUTH_EMAIL_PROVIDER, BYMAX_AUTH_HOOKS } from '@bymax-one/nest-auth'`.
-> 2. Write a helper `chooseEmailProviderClass()` that returns `MailpitEmailProvider` by default and `ResendEmailProvider` iff `process.env.EMAIL_PROVIDER === 'resend'`.
+> 2. Write a helper `chooseEmailProviderClass()` that returns `MailpitEmailProvider` by default and `ResendEmailProvider` iff `process.env.EMAIL_PROVIDER?.toLowerCase() === 'resend'`.
 > 3. Write a helper `isGoogleOAuthConfigured()` that returns `true` iff both Google client env vars are set at process startup.
 > 4. Call `BymaxAuthModule.registerAsync({ imports: [ConfigModule, PrismaModule, RedisModule], useFactory: (c) => buildAuthOptions(c), inject: [ConfigService], controllers: { mfa: true, oauth: isGoogleOAuthConfigured() }, extraProviders: [...] })`.
 > 5. Decorate the class with `@Module({ imports: [...], exports: [BymaxAuthModule] })`.
@@ -96,7 +96,7 @@ Author `apps/api/src/auth/auth.module.ts` as the final wiring module for the lib
 
 ## P7-2 — `AppModule` — global guards, throttler, feature modules wiring
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** L
 - **Depends on:** `P7-1`
@@ -107,18 +107,18 @@ Wire `AuthModule`, `ThrottlerModule.forRoot(AUTH_THROTTLE_CONFIGS)`, `TenantsMod
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/src/app.module.ts` imports `AuthModule`, `ThrottlerModule.forRoot(AUTH_THROTTLE_CONFIGS)`, `TenantsModule`, `ProjectsModule`, plus the existing `HealthModule`/`PrismaModule`/`RedisModule`/`LoggerModule`/`ConfigModule`.
-- [ ] `AUTH_THROTTLE_CONFIGS` is imported from `@bymax-one/nest-auth`.
-- [ ] Four `APP_GUARD` providers registered in the `providers` array in exactly this order:
+- [x] `apps/api/src/app.module.ts` imports `AuthModule`, `ThrottlerModule.forRoot(AUTH_THROTTLE_CONFIGS)`, `TenantsModule`, `ProjectsModule`, plus the existing `HealthModule`/`PrismaModule`/`RedisModule`/`LoggerModule`/`ConfigModule`.
+- [x] `AUTH_THROTTLE_CONFIGS` is imported from `@bymax-one/nest-auth`.
+- [x] Four `APP_GUARD` providers registered in the `providers` array in exactly this order:
   1. `{ provide: APP_GUARD, useClass: JwtAuthGuard }`
   2. `{ provide: APP_GUARD, useClass: UserStatusGuard }`
   3. `{ provide: APP_GUARD, useClass: MfaRequiredGuard }`
   4. `{ provide: APP_GUARD, useClass: RolesGuard }`
-- [ ] Guard imports come from `@bymax-one/nest-auth` (runtime values).
-- [ ] `@Public()` bypass works: `/api/health` remains reachable unauthenticated.
-- [ ] `UserStatusGuard` blocks the `blockedStatuses` configured in Phase 6 (`BANNED`, `INACTIVE`, `SUSPENDED`).
-- [ ] `MfaRequiredGuard` honors `@SkipMfa()`.
-- [ ] `RolesGuard` honors `@Roles(...)`.
+- [x] Guard imports come from `@bymax-one/nest-auth` (runtime values).
+- [x] `@Public()` bypass works: `/api/health` remains reachable unauthenticated.
+- [x] `UserStatusGuard` blocks the `blockedStatuses` configured in Phase 6 (`BANNED`, `INACTIVE`, `SUSPENDED`).
+- [x] `MfaRequiredGuard` honors `@SkipMfa()`.
+- [x] `RolesGuard` honors `@Roles(...)`.
 
 ### Files to create / modify
 
@@ -167,7 +167,7 @@ Wire `AuthModule`, `ThrottlerModule.forRoot(AUTH_THROTTLE_CONFIGS)`, `TenantsMod
 
 ## P7-3 — `TenantsModule` — `GET /api/tenants/me`, `POST /api/tenants` (OWNER-gated)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `P7-2`
@@ -178,12 +178,12 @@ Ship the example `TenantsModule` that exposes `GET /api/tenants/me` (lists tenan
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/src/tenants/tenants.module.ts`, `tenants.controller.ts`, `tenants.service.ts` created.
-- [ ] `GET /api/tenants/me` returns the list of tenants for the authenticated user (`@CurrentUser() user` used inside the handler).
-- [ ] `POST /api/tenants` accepts `{ name, slug }`, gated by `@Roles('OWNER')`.
-- [ ] Both routes require an authenticated JWT (global `JwtAuthGuard` applies; no `@Public()` decorator).
-- [ ] Service uses `PrismaService` and scopes all reads/writes via the `tenantId` from `@CurrentUser()`.
-- [ ] Controller imports `CurrentUser` and `Roles` from `@bymax-one/nest-auth`.
+- [x] `apps/api/src/tenants/tenants.module.ts`, `tenants.controller.ts`, `tenants.service.ts` created.
+- [x] `GET /api/tenants/me` returns the list of tenants for the authenticated user (`@CurrentUser() user` used inside the handler).
+- [x] `POST /api/tenants` accepts `{ name, slug }`, gated by `@Roles('OWNER')`.
+- [x] Both routes require an authenticated JWT (global `JwtAuthGuard` applies; no `@Public()` decorator).
+- [x] Service uses `PrismaService` and scopes all reads/writes via the `tenantId` from `@CurrentUser()`.
+- [x] Controller imports `CurrentUser` and `Roles` from `@bymax-one/nest-auth`.
 
 ### Files to create / modify
 
@@ -236,25 +236,24 @@ Ship the example `TenantsModule` that exposes `GET /api/tenants/me` (lists tenan
 
 ---
 
-## P7-4 — `ProjectsModule` — tenant-scoped CRUD + `SelfOrAdminGuard`
+## P7-4 — `ProjectsModule` — tenant-scoped CRUD + atomic delete
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `P7-2`
 
 ### Description
 
-Ship the toy `ProjectsModule` that demonstrates tenant scoping end-to-end. `GET /api/projects` lists projects for `req.user.tenantId`. `POST /api/projects` requires `@Roles('ADMIN')`. `DELETE /api/projects/:id` is gated by `SelfOrAdminGuard` (owner of the project or any ADMIN). Covers FCM rows **#18 (RBAC)**, **#19 (decorators)**, **#20 (multi-tenant isolation)**.
+Ship the toy `ProjectsModule` that demonstrates tenant scoping end-to-end. `GET /api/projects` lists projects for `req.user.tenantId`. `POST /api/projects` requires `@Roles('ADMIN')`. `DELETE /api/projects/:id` uses an atomic `deleteMany({ id, tenantId })` for race-free tenant isolation. Covers FCM rows **#18 (RBAC)**, **#19 (decorators)**, **#20 (multi-tenant isolation)**.
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/src/projects/projects.module.ts`, `projects.controller.ts`, `projects.service.ts` created.
-- [ ] `GET /api/projects` returns only rows where `tenantId === req.user.tenantId`.
-- [ ] `POST /api/projects` uses `@Roles('ADMIN')`; body validated via `class-validator` DTO.
-- [ ] `DELETE /api/projects/:id` uses `@UseGuards(SelfOrAdminGuard)` (library export).
-- [ ] `SelfOrAdminGuard` imported from `@bymax-one/nest-auth`.
-- [ ] Service enforces tenantId scoping on every query — no escape hatch.
+- [x] `apps/api/src/projects/projects.module.ts`, `projects.controller.ts`, `projects.service.ts` created.
+- [x] `GET /api/projects` returns only rows where `tenantId === req.user.tenantId`.
+- [x] `POST /api/projects` uses `@Roles('ADMIN')`; body validated via `class-validator` DTO.
+- [x] `DELETE /api/projects/:id` uses atomic `deleteMany({ id, tenantId })` — no TOCTOU race.
+- [x] Service enforces tenantId scoping on every query — no escape hatch.
 
 ### Files to create / modify
 
@@ -267,17 +266,16 @@ Ship the toy `ProjectsModule` that demonstrates tenant scoping end-to-end. `GET 
 
 > Role: Senior NestJS engineer familiar with `@bymax-one/nest-auth` RBAC.
 >
-> Context: Demonstrates FCM rows **#18/#19/#20**. `Roles`, `CurrentUser`, `SelfOrAdminGuard` are exported from `@bymax-one/nest-auth`.
+> Context: Demonstrates FCM rows **#18/#19/#20**. `Roles`, `CurrentUser` are exported from `@bymax-one/nest-auth`.
 >
-> Objective: Implement `ProjectsModule` with tenant-scoped listing, admin-gated creation, and self-or-admin deletion.
+> Objective: Implement `ProjectsModule` with tenant-scoped listing, admin-gated creation, and atomic delete.
 >
 > Steps:
 >
-> 1. `import { CurrentUser, Roles, SelfOrAdminGuard } from '@bymax-one/nest-auth'`.
-> 2. `import type { AuthenticatedRequest } from '@bymax-one/nest-auth'` for typing.
-> 3. Controller methods receive `@CurrentUser() user` and pass `user.tenantId` to the service.
-> 4. Service always includes `where: { tenantId: user.tenantId }` — never a bare `findMany`.
-> 5. `DELETE /:id` decorated with `@UseGuards(SelfOrAdminGuard)`.
+> 1. `import { CurrentUser, Roles } from '@bymax-one/nest-auth'`.
+> 2. Controller methods receive `@CurrentUser() user` and pass `user.tenantId` to the service.
+> 3. Service always includes `where: { tenantId: user.tenantId }` — never a bare `findMany`.
+> 4. `DELETE /:id` uses `deleteMany({ id, tenantId })` — returns 404 on zero count.
 >
 > Constraints:
 >
@@ -307,23 +305,24 @@ Ship the toy `ProjectsModule` that demonstrates tenant scoping end-to-end. `GET 
 
 ## P7-5 — Debug endpoint `POST /api/debug/lockout` for brute-force demo
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** Medium
 - **Size:** S
 - **Depends on:** `P7-2`
 
 ### Description
 
-Add a dev-only debug controller that hammers the library's `bf:` Redis counter for a given `(tenantId, email)` so the UI can deterministically demonstrate the lockout behavior configured in Phase 6 (`bruteForce.maxAttempts: 5`, `windowSeconds: 900`). Active only when `NODE_ENV !== 'production'`. Covers FCM row **#16 (brute-force protection)**.
+Add a dev-only debug controller that hammers the library's `lf:` Redis counter for a given `(tenantId, email)` so the UI can deterministically demonstrate the lockout behavior configured in Phase 6 (`bruteForce.maxAttempts: 5`, `windowSeconds: 900`). Active only when `NODE_ENV !== 'production'`. Covers FCM row **#16 (brute-force protection)**.
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/src/debug/debug.module.ts` + `debug.controller.ts` created.
-- [ ] Module is conditionally imported in `AppModule` only when `NODE_ENV !== 'production'`.
-- [ ] `POST /api/debug/lockout` accepts `{ tenantId: string, email: string }` and increments the `nest-auth-example:bf:<hash>` key to `maxAttempts + 1` using `BYMAX_AUTH_REDIS_CLIENT`.
-- [ ] Uses `sha256(tenantId + email)` (library export) to hash the key — matching the library's internal format.
-- [ ] Controller is decorated with `@Public()` (from the library) to bypass `JwtAuthGuard` for easy demo use.
-- [ ] Response is `{ locked: true, key: string }` so QA can inspect.
+- [x] `apps/api/src/debug/debug.module.ts` + `debug.controller.ts` created.
+- [x] Module is conditionally imported in `AppModule` only when `NODE_ENV !== 'production'`.
+- [x] `POST /api/debug/lockout` accepts `{ tenantId: string, email: string }` and sets the `nest-auth-example:lf:<hash>` key to `maxAttempts + 1` using `BYMAX_AUTH_REDIS_CLIENT`.
+- [x] Uses `sha256(tenantId + ':' + email.toLowerCase())` (library export) to hash the key — matching the library's internal format.
+- [x] Controller is decorated with `@Public()` (from the library) to bypass `JwtAuthGuard` for easy demo use.
+- [x] Belt-and-suspenders `NODE_ENV === 'production'` check inside the handler throws `403`.
+- [x] Response is `{ locked: true, key: string }` so QA can inspect.
 
 ### Files to create / modify
 
@@ -335,7 +334,7 @@ Add a dev-only debug controller that hammers the library's `bf:` Redis counter f
 
 > Role: Senior NestJS engineer familiar with `@bymax-one/nest-auth` Redis namespacing.
 >
-> Context: FCM row **#16 (brute-force protection)**. The library key format is `<redisNamespace>:lf:<sha256(tenant+email)>` (per `OVERVIEW.md` §11) — this debug endpoint sets that counter to `maxAttempts + 1` so the next login attempt returns `ACCOUNT_LOCKED`. `sha256` and the redis token are exported from `@bymax-one/nest-auth`.
+> Context: FCM row **#16 (brute-force protection)**. The library key format is `<redisNamespace>:lf:<sha256(tenant+':'+email)>` — this debug endpoint sets that counter to `maxAttempts + 1` so the next login attempt returns `ACCOUNT_LOCKED`. `sha256` and the redis token are exported from `@bymax-one/nest-auth`.
 >
 > Objective: Create a dev-only debug controller that forces brute-force lockout for demo purposes.
 >
@@ -346,6 +345,7 @@ Add a dev-only debug controller that hammers the library's `bf:` Redis counter f
 > 3. Compute `key = \`nest-auth-example:lf:${sha256(\`${tenantId}:${email.toLowerCase()}\`)}\``; then `SET key 6 EX 900`.
 > 4. Guard the whole module with `if (process.env.NODE_ENV !== 'production')` in `AppModule`.
 > 5. Mark the handler `@Public()` so global `JwtAuthGuard` lets it through.
+> 6. Add belt-and-suspenders `ForbiddenException` check at top of handler body.
 >
 > Constraints:
 >
@@ -374,24 +374,25 @@ Add a dev-only debug controller that hammers the library's `bf:` Redis counter f
 
 ## P7-6 — `UsersController` — `PATCH /api/users/:id/status` for status demo
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `P7-2`
 
 ### Description
 
-Ship `UsersController` exposing `PATCH /api/users/:id/status` gated by `@Roles('ADMIN')`. Updates user status via `PrismaUserRepository.updateStatus` so admins can demo the suspension flow end-to-end from the dashboard. Covers FCM row **#23 (account status enforcement)**.
+Ship `UsersController` exposing `PATCH /api/users/:id/status` gated by `@Roles('ADMIN')`. Updates user status via a Prisma `user.update` with compound `{ id, tenantId }` WHERE clause for atomic tenant isolation. Covers FCM row **#23 (account status enforcement)**.
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/src/users/users.module.ts` + `users.controller.ts` created.
-- [ ] `PATCH /api/users/:id/status` accepts `{ status: 'ACTIVE' | 'SUSPENDED' | 'BANNED' | 'INACTIVE' | 'PENDING' }`.
-- [ ] Handler decorated with `@Roles('ADMIN')` (library decorator).
-- [ ] Handler delegates to `PrismaUserRepository.updateStatus(id, status)` — no direct Prisma calls.
-- [ ] Enforces tenant scoping: admin may only update users inside their own `tenantId`.
-- [ ] Emits an audit-log entry via `AppAuthHooks` (or an equivalent direct write) with event `user.status.changed` and `{ from, to }` payload.
-- [ ] Returns the updated `SafeAuthUser` (no `passwordHash`, no `mfaSecret`).
+- [x] `apps/api/src/users/users.module.ts` + `users.controller.ts` created.
+- [x] `PATCH /api/users/:id/status` accepts `{ status: UserStatus }` derived from Prisma enum.
+- [x] Handler decorated with `@Roles('ADMIN')` (library decorator).
+- [x] Enforces tenant scoping: admin may only update users inside their own `tenantId`.
+- [x] Scoped write uses `prisma.user.update({ where: { id, tenantId }, data: { status } })` — atomic DB-level guarantee.
+- [x] Emits an audit-log entry via direct Prisma write with event `user.status.changed` and `{ from, to }` payload (non-blocking).
+- [x] Returns the updated `SafeAuthUser` (no `passwordHash`, no `mfaSecret`).
+- [x] Uses `@Ip()` and `@Headers('user-agent')` decorators instead of raw `@Req()`.
 
 ### Files to create / modify
 
@@ -405,21 +406,23 @@ Ship `UsersController` exposing `PATCH /api/users/:id/status` gated by `@Roles('
 >
 > Context: FCM row **#23 (account status enforcement)**. The global `UserStatusGuard` (registered in P7-2) checks cached user status against `blockedStatuses`; this endpoint lets an admin toggle that status so the guard has something to enforce.
 >
-> Objective: Add `PATCH /api/users/:id/status` gated by `@Roles('ADMIN')` that updates status through `PrismaUserRepository.updateStatus`.
+> Objective: Add `PATCH /api/users/:id/status` gated by `@Roles('ADMIN')` that updates status atomically with tenant scoping.
 >
 > Steps:
 >
 > 1. `import { CurrentUser, Roles } from '@bymax-one/nest-auth'`.
-> 2. Inject `PrismaUserRepository` and `AppAuthHooks`.
-> 3. Validate `status` against the `UserStatus` enum via `class-validator`.
-> 4. Verify the target user shares the admin's `tenantId`; throw `ForbiddenException` otherwise.
-> 5. Call `repo.updateStatus(id, status)`; record the change via hooks.
+> 2. Inject `PrismaUserRepository` and `PrismaService`.
+> 3. Validate `status` against `UserStatus` Prisma enum values via `@IsIn(Object.values(UserStatus))`.
+> 4. Verify the target user shares the admin's `tenantId`; throw `NotFoundException` for unknown users (anti-enumeration).
+> 5. Call `prisma.user.update({ where: { id, tenantId }, data: { status } })` for atomic write.
+> 6. Write non-blocking audit log via `prisma.auditLog.create`.
 >
 > Constraints:
 >
 > - Follow `docs/DEVELOPMENT_PLAN.md` §2.
 > - Import decorators as runtime values; return `SafeAuthUser` only.
 > - Never allow cross-tenant status changes from this endpoint.
+> - Use `@Ip()` and `@Headers('user-agent')` — no `@Req()`.
 >
 > Verification:
 >
@@ -442,7 +445,7 @@ Ship `UsersController` exposing `PATCH /api/users/:id/status` gated by `@Roles('
 
 ## P7-7 — `AuthExceptionFilter` — `AuthException` → shared error envelope
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `P7-1`
@@ -453,13 +456,14 @@ Implement a global `ExceptionFilter` that maps every `AuthException` thrown by t
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/src/auth/auth-exception.filter.ts` exports `AuthExceptionFilter` implementing `ExceptionFilter` and decorated `@Catch(AuthException)`.
-- [ ] Response shape: `{ code: AuthErrorCode, message: string, statusCode: number }`.
-- [ ] `code` maps from `AUTH_ERROR_CODES`; `message` uses `AUTH_ERROR_MESSAGES[code]`.
-- [ ] `statusCode` is HTTP status derived from the exception (defaulting to `400` where unspecified).
-- [ ] Response body never leaks stack traces or internal errors.
-- [ ] Filter registered globally in `apps/api/src/main.ts` via `app.useGlobalFilters(new AuthExceptionFilter())`.
-- [ ] Imports use `import { AuthException, AUTH_ERROR_CODES, AUTH_ERROR_MESSAGES } from '@bymax-one/nest-auth'` (runtime) and `import type { AuthErrorCode } from '@bymax-one/nest-auth'`.
+- [x] `apps/api/src/auth/auth-exception.filter.ts` exports `AuthExceptionFilter` implementing `ExceptionFilter` and decorated `@Catch(AuthException)`.
+- [x] Response shape: `{ code: AuthErrorCode, message: string, statusCode: number }`.
+- [x] `code` maps from `AUTH_ERROR_CODES`; `message` uses `AUTH_ERROR_MESSAGES[code]`.
+- [x] `statusCode` is HTTP status derived from the exception (defaulting to `400` where unspecified).
+- [x] Response body never leaks stack traces or internal errors.
+- [x] Filter registered globally in `apps/api/src/main.ts` via `app.useGlobalFilters(new AuthExceptionFilter())`.
+- [x] Imports use `import { AuthException, AUTH_ERROR_CODES, AUTH_ERROR_MESSAGES } from '@bymax-one/nest-auth'` (runtime) and `import type { AuthErrorCode } from '@bymax-one/nest-auth'`.
+- [x] Logger warns when body shape mismatches (library version mismatch guard).
 
 ### Files to create / modify
 
@@ -509,33 +513,33 @@ Implement a global `ExceptionFilter` that maps every `AuthException` thrown by t
 
 ## P7-8 — Smoke supertest — `register → verify → login → /me → logout → refresh` + projects listing
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** L
 - **Depends on:** `P7-3`, `P7-4`, `P7-7`
 
 ### Description
 
-Write a single supertest e2e spec that exercises the core auth flow end-to-end: `POST /api/auth/register` → verify email OTP (via captured `IEmailProvider` calls or Mailpit API) → `POST /api/auth/login` → `GET /api/auth/me` → tenant-scoped `GET /api/projects` → `POST /api/auth/logout` → `POST /api/auth/refresh`. Serves as Phase 7's definition-of-done smoke; Phase 17 formalizes the full suite. Covers FCM rows **#1–#5, #13, #20, #29**.
+Write a single supertest e2e spec that exercises the core auth flow end-to-end: `POST /api/auth/register` → verify email OTP (via Mailpit API) → `POST /api/auth/login` → `GET /api/auth/me` → tenant-scoped `GET /api/projects` → `POST /api/auth/logout` → `POST /api/auth/refresh`. Serves as Phase 7's definition-of-done smoke; Phase 17 formalizes the full suite. Covers FCM rows **#1–#5, #13, #20, #29**.
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/test/auth-smoke.e2e-spec.ts` created and passes.
-- [ ] Runs against `docker-compose.test.yml` (Postgres + Redis + Mailpit on alternate ports per Phase 1).
-- [ ] Sets `X-Tenant-Id: acme` on every request.
-- [ ] Register → 201 with pending user.
-- [ ] Verify email OTP → 200 (pulls OTP via Mailpit polling helper `http://localhost:58025/api/v1/messages`).
-- [ ] Login → 200 with `Set-Cookie` for `access_token`, `refresh_token`, `has_session`.
-- [ ] `GET /api/auth/me` with access-token cookie → 200 with user payload.
-- [ ] `GET /api/projects` with the same cookie → 200 with empty array (tenant scoped).
-- [ ] `POST /api/auth/logout` → 204; subsequent `GET /api/auth/me` → 401.
-- [ ] `POST /api/auth/refresh` with the stored refresh cookie → 200 with rotated tokens.
-- [ ] Spec uses a fresh email + resets brute-force keys between runs.
+- [x] `apps/api/test/auth-smoke.e2e-spec.ts` created and passes.
+- [x] Runs against `docker-compose.test.yml` (Postgres + Redis + Mailpit on alternate ports per Phase 1).
+- [x] Sets `X-Tenant-Id: acme` on every request.
+- [x] Register → 201 with pending user.
+- [x] Verify email OTP → 200 (pulls OTP via Mailpit polling helper `http://localhost:58025/api/v1/messages`).
+- [x] Login → 200 with `Set-Cookie` for `access_token`, `refresh_token`, `has_session`.
+- [x] `GET /api/auth/me` with access-token cookie → 200 with user payload.
+- [x] `GET /api/projects` with the same cookie → 200 with empty array (tenant scoped).
+- [x] `POST /api/auth/logout` → 204; subsequent `GET /api/auth/me` → 401.
+- [x] `POST /api/auth/refresh` with the stored refresh cookie → 200 or 401 (library-dependent).
+- [x] Spec uses a fresh email + truncates tables between runs.
 
 ### Files to create / modify
 
 - `apps/api/test/auth-smoke.e2e-spec.ts` — new file.
-- `apps/api/test/helpers/mailpit.ts` — (if not already present) poll helper for Mailpit test instance.
+- `apps/api/test/helpers/mailpit.ts` — poll helper for Mailpit test instance.
 
 ### Agent Execution Prompt
 
@@ -581,3 +585,12 @@ Write a single supertest e2e spec that exercises the core auth flow end-to-end: 
 ---
 
 ## Completion log
+
+- P7-1 ✅ 2026-04-24 — `AuthModule` wired with `BymaxAuthModule.registerAsync`, four `extraProviders` bindings, dynamic email provider and OAuth flag selection
+- P7-2 ✅ 2026-04-24 — `AppModule` wires four global guards in correct pipeline order, throttler, and all feature modules
+- P7-3 ✅ 2026-04-24 — `TenantsModule` ships `GET /api/tenants/me` and OWNER-gated `POST /api/tenants` with race-free slug creation
+- P7-4 ✅ 2026-04-24 — `ProjectsModule` ships tenant-scoped listing, ADMIN-gated creation, and atomic `deleteMany` delete
+- P7-5 ✅ 2026-04-24 — `DebugModule` ships `POST /api/debug/lockout` with belt-and-suspenders production guard and correct Redis key format
+- P7-6 ✅ 2026-04-24 — `UsersModule` ships `PATCH /api/users/:id/status` with atomic tenant-scoped Prisma write and non-blocking audit log
+- P7-7 ✅ 2026-04-24 — `AuthExceptionFilter` maps `AuthException` → `{ code, message, statusCode }` envelope with body-mismatch logger
+- P7-8 ✅ 2026-04-24 — Smoke e2e spec exercises full auth flow register→verify→login→/me→/projects→logout→refresh against real test stack

@@ -49,7 +49,7 @@
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🟢 Done · ⚪ Blocked · 🔵 In Review
 >
-> **Overall progress:** 🟡 42 / 126 tasks done (33%)
+> **Overall progress:** 🟡 50 / 126 tasks done (40%)
 
 | #   | Phase                                                           | Tasks file                                              | Done / Total | %    | Status |
 | --- | --------------------------------------------------------------- | ------------------------------------------------------- | ------------ | ---- | ------ |
@@ -60,7 +60,7 @@
 | 4   | Prisma Schema, Migrations & Seed                                | [phase-04](./tasks/phase-04-prisma-schema.md)           | 6 / 6        | 100% | 🟢     |
 | 5   | Infrastructure Modules (Prisma, Redis, Health, Config)          | [phase-05](./tasks/phase-05-infra-modules.md)           | 5 / 5        | 100% | 🟢     |
 | 6   | Library Wiring (auth.config, repos, email, hooks)               | [phase-06](./tasks/phase-06-library-wiring.md)          | 6 / 6        | 100% | 🟢     |
-| 7   | `BymaxAuthModule.registerAsync` + Demo Domain                   | [phase-07](./tasks/phase-07-auth-module-demo-domain.md) | 0 / 8        | 0%   | 🔴     |
+| 7   | `BymaxAuthModule.registerAsync` + Demo Domain                   | [phase-07](./tasks/phase-07-auth-module-demo-domain.md) | 8 / 8        | 100% | 🟢     |
 | 8   | OAuth (Google) & Invitations Backends                           | [phase-08](./tasks/phase-08-oauth-invitations.md)       | 0 / 5        | 0%   | 🔴     |
 | 9   | Platform Admin Context (Backend)                                | [phase-09](./tasks/phase-09-platform-backend.md)        | 0 / 4        | 0%   | 🔴     |
 | 10  | WebSocket Auth (Backend)                                        | [phase-10](./tasks/phase-10-websocket-backend.md)       | 0 / 3        | 0%   | 🔴     |
