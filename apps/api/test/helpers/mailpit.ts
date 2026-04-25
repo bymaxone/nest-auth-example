@@ -54,7 +54,7 @@ export async function clearMailpit(): Promise<void> {
  * Polls the Mailpit API until a message addressed to `recipientEmail` is found,
  * then returns the HTML body of that message.
  *
- * Uses a 100ms poll interval and a 10-second maximum wait.
+ * Uses a 200ms poll interval and a 10-second maximum wait.
  *
  * @param recipientEmail - The `To` address to filter on (case-insensitive).
  * @param timeoutMs - Maximum time to wait in milliseconds (default: 10_000).
@@ -139,4 +139,27 @@ export function extractResetTokenFromHtml(html: string): string {
   }
 
   throw new Error('Could not extract a password-reset link from the email body');
+}
+
+/**
+ * Extracts an invitation accept token from an email HTML body.
+ *
+ * The invitation email template embeds the accept URL in both the CTA button
+ * `href` and a plain-text fallback paragraph in the format:
+ * `{webOrigin}/auth/accept-invitation?token=<hex-token>`
+ *
+ * @param html - HTML body of the invitation email.
+ * @returns The URL-decoded invitation token string.
+ * @throws `Error` when no invitation token is found.
+ */
+export function extractInviteTokenFromHtml(html: string): string {
+  // Match the `token` query parameter from either the href attribute or the
+  // plain-text URL fallback. The token is a hex string so percent-encoding
+  // is a no-op, but decodeURIComponent is applied for correctness.
+  const match = html.match(/[?&]token=([^"&\s<]+)/);
+  if (match?.[1]) {
+    return decodeURIComponent(match[1]);
+  }
+
+  throw new Error('Could not extract an invitation token from the email body');
 }

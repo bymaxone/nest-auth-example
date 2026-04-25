@@ -2,7 +2,7 @@
 
 > **Source:** [`../DEVELOPMENT_PLAN.md`](../DEVELOPMENT_PLAN.md#phase-8--oauth-google--invitations-backends) §Phase 8
 > **Total tasks:** 5
-> **Progress:** 🔴 0 / 5 done (0%)
+> **Progress:** 🟢 5 / 5 done (100%)
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🔵 In Review · 🟢 Done · ⚪ Blocked
 
@@ -10,17 +10,17 @@
 
 | ID   | Task                                                 | Status | Priority | Size | Depends on |
 | ---- | ---------------------------------------------------- | ------ | -------- | ---- | ---------- |
-| P8-1 | OAuth env wiring + conditional controller activation | 🔴     | High     | S    | Phase 7    |
-| P8-2 | OAuth flow documentation stub                        | 🔴     | Medium   | S    | P8-1       |
-| P8-3 | OAuth account-linking e2e spec                       | 🔴     | High     | M    | P8-1       |
-| P8-4 | Invitations feature flag + hook audit                | 🔴     | High     | S    | Phase 7    |
-| P8-5 | Invitations end-to-end e2e spec (Mailpit)            | 🔴     | High     | M    | P8-4       |
+| P8-1 | OAuth env wiring + conditional controller activation | 🟢     | High     | S    | Phase 7    |
+| P8-2 | OAuth flow documentation stub                        | 🟢     | Medium   | S    | P8-1       |
+| P8-3 | OAuth account-linking e2e spec                       | 🟢     | High     | M    | P8-1       |
+| P8-4 | Invitations feature flag + hook audit                | 🟢     | High     | S    | Phase 7    |
+| P8-5 | Invitations end-to-end e2e spec (Mailpit)            | 🟢     | High     | M    | P8-4       |
 
 ---
 
 ## P8-1 — OAuth env wiring + conditional controller activation
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S
 - **Depends on:** Phase 7 (`auth.module.ts` already mounts `BymaxAuthModule.registerAsync`)
@@ -31,11 +31,11 @@ Register the three Google OAuth environment variables, activate the `oauth.googl
 
 ### Acceptance Criteria
 
-- [ ] `OAUTH_GOOGLE_CLIENT_ID`, `OAUTH_GOOGLE_CLIENT_SECRET`, `OAUTH_GOOGLE_CALLBACK_URL` added to `.env.example` with `OAUTH_GOOGLE_CALLBACK_URL` defaulted to `http://localhost:4000/api/auth/oauth/google/callback`.
-- [ ] `apps/api/src/config/env.schema.ts` zod schema marks all three as optional strings; adds a refinement error if only one or two are set.
-- [ ] `buildAuthOptions` in `apps/api/src/auth/auth.config.ts` returns an `oauth: { google: { clientId, clientSecret, callbackUrl } }` block only when all three env vars are defined; otherwise the `oauth` key is omitted entirely.
-- [ ] `apps/api/src/auth/auth.module.ts` resolves `controllers.oauth` via the same helper (e.g., `isOAuthEnabled(config)`) so the library only mounts `/api/auth/oauth/google` + `/api/auth/oauth/google/callback` when credentials exist.
-- [ ] Typecheck and server boot succeed in both states (env set and env absent).
+- [x] `OAUTH_GOOGLE_CLIENT_ID`, `OAUTH_GOOGLE_CLIENT_SECRET`, `OAUTH_GOOGLE_CALLBACK_URL` added to `.env.example` with `OAUTH_GOOGLE_CALLBACK_URL` defaulted to `http://localhost:4000/api/auth/oauth/google/callback`.
+- [x] `apps/api/src/config/env.schema.ts` zod schema marks all three as optional strings; adds a refinement error if only one or two are set.
+- [x] `buildAuthOptions` in `apps/api/src/auth/auth.config.ts` returns an `oauth: { google: { clientId, clientSecret, callbackUrl } }` block only when all three env vars are defined; otherwise the `oauth` key is omitted entirely.
+- [x] `apps/api/src/auth/auth.module.ts` resolves `controllers.oauth` via the same helper (e.g., `isOAuthEnabled(config)`) so the library only mounts `/api/auth/oauth/google` + `/api/auth/oauth/google/callback` when credentials exist.
+- [x] Typecheck and server boot succeed in both states (env set and env absent).
 
 ### Files to create / modify
 
@@ -87,7 +87,7 @@ Register the three Google OAuth environment variables, activate the `oauth.googl
 
 ## P8-2 — OAuth flow documentation stub
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** Medium
 - **Size:** S
 - **Depends on:** `P8-1`
@@ -98,10 +98,10 @@ Add a short OAuth section to a new `docs/FEATURES.md` stub documenting the exact
 
 ### Acceptance Criteria
 
-- [ ] `docs/FEATURES.md` created with a top matter linking back to `OVERVIEW.md` §6.
-- [ ] A `## OAuth — Google` section documents the three env vars, the Google Cloud Console "Authorized redirect URI" value (`http://localhost:4000/api/auth/oauth/google/callback` in dev), and the flow: browser → `/api/auth/oauth/google` → Google consent → callback → API sets cookies → 302 to web `/dashboard`.
-- [ ] An explanatory paragraph describes how `createAuthProxy` in `apps/web/proxy.ts` lets browser cookies set on port 4000 work transparently at port 3000 (via same registrable domain in prod; via Next rewrites in dev).
-- [ ] An explicit note that full feature documentation lands in Phase 18 (link to the phase task file).
+- [x] `docs/FEATURES.md` created with a top matter linking back to `OVERVIEW.md` §6.
+- [x] A `## OAuth — Google` section documents the three env vars, the Google Cloud Console "Authorized redirect URI" value (`http://localhost:4000/api/auth/oauth/google/callback` in dev), and the flow: browser → `/api/auth/oauth/google` → Google consent → callback → API sets cookies → 302 to web `/dashboard`.
+- [x] An explanatory paragraph describes how `createAuthProxy` in `apps/web/proxy.ts` lets browser cookies set on port 4000 work transparently at port 3000 (via same registrable domain in prod; via Next rewrites in dev).
+- [x] An explicit note that full feature documentation lands in Phase 18 (link to the phase task file).
 
 ### Files to create / modify
 
@@ -148,7 +148,7 @@ Add a short OAuth section to a new `docs/FEATURES.md` stub documenting the exact
 
 ## P8-3 — OAuth account-linking e2e spec
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `P8-1`
@@ -159,11 +159,11 @@ Write a supertest e2e spec that verifies the account-linking guarantee: a user w
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/test/oauth-link.e2e-spec.ts` created; runs against a real Postgres/Redis via `docker-compose.test.yml`.
-- [ ] Test flow: register email+password → verify email via OTP (reads from test `IEmailProvider`) → trigger OAuth callback with a **mocked** Google profile whose email matches the registered user.
-- [ ] Assertions: `prisma.user.count({ where: { email } })` stays at `1`; the row has `oauthProvider === 'google'` and a non-null `oauthProviderId`; no duplicate row is created.
-- [ ] Google network access is **stubbed** — either by an in-process fake OAuth token endpoint (preferred) or via `googleapis`' mock server. CI must never hit `accounts.google.com`.
-- [ ] Test suite registers under `pnpm --filter api test:e2e`.
+- [x] `apps/api/test/oauth-link.e2e-spec.ts` created; runs against a real Postgres/Redis via `docker-compose.test.yml`.
+- [x] Test flow: register email+password → verify email via OTP (reads from test `IEmailProvider`) → trigger OAuth callback with a **mocked** Google profile whose email matches the registered user.
+- [x] Assertions: `prisma.user.count({ where: { email } })` stays at `1`; the row has `oauthProvider === 'google'` and a non-null `oauthProviderId`; no duplicate row is created.
+- [x] Google network access is **stubbed** — `test/helpers/fake-google.ts` intercepts `globalThis.fetch` for Google token and UserInfo endpoints. CI never hits `accounts.google.com`.
+- [x] Test suite registers under `pnpm --filter api test:e2e`.
 
 ### Files to create / modify
 
@@ -213,7 +213,7 @@ Write a supertest e2e spec that verifies the account-linking guarantee: a user w
 
 ## P8-4 — Invitations feature flag + hook audit
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S
 - **Depends on:** Phase 7 (`AppAuthHooks` implemented in Phase 6)
@@ -224,10 +224,10 @@ Confirm `invitations.enabled: true` is active in `auth.config.ts` (set in Phase 
 
 ### Acceptance Criteria
 
-- [ ] `auth.config.ts` explicitly returns `invitations: { enabled: true, tokenTtlSeconds: 172_800 }` (already set — task confirms and adds an inline comment citing FCM #21).
-- [ ] Booting the API with these options exposes `POST /api/auth/invitations` and `POST /api/auth/invitations/accept` — verified by a curl or automated route dump.
-- [ ] `AppAuthHooks.afterInvitationAccepted` writes to `AuditLog` with `event: 'invitation.accepted'`, a non-null `actorUserId`, and a payload including `invitationId` and `tenantId` (never the raw token).
-- [ ] A unit test `apps/api/src/auth/app-auth.hooks.spec.ts` adds one case calling `afterInvitationAccepted` with a fake `HookContext` and asserts a row is inserted.
+- [x] `auth.config.ts` explicitly returns `invitations: { enabled: true, tokenTtlSeconds: 172_800 }` (already set — task confirms and adds an inline comment citing FCM #21).
+- [x] Booting the API with these options exposes `POST /api/auth/invitations` and `POST /api/auth/invitations/accept` — verified by a curl or automated route dump.
+- [x] `AppAuthHooks.afterInvitationAccepted` writes to `AuditLog` with `event: 'invitation.accepted'`, a non-null `actorUserId`, and a payload including `userId`, `tenantId`, `role` (no `invitationId` — not exposed by library hook signature).
+- [x] A unit test `apps/api/src/auth/app-auth.hooks.spec.ts` adds three cases calling `afterInvitationAccepted` and asserts the correct AuditLog row is created.
 
 ### Files to create / modify
 
@@ -276,7 +276,7 @@ Confirm `invitations.enabled: true` is active in `auth.config.ts` (set in Phase 
 
 ## P8-5 — Invitations end-to-end e2e spec (Mailpit)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `P8-4`
@@ -287,13 +287,13 @@ Write a supertest e2e spec that drives the full invitation flow: an admin create
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/test/invitations.e2e-spec.ts` created.
-- [ ] Test logs in as a seeded `ADMIN` user, calls `POST /api/auth/invitations` with `{ email, role: 'MEMBER' }`, receives 201.
-- [ ] Fetches the email from Mailpit's HTTP API at `http://localhost:8025/api/v1/messages`, extracts the accept token from the message body (search for the URL pattern documented by the library).
-- [ ] Calls `POST /api/auth/invitations/accept` with `{ token, name, password }`.
-- [ ] Asserts: a new `users` row exists with the invited email, `tenantId` matching the admin's tenant, `role === 'MEMBER'`, and `emailVerified === true`.
-- [ ] Cleans the Mailpit mailbox before/after (`DELETE /api/v1/messages`).
-- [ ] Integrates with `pnpm --filter api test:e2e`.
+- [x] `apps/api/test/invitations.e2e-spec.ts` created.
+- [x] Test logs in as a seeded `ADMIN` user, calls `POST /api/auth/invitations` with `{ email, role: 'MEMBER' }`, receives 201.
+- [x] Fetches the email from Mailpit's HTTP API at `http://localhost:58025/api/v1/messages`, extracts the accept token from the message body using `extractInviteTokenFromHtml()` (regex `?token=<hex>`).
+- [x] Calls `POST /api/auth/invitations/accept` with `{ token, name, password }`.
+- [x] Asserts: a new `users` row exists with the invited email, `tenantId` matching the admin's tenant, `role === 'MEMBER'`, and `emailVerified === true`.
+- [x] Cleans the Mailpit mailbox before/after (`DELETE /api/v1/messages`).
+- [x] Integrates with `pnpm --filter api test:e2e`.
 
 ### Files to create / modify
 
@@ -342,3 +342,9 @@ Write a supertest e2e spec that drives the full invitation flow: an admin create
 ---
 
 ## Completion log
+
+- P8-1 ✅ 2026-04-24 — OAuth env vars wired, conditional google block and controllers.oauth flag already implemented in Phase 7
+- P8-2 ✅ 2026-04-24 — Created docs/FEATURES.md with OAuth Google section stub
+- P8-3 ✅ 2026-04-24 — OAuth account-linking e2e spec; createWithOAuth upsert; blocked-status guard; fake-google.ts stub
+- P8-4 ✅ 2026-04-24 — Invitations flag confirmed (FCM #21); afterInvitationAccepted hook verified; app-auth.hooks.spec.ts unit tests; BLOCKED_USER_STATUSES typed as UserStatus[]; isBlockedStatus helper; post-upsert status guard (TOCTOU fix)
+- P8-5 ✅ 2026-04-24 — invitations.e2e-spec.ts (happy path + 2 sad paths); extractInviteTokenFromHtml helper; pre-upsert blocked-status guard in createWithOAuth; onOAuthLogin unit tests (3 paths); prisma-user.repository.spec.ts (5 tests)

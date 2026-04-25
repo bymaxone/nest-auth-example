@@ -90,6 +90,16 @@ describe('Auth smoke — register → verify → login → /me → /projects →
       imports: [AppModule],
     }).compile();
 
+    // Prisma is available after compile. Ensure the test tenant exists before
+    // bootstrapping — the tenantIdResolver returns 'acme' verbatim from the
+    // X-Tenant-Id header, so the FK constraint requires a matching Tenant row.
+    const tempPrisma = moduleRef.get<PrismaService>(PrismaService);
+    await tempPrisma.$executeRaw`
+      INSERT INTO "Tenant" (id, name, slug, "createdAt", "updatedAt")
+      VALUES ('acme', 'Acme Corp', 'acme', NOW(), NOW())
+      ON CONFLICT (id) DO NOTHING
+    `;
+
     app = moduleRef.createNestApplication();
     app.use(cookieParser());
     app.setGlobalPrefix('api');

@@ -44,6 +44,7 @@ import type {
 import type { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { isBlockedStatus } from './auth.constants.js';
 
 /**
  * Auth lifecycle hooks that write immutable `AuditLog` rows for every event.
@@ -250,11 +251,16 @@ export class AppAuthHooks implements IAuthHooks {
    * Called when a user authenticates via OAuth and a profile has been retrieved.
    *
    * Strategy:
-   * - If an existing user is found by email → `'link'` (account linking flow).
-   * - Otherwise → `'create'` (provision a new account from the OAuth profile).
+   * - `existingUser` non-null (user found by OAuth ID) → `'link'`: re-authenticates
+   *   an already-linked identity via `userRepo.linkOAuth` (effectively a no-op update).
+   * - `existingUser` null (OAuth ID not yet in the database) → `'create'`: delegates
+   *   to `PrismaUserRepository.createWithOAuth`, which performs an upsert on
+   *   `(tenantId, email)`. If a user registered via email/password with the same
+   *   address, their OAuth fields are updated in-place rather than creating a
+   *   duplicate row — implementing the account-linking guarantee (FCM #12).
    *
    * @param profile - Normalised OAuth profile from the provider.
-   * @param existingUser - Existing user by email, or null.
+   * @param existingUser - Existing user found by OAuth provider ID, or null.
    * @param context - Request metadata.
    * @returns The resolved account strategy.
    */
@@ -263,6 +269,21 @@ export class AppAuthHooks implements IAuthHooks {
     existingUser: SafeAuthUser | null,
     context: HookContext,
   ): Promise<OAuthLoginResult> {
+    // Statuses that must never receive tokens, mirroring auth.config.ts blockedStatuses.
+    // The library's OAuthService does not enforce this guard — we must enforce it here
+    // for already-linked accounts (existingUser found by OAuth provider ID).
+    // For first-time OAuth sign-ins (existingUser null), the guard lives in
+    // PrismaUserRepository.createWithOAuth which has tenantId in scope.
+    if (existingUser !== null && isBlockedStatus(existingUser.status)) {
+      await this.record('oauth.login', context, {
+        provider: profile.provider,
+        action: 'reject',
+        existingUserId: existingUser.id,
+        reason: 'blocked_status',
+      });
+      return { action: 'reject' };
+    }
+
     const action = existingUser ? 'link' : 'create';
     await this.record('oauth.login', context, {
       provider: profile.provider,

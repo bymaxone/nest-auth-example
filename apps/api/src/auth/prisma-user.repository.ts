@@ -27,9 +27,11 @@ import type {
   IUserRepository,
   UpdateMfaData,
 } from '@bymax-one/nest-auth';
+import { AUTH_ERROR_CODES, AuthException } from '@bymax-one/nest-auth';
 import { Role, UserStatus, type User } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { BLOCKED_USER_STATUSES } from './auth.constants.js';
 
 /**
  * Prisma-backed user repository for the tenant (dashboard) auth context.
@@ -133,7 +135,10 @@ export class PrismaUserRepository implements IUserRepository {
    * @returns The newly created `AuthUser`.
    */
   async create(data: CreateUserData): Promise<AuthUser> {
-    const role = Object.values(Role).find((r) => r === data.role) ?? Role.MEMBER;
+    const role = Object.values(Role).find((r) => r === data.role);
+    if (role === undefined) {
+      throw new Error(`Unknown Role: '${data.role}' — library/schema mismatch`);
+    }
     const status = Object.values(UserStatus).find((s) => s === data.status) ?? UserStatus.PENDING;
     const row = await this.prisma.user.create({
       data: {
@@ -258,21 +263,65 @@ export class PrismaUserRepository implements IUserRepository {
   }
 
   /**
-   * Creates a new user originating from an OAuth provider.
+   * Creates or links a user originating from an OAuth provider.
    *
-   * OAuth users have no local password (`passwordHash` is implicitly null).
-   * The `emailVerified` flag should be set to `true` when the OAuth provider
-   * guarantees verified email addresses (e.g. Google).
+   * Implemented as an upsert on `(tenantId, email)`:
+   * - **New user** (no row with that email in the tenant) — inserts a fresh row
+   *   with no password hash and the OAuth identity pre-populated.
+   * - **Existing email/password user** (first-time OAuth sign-in with a matching
+   *   email) — updates only the OAuth fields and sets `emailVerified = true`.
+   *   Name, role, and status of the existing account are preserved.
+   *
+   * This behaviour satisfies the account-linking guarantee: a user who first
+   * registered with email+password and later signs in with Google is linked to
+   * the same row rather than creating a duplicate.
+   *
+   * Blocked-status guard (two-phase):
+   * 1. Pre-upsert `findUnique` — rejects blocked existing users before the upsert
+   *    runs, preventing the `update` branch from mutating `emailVerified` on a
+   *    blocked row as a side effect of a rejected authentication attempt.
+   * 2. Post-upsert check — catches the narrow TOCTOU window where an account is
+   *    blocked between the pre-check and the upsert commit.
    *
    * @param data - OAuth creation payload.
-   * @returns The newly created `AuthUser`.
+   * @returns The created or updated `AuthUser`.
    */
   async createWithOAuth(data: CreateWithOAuthData): Promise<AuthUser> {
-    const role = Object.values(Role).find((r) => r === data.role) ?? Role.MEMBER;
+    const role = Object.values(Role).find((r) => r === data.role);
+    if (role === undefined) {
+      throw new Error(`Unknown Role: '${data.role}' — library/schema mismatch`);
+    }
     const status = Object.values(UserStatus).find((s) => s === data.status) ?? UserStatus.ACTIVE;
-    const row = await this.prisma.user.create({
-      data: {
-        email: data.email.toLowerCase(),
+    const email = data.email.toLowerCase();
+
+    // Pre-upsert blocked-status check: reject blocked existing users before any
+    // write occurs. Without this guard the upsert's `update` branch would commit
+    // `emailVerified = true` on a blocked account even though the post-upsert
+    // check below prevents token issuance. A blocked user could thereby skip
+    // email verification by repeatedly triggering the OAuth flow and then being
+    // re-activated by an admin.
+    const existingForStatusCheck = await this.prisma.user.findUnique({
+      where: { tenantId_email: { tenantId: data.tenantId, email } },
+      select: { status: true },
+    });
+    if (
+      existingForStatusCheck !== null &&
+      BLOCKED_USER_STATUSES.includes(existingForStatusCheck.status)
+    ) {
+      throw new AuthException(AUTH_ERROR_CODES.OAUTH_FAILED);
+    }
+
+    const row = await this.prisma.user.upsert({
+      where: { tenantId_email: { tenantId: data.tenantId, email } },
+      // When an existing email/password user first signs in via OAuth, update
+      // only the OAuth identity fields — do not overwrite name, role, or status.
+      update: {
+        oauthProvider: data.oauthProvider,
+        oauthProviderId: data.oauthProviderId,
+        emailVerified: data.emailVerified ?? true,
+      },
+      create: {
+        email,
         name: data.name,
         passwordHash: null,
         role,
@@ -283,6 +332,17 @@ export class PrismaUserRepository implements IUserRepository {
         oauthProviderId: data.oauthProviderId,
       },
     });
+
+    // Post-upsert check catches the TOCTOU window where an account is blocked
+    // between the pre-check query and the upsert commit. The upsert returns
+    // the row as it exists in the DB at commit time, so this reflects the
+    // actual current status. The library's OAuthService does not check user
+    // status before issuing tokens, so this guard is the sole protection for
+    // the OAuth path.
+    if (BLOCKED_USER_STATUSES.includes(row.status)) {
+      throw new AuthException(AUTH_ERROR_CODES.OAUTH_FAILED);
+    }
+
     return this.toAuthUser(row);
   }
 }

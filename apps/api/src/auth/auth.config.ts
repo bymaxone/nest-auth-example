@@ -22,6 +22,7 @@ import { ConfigService } from '@nestjs/config';
 import type { BymaxAuthModuleOptions } from '@bymax-one/nest-auth';
 
 import type { Env } from '../config/env.schema.js';
+import { BLOCKED_USER_STATUSES } from './auth.constants.js';
 
 /**
  * Builds the `BymaxAuthModuleOptions` object for `BymaxAuthModule.registerAsync`.
@@ -118,7 +119,8 @@ export function buildAuthOptions(config: ConfigService<Env, true>): BymaxAuthMod
     // ── Platform admin ────────────────────────────────────────────────────────
     platform: { enabled: true },
 
-    // ── Invitations ───────────────────────────────────────────────────────────
+    // ── Invitations (FCM #21) ─────────────────────────────────────────────────
+    // Token TTL of 48 h gives invitees a business-day window to accept.
     invitations: {
       enabled: true,
       tokenTtlSeconds: 172_800, // 48 hours
@@ -141,7 +143,9 @@ export function buildAuthOptions(config: ConfigService<Env, true>): BymaxAuthMod
     },
 
     // ── Statuses that block login ─────────────────────────────────────────────
-    blockedStatuses: ['BANNED', 'INACTIVE', 'SUSPENDED'],
+    // BLOCKED_USER_STATUSES is the single source of truth — imported here so
+    // the credential path and the OAuth path always enforce the same set.
+    blockedStatuses: [...BLOCKED_USER_STATUSES],
 
     // ── Redis namespace ───────────────────────────────────────────────────────
     // All library-owned keys are prefixed with this namespace. App-owned keys
