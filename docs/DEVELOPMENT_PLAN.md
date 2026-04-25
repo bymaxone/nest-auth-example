@@ -49,7 +49,7 @@
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🟢 Done · ⚪ Blocked · 🔵 In Review
 >
-> **Overall progress:** 🟡 72 / 126 tasks done (57%)
+> **Overall progress:** 🟡 80 / 126 tasks done (63%)
 
 | #   | Phase                                                           | Tasks file                                              | Done / Total | %    | Status |
 | --- | --------------------------------------------------------------- | ------------------------------------------------------- | ------------ | ---- | ------ |
@@ -66,7 +66,7 @@
 | 10  | WebSocket Auth (Backend)                                        | [phase-10](./tasks/phase-10-websocket-backend.md)       | 3 / 3        | 100% | 🟢     |
 | 11  | `apps/web` Skeleton (Next.js 16 + Tailwind + shadcn/ui)         | [phase-11](./tasks/phase-11-web-skeleton.md)            | 6 / 6        | 100% | 🟢     |
 | 12  | Frontend Auth Wiring (Client, Provider, Proxy, Refresh, Logout) | [phase-12](./tasks/phase-12-frontend-auth-wiring.md)    | 6 / 6        | 100% | 🟢     |
-| 13  | Public Auth Pages (`app/(auth)`)                                | [phase-13](./tasks/phase-13-public-auth-pages.md)       | 0 / 8        | 0%   | 🔴     |
+| 13  | Public Auth Pages (`app/(auth)`)                                | [phase-13](./tasks/phase-13-public-auth-pages.md)       | 8 / 8        | 100% | 🟢     |
 | 14  | Dashboard (Account, Security, Sessions, Team, Invitations)      | [phase-14](./tasks/phase-14-dashboard.md)               | 0 / 7        | 0%   | 🔴     |
 | 15  | Platform Admin Area (Frontend)                                  | [phase-15](./tasks/phase-15-platform-frontend.md)       | 0 / 4        | 0%   | 🔴     |
 | 16  | WebSocket Consumer + Notification Toast                         | [phase-16](./tasks/phase-16-websocket-frontend.md)      | 0 / 3        | 0%   | 🔴     |
@@ -630,16 +630,16 @@ Phase 1 (Docker) ┘                                                            
 
 **Pages.**
 
-- [ ] `app/(auth)/layout.tsx` — centered card layout + brand.
-- [ ] `app/(auth)/login/page.tsx` — email + password, "Continue with Google" button (hidden when OAuth env not set), "Forgot password?" link. On MFA challenge, redirects to `/auth/mfa-challenge` carrying the `mfaTempToken` in `sessionStorage` (never cookie).
-- [ ] `app/(auth)/register/page.tsx` — email + name + password + tenant selection (dropdown) or tenant fixed (single-tenant demo); posts to `authClient.register` → shows verification-email-sent screen.
-- [ ] `app/(auth)/verify-email/page.tsx` — OTP input (six single-character boxes), resend button with cooldown (uses `authClient.resendVerification`). Accepts `?email=&tenantId=` query.
-- [ ] `app/(auth)/forgot-password/page.tsx` — single email input; posts to `authClient.forgotPassword`. Shows an anti-enumeration-friendly success message always.
-- [ ] `app/(auth)/reset-password/page.tsx` — supports both modes via `?mode=token&token=...` or `?mode=otp&email=...`. Renders OTP box or password-only form accordingly; calls `authClient.resetPassword`.
-- [ ] `app/(auth)/mfa-challenge/page.tsx` — TOTP input + "Use recovery code instead"; calls `authClient.mfaChallenge`.
-- [ ] `app/(auth)/accept-invitation/page.tsx` — reads `?token=...`, shows invite summary, collects name + password, calls the library's accept endpoint.
-- [ ] Shared `<OtpInput />` component in `components/auth/otp-input.tsx`.
-- [ ] Shared `<PasswordInput />` with show/hide + strength hint (the library owns minimum strength validation; this is UX only).
+- [x] `app/(auth)/layout.tsx` — centered card layout + brand.
+- [x] `app/(auth)/login/page.tsx` — email + password, "Continue with Google" button (hidden when OAuth env not set), "Forgot password?" link. On MFA challenge, redirects to `/auth/mfa-challenge` carrying the `mfaTempToken` in `sessionStorage` (never cookie).
+- [x] `app/(auth)/register/page.tsx` — email + name + password + tenant selection (dropdown) or tenant fixed (single-tenant demo); posts to `authClient.register` → shows verification-email-sent screen.
+- [x] `app/(auth)/verify-email/page.tsx` — OTP input (six single-character boxes), resend button with cooldown (uses `authClient.resendVerification`). Accepts `?email=&tenantId=` query.
+- [x] `app/(auth)/forgot-password/page.tsx` — single email input; posts to `authClient.forgotPassword`. Shows an anti-enumeration-friendly success message always.
+- [x] `app/(auth)/reset-password/page.tsx` — supports both modes via `?mode=token&token=...` or `?mode=otp&email=...`. Renders OTP box or password-only form accordingly; calls `authClient.resetPassword`.
+- [x] `app/(auth)/mfa-challenge/page.tsx` — TOTP input + "Use recovery code instead"; calls `authClient.mfaChallenge`.
+- [x] `app/(auth)/accept-invitation/page.tsx` — reads `?token=...`, collects name + password, POSTs to `/api/auth/invitations/accept` (library has no GET endpoint for invite metadata).
+- [x] Shared `<OtpInput />` component in `components/auth/otp-input.tsx`.
+- [x] Shared `<PasswordInput />` with show/hide + strength hint (the library owns minimum strength validation; this is UX only).
 
 **Definition of done.** A full signup → verify email (via Mailpit UI) → login → MFA challenge walk-through succeeds in the browser, with no console errors.
 

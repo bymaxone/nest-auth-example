@@ -2,7 +2,7 @@
 
 > **Source:** [`../DEVELOPMENT_PLAN.md`](../DEVELOPMENT_PLAN.md#phase-13--public-auth-pages-appauth) §Phase 13
 > **Total tasks:** 8
-> **Progress:** 🔴 0 / 8 done (0%)
+> **Progress:** 🟢 8 / 8 done (100%)
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🔵 In Review · 🟢 Done · ⚪ Blocked
 
@@ -10,20 +10,20 @@
 
 | ID    | Task                                                                                | Status | Priority | Size | Depends on   |
 | ----- | ----------------------------------------------------------------------------------- | ------ | -------- | ---- | ------------ |
-| P13-1 | `app/(auth)/layout.tsx` + shared primitives + zod schemas + `auth-errors.ts`        | 🔴     | High     | M    | Phase 12     |
-| P13-2 | `login/page.tsx` — email + password + Google + MFA challenge hand-off               | 🔴     | High     | M    | P13-1        |
-| P13-3 | `register/page.tsx` — email + name + password + tenant + "verification sent" screen | 🔴     | High     | M    | P13-1        |
-| P13-4 | `verify-email/page.tsx` — OTP input + resend cooldown                               | 🔴     | High     | S    | P13-1        |
-| P13-5 | `forgot-password/page.tsx` — email input, anti-enumeration success                  | 🔴     | High     | S    | P13-1        |
-| P13-6 | `reset-password/page.tsx` — token + OTP modes via `?mode=`                          | 🔴     | High     | M    | P13-1        |
-| P13-7 | `mfa-challenge/page.tsx` — TOTP + recovery-code toggle                              | 🔴     | High     | S    | P13-1, P13-2 |
-| P13-8 | `accept-invitation/page.tsx` — invite summary + name + password                     | 🔴     | High     | M    | P13-1        |
+| P13-1 | `app/(auth)/layout.tsx` + shared primitives + zod schemas + `auth-errors.ts`        | 🟢     | High     | M    | Phase 12     |
+| P13-2 | `login/page.tsx` — email + password + Google + MFA challenge hand-off               | 🟢     | High     | M    | P13-1        |
+| P13-3 | `register/page.tsx` — email + name + password + tenant + "verification sent" screen | 🟢     | High     | M    | P13-1        |
+| P13-4 | `verify-email/page.tsx` — OTP input + resend cooldown                               | 🟢     | High     | S    | P13-1        |
+| P13-5 | `forgot-password/page.tsx` — email input, anti-enumeration success                  | 🟢     | High     | S    | P13-1        |
+| P13-6 | `reset-password/page.tsx` — token + OTP modes via `?mode=`                          | 🟢     | High     | M    | P13-1        |
+| P13-7 | `mfa-challenge/page.tsx` — TOTP + recovery-code toggle                              | 🟢     | High     | S    | P13-1, P13-2 |
+| P13-8 | `accept-invitation/page.tsx` — invite summary + name + password                     | 🟢     | High     | M    | P13-1        |
 
 ---
 
 ## P13-1 — `app/(auth)/layout.tsx` + shared primitives + zod schemas + `auth-errors.ts`
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** Phase 12
@@ -34,12 +34,12 @@ Lay the foundation every other Phase 13 page will consume: the `(auth)` route-gr
 
 ### Acceptance Criteria
 
-- [ ] `apps/web/app/(auth)/layout.tsx` renders a centered `<Card>` layout with brand ("nest-auth-example") at the top, children in the card body. Server component; no client code.
-- [ ] `apps/web/components/auth/otp-input.tsx` exports `<OtpInput length={6} value onChange />` — six single-character boxes, auto-advance, paste-friendly. Built with `@/components/ui/input`.
-- [ ] `apps/web/components/auth/password-input.tsx` exports `<PasswordInput />` — show/hide toggle + simple strength hint (UX only; library owns validation).
-- [ ] `apps/web/lib/schemas/auth.ts` exports zod schemas: `loginSchema`, `registerSchema`, `verifyEmailSchema`, `forgotPasswordSchema`, `resetPasswordTokenSchema`, `resetPasswordOtpSchema`, `mfaChallengeSchema`, `acceptInvitationSchema`.
-- [ ] `apps/web/lib/auth-errors.ts` imports `AUTH_ERROR_CODES` from `@bymax-one/nest-auth` (shared subpath) and exports `translateAuthError(code: keyof typeof AUTH_ERROR_CODES): string` — covers **every** key, with a TODO-eliminating typecheck (e.g., `satisfies Record<keyof typeof AUTH_ERROR_CODES, string>`).
-- [ ] `pnpm --filter @nest-auth-example/web typecheck` passes.
+- [x] `apps/web/app/(auth)/layout.tsx` renders a centered `<Card>` layout with brand ("nest-auth-example") at the top, children in the card body. Server component; no client code.
+- [x] `apps/web/components/auth/otp-input.tsx` exports `<OtpInput length={6} value onChange />` — six single-character boxes, auto-advance, paste-friendly. Built with `@/components/ui/input`.
+- [x] `apps/web/components/auth/password-input.tsx` exports `<PasswordInput />` — show/hide toggle + simple strength hint (UX only; library owns validation).
+- [x] `apps/web/lib/schemas/auth.ts` exports zod schemas: `loginSchema`, `registerSchema`, `verifyEmailSchema`, `forgotPasswordSchema`, `resetPasswordTokenSchema`, `resetPasswordOtpSchema`, `mfaChallengeSchema`, `acceptInvitationSchema`.
+- [x] `apps/web/lib/auth-errors.ts` imports `AUTH_ERROR_CODES` from `@bymax-one/nest-auth` (shared subpath) and exports `translateAuthError(code: keyof typeof AUTH_ERROR_CODES): string` — covers **every** key, with a TODO-eliminating typecheck (e.g., `satisfies Record<keyof typeof AUTH_ERROR_CODES, string>`).
+- [x] `pnpm --filter @nest-auth-example/web typecheck` passes.
 
 ### Files to create / modify
 
@@ -81,7 +81,7 @@ Lay the foundation every other Phase 13 page will consume: the `(auth)` route-gr
 
 ## P13-2 — `login/page.tsx` — email + password + Google + MFA challenge hand-off
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `P13-1`
@@ -92,14 +92,14 @@ The canonical login form — FCM rows **#2 (cookie-mode login)** and **#12 (OAut
 
 ### Acceptance Criteria
 
-- [ ] `apps/web/app/(auth)/login/page.tsx` is a client component using `react-hook-form` with `zodResolver(loginSchema)`.
-- [ ] Calls `authClient.login({ email, password })` from `@/lib/auth-client`.
-- [ ] On 200 success: `router.replace('/dashboard')` (proxy handles role-based routing from there).
-- [ ] On MFA challenge response: writes `mfaTempToken` to `sessionStorage`, `router.push('/auth/mfa-challenge')`.
-- [ ] On error: calls `handleAuthClientError`, which pipes `translateAuthError(code)` into `sonner`.
-- [ ] Shows "Continue with Google" button (`<Button variant="outline">`) only when `env.NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED === true`; clicking navigates to `/api/auth/oauth/google/start` (library route).
-- [ ] "Forgot password?" link under the submit button.
-- [ ] `useAuthStatus()` returns `'authenticated'` → server-side redirect via the proxy's `publicRoutesRedirectIfAuthenticated` — verify by logging in and hitting `/auth/login` again.
+- [x] `apps/web/app/(auth)/login/page.tsx` is a client component using `react-hook-form` with `zodResolver(loginSchema)`.
+- [x] Calls `authClient.login({ email, password })` from `@/lib/auth-client`.
+- [x] On 200 success: `router.replace('/dashboard')` (proxy handles role-based routing from there).
+- [x] On MFA challenge response: writes `mfaTempToken` to `sessionStorage`, `router.push('/auth/mfa-challenge')`.
+- [x] On error: calls `handleAuthClientError`, which pipes `translateAuthError(code)` into `sonner`.
+- [x] Shows "Continue with Google" button (`<Button variant="outline">`) only when `env.NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED === true`; clicking navigates to `/api/auth/oauth/google/start` (library route).
+- [x] "Forgot password?" link under the submit button.
+- [x] `useAuthStatus()` returns `'authenticated'` → server-side redirect via the proxy's `publicRoutesRedirectIfAuthenticated` — verify by logging in and hitting `/auth/login` again.
 
 ### Files to create / modify
 
@@ -137,7 +137,7 @@ The canonical login form — FCM rows **#2 (cookie-mode login)** and **#12 (OAut
 
 ## P13-3 — `register/page.tsx` — email + name + password + tenant + "verification sent" screen
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `P13-1`
@@ -148,13 +148,13 @@ FCM row **#1 (email + password registration)**. Form collects email, name, passw
 
 ### Acceptance Criteria
 
-- [ ] `apps/web/app/(auth)/register/page.tsx` is a client component using `react-hook-form` with `zodResolver(registerSchema)`.
-- [ ] Fields: email (`type="email"`), name, password (`<PasswordInput />`), tenant (`<Select>` from shadcn).
-- [ ] Calls `authClient.register({ email, name, password, tenantId })`.
-- [ ] Conditional render: on success, switches to a "Check your email — we sent a verification link/OTP to {email}" screen with a `Resend` button that calls `authClient.resendVerification`.
-- [ ] Google button ("Continue with Google") mirrors the login page's conditional render.
-- [ ] Error handling via `translateAuthError` + `sonner` — covers `EMAIL_ALREADY_EXISTS`, `WEAK_PASSWORD`, etc.
-- [ ] "Already have an account? Sign in" link to `/auth/login`.
+- [x] `apps/web/app/(auth)/register/page.tsx` is a client component using `react-hook-form` with `zodResolver(registerSchema)`.
+- [x] Fields: email (`type="email"`), name, password (`<PasswordInput />`), tenant (`<Select>` from shadcn).
+- [x] Calls `authClient.register({ email, name, password, tenantId })`.
+- [x] Conditional render: on success, switches to a "Check your email — we sent a verification link/OTP to {email}" screen with a `Resend` button that calls `authClient.resendVerification`.
+- [x] Google button ("Continue with Google") mirrors the login page's conditional render.
+- [x] Error handling via `translateAuthError` + `sonner` — covers `EMAIL_ALREADY_EXISTS`, `WEAK_PASSWORD`, etc.
+- [x] "Already have an account? Sign in" link to `/auth/login`.
 
 ### Files to create / modify
 
@@ -191,7 +191,7 @@ FCM row **#1 (email + password registration)**. Form collects email, name, passw
 
 ## P13-4 — `verify-email/page.tsx` — OTP input + resend cooldown
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S
 - **Depends on:** `P13-1`
@@ -202,14 +202,14 @@ FCM row **#5 (email verification OTP)**. Reads `?email=&tenantId=` from the URL,
 
 ### Acceptance Criteria
 
-- [ ] `apps/web/app/(auth)/verify-email/page.tsx` is a client component.
-- [ ] Reads `?email=` and `?tenantId=` using `useSearchParams()`.
-- [ ] Renders `<OtpInput length={6} />` inside a `react-hook-form` form using `verifyEmailSchema`.
-- [ ] On submit, calls `authClient.verifyEmail({ email, tenantId, code })`.
-- [ ] On 200 success: `router.replace('/auth/login?verified=1')`.
-- [ ] Resend button calls `authClient.resendVerification`; starts a 60-second countdown immediately after click, persisted in `sessionStorage` under key `verifyEmail:cooldown:{email}`.
-- [ ] Error handling via `translateAuthError` + `sonner` — covers `INVALID_OTP`, `OTP_EXPIRED`, `RATE_LIMITED`.
-- [ ] Missing `email` / `tenantId` query params: show "Please re-open the link from your email" inline error instead of crashing.
+- [x] `apps/web/app/(auth)/verify-email/page.tsx` is a client component.
+- [x] Reads `?email=` and `?tenantId=` using `useSearchParams()`.
+- [x] Renders `<OtpInput length={6} />` inside a `react-hook-form` form using `verifyEmailSchema`.
+- [x] On submit, calls `authClient.verifyEmail({ email, tenantId, code })`.
+- [x] On 200 success: `router.replace('/auth/login?verified=1')`.
+- [x] Resend button calls `authClient.resendVerification`; starts a 60-second countdown immediately after click, persisted in `sessionStorage` under key `verifyEmail:cooldown:{email}`.
+- [x] Error handling via `translateAuthError` + `sonner` — covers `INVALID_OTP`, `OTP_EXPIRED`, `RATE_LIMITED`.
+- [x] Missing `email` / `tenantId` query params: show "Please re-open the link from your email" inline error instead of crashing.
 
 ### Files to create / modify
 
@@ -245,7 +245,7 @@ FCM row **#5 (email verification OTP)**. Reads `?email=&tenantId=` from the URL,
 
 ## P13-5 — `forgot-password/page.tsx` — email input, anti-enumeration success
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S
 - **Depends on:** `P13-1`
@@ -256,13 +256,13 @@ FCM rows **#6/#7 (password reset — token + OTP modes)**, initial step. Single 
 
 ### Acceptance Criteria
 
-- [ ] `apps/web/app/(auth)/forgot-password/page.tsx` is a client component.
-- [ ] Form uses `forgotPasswordSchema` (email only).
-- [ ] Calls `authClient.forgotPassword({ email })`.
-- [ ] On any response (200 or 404): shows the same "If an account exists for that email, we sent reset instructions." message. Do not distinguish cases in the UI.
-- [ ] Any non-2xx error that isn't "account not found" (e.g., network, rate limit) is surfaced as a toast via `translateAuthError`.
-- [ ] Link back to `/auth/login`.
-- [ ] Success state replaces the form with the confirmation message; no automatic redirect.
+- [x] `apps/web/app/(auth)/forgot-password/page.tsx` is a client component.
+- [x] Form uses `forgotPasswordSchema` (email only).
+- [x] Calls `authClient.forgotPassword({ email })`.
+- [x] On any response (200 or 404): shows the same "If an account exists for that email, we sent reset instructions." message. Do not distinguish cases in the UI.
+- [x] Any non-2xx error that isn't "account not found" (e.g., network, rate limit) is surfaced as a toast via `translateAuthError`.
+- [x] Link back to `/auth/login`.
+- [x] Success state replaces the form with the confirmation message; no automatic redirect.
 
 ### Files to create / modify
 
@@ -299,7 +299,7 @@ FCM rows **#6/#7 (password reset — token + OTP modes)**, initial step. Single 
 
 ## P13-6 — `reset-password/page.tsx` — token + OTP modes via `?mode=`
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `P13-1`
@@ -310,14 +310,14 @@ FCM rows **#6/#7 (password reset completion)**. Single page covering both modes 
 
 ### Acceptance Criteria
 
-- [ ] `apps/web/app/(auth)/reset-password/page.tsx` is a client component that reads `?mode=`, `?token=`, `?email=` via `useSearchParams()`.
-- [ ] When `mode === 'token'`: uses `resetPasswordTokenSchema` (password, confirmPassword) and submits with the `token` from the URL.
-- [ ] When `mode === 'otp'`: uses `resetPasswordOtpSchema` (code, password, confirmPassword); renders `<OtpInput length={6} />` + `<PasswordInput />`.
-- [ ] Unknown or missing `mode`: inline message "This link looks incomplete. Please request a new password reset." with a link back to `/auth/forgot-password`.
-- [ ] Submit calls `authClient.resetPassword(...)` with the correct payload shape for each mode.
-- [ ] On success: `router.replace('/auth/login?reset=1')`.
-- [ ] Error handling via `translateAuthError` + `sonner` — includes `INVALID_TOKEN`, `TOKEN_EXPIRED`, `INVALID_OTP`, `WEAK_PASSWORD`.
-- [ ] Client-side check: `password === confirmPassword` enforced by the zod schema.
+- [x] `apps/web/app/(auth)/reset-password/page.tsx` is a client component that reads `?mode=`, `?token=`, `?email=` via `useSearchParams()`.
+- [x] When `mode === 'token'`: uses `resetPasswordTokenSchema` (password, confirmPassword) and submits with the `token` from the URL.
+- [x] When `mode === 'otp'`: uses `resetPasswordOtpSchema` (code, password, confirmPassword); renders `<OtpInput length={6} />` + `<PasswordInput />`.
+- [x] Unknown or missing `mode`: inline message "This link looks incomplete. Please request a new password reset." with a link back to `/auth/forgot-password`.
+- [x] Submit calls `authClient.resetPassword(...)` with the correct payload shape for each mode.
+- [x] On success: `router.replace('/auth/login?reset=1')`.
+- [x] Error handling via `translateAuthError` + `sonner` — includes `INVALID_TOKEN`, `TOKEN_EXPIRED`, `INVALID_OTP`, `WEAK_PASSWORD`.
+- [x] Client-side check: `password === confirmPassword` enforced by the zod schema.
 
 ### Files to create / modify
 
@@ -354,25 +354,25 @@ FCM rows **#6/#7 (password reset completion)**. Single page covering both modes 
 
 ## P13-7 — `mfa-challenge/page.tsx` — TOTP + recovery-code toggle
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S
 - **Depends on:** `P13-1`, `P13-2`
 
 ### Description
 
-FCM rows **#9 (TOTP challenge)** and **#10 (recovery codes)**. The login page (P13-2) redirects here with `mfaTempToken` in `sessionStorage`. The page shows a TOTP input (six boxes); a "Use a recovery code instead" toggle swaps the input for a recovery-code field. Submitting calls `authClient.mfaChallenge({ tempToken, code, type })`. On success, the library sets the session cookies and the page routes to `/dashboard`.
+FCM rows **#9 (TOTP challenge)** and **#10 (recovery codes)**. The login page (P13-2) redirects here with `mfaTempToken` in `sessionStorage`. The page shows a TOTP input (six boxes); a "Use a recovery code instead" toggle swaps the input for a recovery-code field. Submitting calls `authClient.mfaChallenge(tempToken, code)`. On success, the library sets the session cookies and the page routes to `/dashboard`.
 
 ### Acceptance Criteria
 
-- [ ] `apps/web/app/(auth)/mfa-challenge/page.tsx` is a client component.
-- [ ] Reads `mfaTempToken` from `sessionStorage` on mount; if missing, redirects to `/auth/login` with a toast.
-- [ ] Default mode: TOTP — renders `<OtpInput length={6} />` with `inputMode="numeric"`.
-- [ ] "Use a recovery code instead" link toggles to recovery-code mode — renders a plain text input with the expected length.
-- [ ] Submit calls `authClient.mfaChallenge({ tempToken, code, type: 'totp' | 'recovery' })`.
-- [ ] On success: clear `sessionStorage.mfaTempToken` and `router.replace('/dashboard')`.
-- [ ] Error handling via `translateAuthError` + `sonner` — covers `INVALID_MFA_CODE`, `MFA_LOCKED`, `MFA_TOKEN_EXPIRED`.
-- [ ] Pressing the browser back button does not leak the temp token to `/auth/login`.
+- [x] `apps/web/app/(auth)/mfa-challenge/page.tsx` is a client component.
+- [x] Reads `mfaTempToken` from `sessionStorage` on mount; if missing, redirects to `/auth/login` with a toast.
+- [x] Default mode: TOTP — renders `<OtpInput length={6} />` with `inputMode="numeric"`.
+- [x] "Use a recovery code instead" link toggles to recovery-code mode — renders a plain text input with the expected length.
+- [x] Submit calls `authClient.mfaChallenge(tempToken, code)` (two positional args — library signature).
+- [x] On success: clear `sessionStorage.mfaTempToken` and `router.replace('/dashboard')`.
+- [x] Error handling via `translateAuthError` + `sonner` — covers `INVALID_MFA_CODE`, `MFA_LOCKED`, `MFA_TOKEN_EXPIRED`.
+- [x] Pressing the browser back button does not leak the temp token to `/auth/login`.
 
 ### Files to create / modify
 
@@ -409,25 +409,25 @@ FCM rows **#9 (TOTP challenge)** and **#10 (recovery codes)**. The login page (P
 
 ## P13-8 — `accept-invitation/page.tsx` — invite summary + name + password
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `P13-1`
 
 ### Description
 
-FCM row **#21 (invitations)**. Reads `?token=...` from the URL, fetches the invite summary via `authClient.getInvitation(token)` (or the library's equivalent), displays inviter + tenant + role, and collects `name` + `password` to complete signup. On submit, calls `authClient.acceptInvitation({ token, name, password })`. Successful acceptance redirects to `/dashboard` (the library issues session cookies on acceptance).
+FCM row **#21 (invitations)**. Reads `?token=...` from the URL, shows the acceptance form (name + password), and POSTs to `/api/auth/invitations/accept`. The library's `AuthClient` does not expose a `getInvitation` GET endpoint, so the invitation is validated on the accept POST — invalid/expired tokens surface as an inline error state.
 
 ### Acceptance Criteria
 
-- [ ] `apps/web/app/(auth)/accept-invitation/page.tsx` is a client component.
-- [ ] Reads `?token=` via `useSearchParams()`.
-- [ ] On mount, calls `authClient.getInvitation(token)` — renders a `Loading…` skeleton while resolving.
-- [ ] On resolved invite: renders a summary block ("{inviter} invited you to join {tenant} as {role}") + a form with `name`, `<PasswordInput />` using `acceptInvitationSchema`.
-- [ ] Submit calls `authClient.acceptInvitation({ token, name, password })`.
-- [ ] On success: `router.replace('/dashboard')`.
-- [ ] On invalid/expired token: renders an inline error with a "Contact your administrator for a new invite" message.
-- [ ] Error handling via `translateAuthError` + `sonner` — covers `INVITATION_EXPIRED`, `INVITATION_USED`, `INVITATION_NOT_FOUND`, `WEAK_PASSWORD`.
+- [x] `apps/web/app/(auth)/accept-invitation/page.tsx` is a client component.
+- [x] Reads `?token=` via `useSearchParams()`.
+- [x] Missing token: inline error "re-open the link" instead of crashing.
+- [x] Form collects `name` + `<PasswordInput />` using `acceptInvitationSchema`.
+- [x] Submit POSTs to `/api/auth/invitations/accept` with `{ token, name, password }`.
+- [x] On success: `router.replace('/dashboard')`.
+- [x] On invalid/expired token: renders an inline error with a "Contact your administrator for a new invite" message (not a toast).
+- [x] Error handling via `translateAuthError` + `sonner` — covers `INVITATION_EXPIRED`, `INVITATION_USED`, `INVITATION_NOT_FOUND`, `WEAK_PASSWORD`.
 
 ### Files to create / modify
 
@@ -464,3 +464,12 @@ FCM row **#21 (invitations)**. Reads `?token=...` from the URL, fetches the invi
 ---
 
 ## Completion log
+
+- P13-1 ✅ 2026-04-25 — auth layout glass card + OtpInput + PasswordInput + schemas/auth.ts + auth-errors.ts with satisfies exhaustiveness check
+- P13-2 ✅ 2026-04-25 — login page with email+password, Google OAuth button, MFA challenge hand-off via sessionStorage, status banners
+- P13-3 ✅ 2026-04-25 — register page with email+name+password+tenant, "Check your email" confirmation screen, 60s resend cooldown
+- P13-4 ✅ 2026-04-25 — verify-email page with OtpInput, per-email cooldown in sessionStorage, missing-param guard
+- P13-5 ✅ 2026-04-25 — forgot-password page with anti-enumeration (always shows generic confirmation regardless of account existence)
+- P13-6 ✅ 2026-04-25 — reset-password page with token+OTP modes via ?mode= query param, two sub-form components
+- P13-7 ✅ 2026-04-25 — mfa-challenge page with TOTP OtpInput + recovery-code toggle, sessionStorage token lifecycle
+- P13-8 ✅ 2026-04-25 — accept-invitation page with name+password form, inline fatal-error state for expired/used tokens
