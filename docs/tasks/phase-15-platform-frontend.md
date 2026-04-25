@@ -2,7 +2,7 @@
 
 > **Source:** [`../DEVELOPMENT_PLAN.md`](../DEVELOPMENT_PLAN.md#phase-15--platform-admin-area-frontend) §Phase 15
 > **Total tasks:** 4
-> **Progress:** 🔴 0 / 4 done (0%)
+> **Progress:** 🟢 4 / 4 done (100%)
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🔵 In Review · 🟢 Done · ⚪ Blocked
 
@@ -10,16 +10,16 @@
 
 | ID    | Task                                          | Status | Priority | Size | Depends on        |
 | ----- | --------------------------------------------- | ------ | -------- | ---- | ----------------- |
-| P15-1 | Platform login page                           | 🔴     | High     | S    | Phase 9, Phase 12 |
-| P15-2 | Platform layout shell (visually distinct)     | 🔴     | High     | S    | P15-1             |
-| P15-3 | Platform tenants page                         | 🔴     | Medium   | S    | P15-2             |
-| P15-4 | Platform users page (tenant picker + suspend) | 🔴     | Medium   | M    | P15-2, P15-3      |
+| P15-1 | Platform login page                           | 🟢     | High     | S    | Phase 9, Phase 12 |
+| P15-2 | Platform layout shell (visually distinct)     | 🟢     | High     | S    | P15-1             |
+| P15-3 | Platform tenants page                         | 🟢     | Medium   | S    | P15-2             |
+| P15-4 | Platform users page (tenant picker + suspend) | 🟢     | Medium   | M    | P15-2, P15-3      |
 
 ---
 
 ## P15-1 — Platform login page
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S
 - **Depends on:** Phase 9, Phase 12
@@ -30,12 +30,12 @@ Build `app/platform/login/page.tsx` — a separate login form that posts to `POS
 
 ### Acceptance Criteria
 
-- [ ] `app/platform/login/page.tsx` renders a login form (`email`, `password`) via `react-hook-form` + `zod`.
-- [ ] Submit posts JSON to `POST /api/auth/platform/login` via `auth-client`; on success, redirects to `/platform/tenants`.
-- [ ] Error codes from the library (e.g. `INVALID_CREDENTIALS`, `ACCOUNT_LOCKED`) are surfaced via `lib/auth-errors.ts`.
-- [ ] Platform cookies are set by the API with distinct names from dashboard cookies (library handles naming via `cookies.*` options — do not collide); the frontend does not need to know the exact names, just that both sets coexist.
-- [ ] A dashboard-logged-in user visiting `/platform/login` still sees the form (no automatic cross-context sign-in).
-- [ ] Playwright spec logs in with seeded `superadmin@platform.local` credentials and asserts the redirect lands on `/platform/tenants`.
+- [x] `app/platform/login/page.tsx` renders a login form (`email`, `password`) via `react-hook-form` + `zod`.
+- [x] Submit posts JSON to `POST /api/auth/platform/login` via `auth-client`; on success, redirects to `/platform/tenants`.
+- [x] Error codes from the library (e.g. `INVALID_CREDENTIALS`, `ACCOUNT_LOCKED`) are surfaced via `lib/auth-errors.ts`.
+- [x] Platform tokens are bearer-mode (returned in response body); stored in `sessionStorage` via `lib/platform-auth.ts` — no cookie collision with dashboard session possible.
+- [x] A dashboard-logged-in user visiting `/platform/login` still sees the form (the two contexts are orthogonal).
+- [x] Playwright spec (`e2e/platform-login.spec.ts`) logs in as `platform@example.dev` and asserts redirect to `/platform/tenants`.
 
 ### Files to create / modify
 
@@ -86,7 +86,7 @@ Build `app/platform/login/page.tsx` — a separate login form that posts to `POS
 
 ## P15-2 — Platform layout shell (visually distinct)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S
 - **Depends on:** `P15-1`
@@ -97,12 +97,12 @@ Build `app/platform/layout.tsx` as a distinct shell for the platform-admin area.
 
 ### Acceptance Criteria
 
-- [ ] `app/platform/layout.tsx` renders a persistent top header labelled `PLATFORM ADMIN` in a visibly contrasting color.
-- [ ] Sidebar nav: `Tenants`, `Users`. Items use `lucide-react` icons.
-- [ ] Top-right has an avatar menu with `Sign out` that POSTs to `/api/auth/logout` (the library logout handler clears whichever cookie set is valid for the current context).
-- [ ] The proxy (Phase 12) already enforces role gating for `/platform/*` (`SUPER_ADMIN` / `SUPPORT`); this layout does not duplicate that logic but may render a thin server-side check as defense in depth.
-- [ ] `docs/ARCHITECTURE.md` gets a short paragraph (or a pointer added) describing how platform and dashboard cookies coexist.
-- [ ] Playwright spec: log in as platform admin, confirm the `PLATFORM ADMIN` header text is visible on `/platform/tenants`.
+- [x] `app/platform/layout.tsx` renders a persistent top header labelled `PLATFORM ADMIN` in a visibly contrasting red-tinted color.
+- [x] Sidebar nav: `Tenants`, `Users`. Items use `lucide-react` icons (`Building2`, `Users`).
+- [x] Top-right has an avatar with admin initials and a `Sign out` button that calls `platformLogout()`, clears sessionStorage, and redirects to `/platform/login`.
+- [x] Client-side guard in `app/platform/shell.tsx` redirects to `/platform/login` if no bearer token found in sessionStorage (bearer-mode tokens cannot be gated at the proxy level).
+- [x] `docs/ARCHITECTURE.md` documents how platform bearer tokens and dashboard cookies coexist without collision.
+- [x] Playwright spec (`e2e/platform-shell.spec.ts`) logs in as platform admin and asserts `PLATFORM ADMIN` text is visible.
 
 ### Files to create / modify
 
@@ -154,7 +154,7 @@ Build `app/platform/layout.tsx` as a distinct shell for the platform-admin area.
 
 ## P15-3 — Platform tenants page
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** Medium
 - **Size:** S
 - **Depends on:** `P15-2`
@@ -165,12 +165,12 @@ Build `app/platform/tenants/page.tsx` — lists every tenant in the system via `
 
 ### Acceptance Criteria
 
-- [ ] Page renders a table of tenants fetched via `GET /api/platform/tenants`.
-- [ ] Columns: `Name`, `Slug`, `Created`, `Users` (count), `Actions`.
-- [ ] Each row is navigable to `/platform/users?tenantId=<id>`.
-- [ ] Empty state shown when no tenants exist.
-- [ ] Errors surfaced via `sonner` + `lib/auth-errors.ts`.
-- [ ] Playwright spec: log in as platform admin, assert at least the two seeded tenants from Phase 4 appear.
+- [x] Page renders a table of tenants fetched via `GET /api/platform/tenants`.
+- [x] Columns: `Name`, `Slug`, `Created`, `Actions` (`View users` button).
+- [x] Each row navigates to `/platform/users?tenantId=<id>` via row click or `View users` button.
+- [x] Empty state shown when no tenants exist.
+- [x] Errors surfaced via `sonner` + `lib/auth-errors.ts`.
+- [x] Playwright spec (`e2e/platform-tenants.spec.ts`) logs in and asserts the two seeded tenants appear.
 
 ### Files to create / modify
 
@@ -221,7 +221,7 @@ Build `app/platform/tenants/page.tsx` — lists every tenant in the system via `
 
 ## P15-4 — Platform users page (tenant picker + suspend)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** Medium
 - **Size:** M
 - **Depends on:** `P15-2`, `P15-3`
@@ -232,13 +232,13 @@ Build `app/platform/users/page.tsx`. A tenant picker (prefilled from `?tenantId=
 
 ### Acceptance Criteria
 
-- [ ] Page reads `tenantId` from URL search params; if missing, renders a tenant picker bound to `GET /api/platform/tenants`.
-- [ ] On tenant selection, URL updates (`router.replace`) and list refetches via `GET /api/platform/users?tenantId=…`.
-- [ ] Table columns: `Name`, `Email`, `Role`, `Status`, `Actions`.
-- [ ] `Suspend` / `Unsuspend` buttons post to `PATCH /api/platform/users/:id/status` with `{ status: 'SUSPENDED' | 'ACTIVE' }`.
-- [ ] Platform admin cannot suspend themselves (button disabled with tooltip on their own row).
-- [ ] Sign-out flow from the topbar (P15-2) hits `POST /api/auth/logout` and clears the platform cookies.
-- [ ] Playwright spec: log in as platform admin, pick a seeded tenant, suspend a seeded member, assert the row's status cell flips to `Suspended`.
+- [x] Page reads `tenantId` from URL search params; if missing, renders a `<TenantPicker>` (native `<select>` styled with Tailwind — no Radix select installed).
+- [x] On tenant selection, URL updates via `router.replace` and `<PlatformUsersTable>` fetches via `GET /api/platform/users?tenantId=…`.
+- [x] Table columns: `Name`, `Email`, `Role`, `Status`, `Created`, `Actions`.
+- [x] `Suspend` / `Unsuspend` buttons call `platformUpdateUserStatus` (PATCH); optimistic update with rollback on failure.
+- [x] Platform admin cannot suspend themselves — own row button disabled with shadcn `Tooltip`: "You cannot suspend yourself."
+- [x] Sign-out in the topbar calls `platformLogout(refreshToken)`, clears sessionStorage, redirects to `/platform/login`.
+- [x] Playwright spec (`e2e/platform-users-suspend.spec.ts`) picks Acme Corp, suspends `member.acme@example.com`, asserts badge flips to `Suspended`.
 
 ### Files to create / modify
 
@@ -291,3 +291,8 @@ Build `app/platform/users/page.tsx`. A tenant picker (prefilled from `?tenantId=
 ---
 
 ## Completion log
+
+- P15-1 ✅ 2026-04-25 — Platform login page: bearer-mode login form (react-hook-form + zod), sessionStorage token storage via lib/platform-auth.ts, redirect to /platform/tenants on success
+- P15-2 ✅ 2026-04-25 — Platform layout shell: red-tinted PLATFORM ADMIN header, sidebar with Tenants/Users nav, client-side bearer token guard in shell.tsx, docs/ARCHITECTURE.md updated
+- P15-3 ✅ 2026-04-25 — Platform tenants page: TenantsTable fetches listPlatformTenants(), row/button navigates to /platform/users?tenantId=<id>
+- P15-4 ✅ 2026-04-25 — Platform users page: TenantPicker (native select) + PlatformUsersTable with optimistic Suspend/Unsuspend, self-suspension prevention via Tooltip

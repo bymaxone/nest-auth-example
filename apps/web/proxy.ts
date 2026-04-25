@@ -38,7 +38,16 @@ const authProxy = createAuthProxy({
     '/auth/reset-password',
     '/auth/verify-email',
     '/auth/accept-invitation',
+    // Platform admin area — marked public here because platform sessions are
+    // bearer-mode (Authorization header, not cookies). The Next.js proxy can
+    // only inspect cookie-based JWTs; it cannot verify a bearer token stored
+    // in sessionStorage. Real authorization for /platform/* is enforced at the
+    // API layer by JwtPlatformGuard + PlatformRolesGuard. The platform layout
+    // shell performs a client-side sessionStorage check and redirects to
+    // /platform/login when no token is present.
     '/platform/login',
+    '/platform/tenants',
+    '/platform/users',
   ],
 
   publicRoutesRedirectIfAuthenticated: ['/auth/login', '/auth/register'],
@@ -48,7 +57,10 @@ const authProxy = createAuthProxy({
     { pattern: '/dashboard/team/:path*', allowedRoles: ['OWNER', 'ADMIN'] },
     { pattern: '/dashboard/invitations', allowedRoles: ['OWNER', 'ADMIN'] },
     { pattern: '/dashboard/:path*', allowedRoles: ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER'] },
-    { pattern: '/platform/:path*', allowedRoles: ['SUPER_ADMIN', 'SUPPORT'] },
+    // NOTE: /platform/:path* is intentionally absent. Platform sessions are
+    // bearer-mode — cookie-based gating at the proxy level would always
+    // redirect platform admins to /auth/login because they have no tenant
+    // access cookie. The JwtPlatformGuard on the NestJS side is the real gate.
   ],
 
   loginPath: '/auth/login',
