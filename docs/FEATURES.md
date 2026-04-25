@@ -67,5 +67,80 @@ This behaviour is covered by the e2e spec at `apps/api/test/oauth-link.e2e-spec.
 
 ---
 
+## Notifications (WebSocket)
+
+**FCM row:** #24 — WebSocket auth + `WsJwtGuard`  
+**Status:** ✅ Full loop wired (Phase 10 + Phase 16)
+
+### End-to-end loop
+
+```
+User (browser)
+  │  ws://localhost:3000/ws/notifications
+  │  ← same-origin, access_token cookie forwarded automatically
+  ▼
+Next.js /ws/:path* rewrite
+  │  ws://localhost:4000/ws/notifications (upgrade request + Cookie header)
+  ▼
+NotificationsGateway  (apps/api)
+  │  reads JWT from Cookie: access_token (or Authorization: Bearer fallback)
+  │  verifies via JwtService + rv:{jti} revocation check in Redis
+  │  registers socket in userSockets map keyed by userId
+  ▼
+[connection open — gateway holds the socket]
+  │
+  │  POST /api/debug/notify/self  (dev only, any dashboard role)
+  ▼
+NotificationsController.notifySelf()
+  │  extracts userId from verified JWT (@CurrentUser)
+  │  calls gateway.emitNewNotification(userId, { title, body })
+  ▼
+NotificationsGateway.emitNewNotification()
+  │  sends JSON `{ event: 'notification:new', data: { title, body } }` to all
+  │  open sockets for that userId
+  ▼
+Browser ws-client singleton
+  │  onmessage → dispatch('notification:new', payload)
+  ▼
+NotificationListener (React component in dashboard layout)
+  │  handler: toast(payload.title, { description: payload.body })
+  ▼
+sonner toast visible to the user
+```
+
+### Demo (development only)
+
+1. Start the full stack: `pnpm infra:up && pnpm dev`
+2. Log in at `http://localhost:3000/auth/login`.
+3. Navigate to **Dashboard → Account**.
+4. Click **Send test notification**. A toast should appear within ~1 second.
+5. The button is hidden in production builds (`process.env.NODE_ENV === 'production'`).
+
+### Per-user isolation
+
+Notifications are routed exclusively to the sockets owned by the requesting user's
+`userId`. The `userSockets` map in `NotificationsGateway` is keyed by userId, not
+tenantId or sessionId, so even an admin in the same tenant cannot receive
+another user's notifications. The Playwright spec `e2e/notifications-isolation.spec.ts`
+asserts this with two concurrent browser contexts.
+
+### Key files
+
+| File                                                              | Role                                       |
+| ----------------------------------------------------------------- | ------------------------------------------ |
+| `apps/api/src/notifications/notifications.gateway.ts`             | WS gateway — auth, routing                 |
+| `apps/api/src/notifications/notifications.controller.ts`          | `notify/self` + `notify/:userId` triggers  |
+| `apps/web/lib/ws-client.ts`                                       | Browser singleton with exponential backoff |
+| `apps/web/components/notifications/notification-listener.tsx`     | Toast subscriber                           |
+| `apps/web/components/dashboard/send-test-notification-button.tsx` | Demo button                                |
+
+### Environment Variable
+
+| Variable             | Required | Example               | Notes                                                    |
+| -------------------- | -------- | --------------------- | -------------------------------------------------------- |
+| `NEXT_PUBLIC_WS_URL` | Yes      | `ws://localhost:3000` | Same-origin URL; proxied to NestJS via `next.config.mjs` |
+
+---
+
 > **See Phase 18** for complete feature documentation including screenshots, full `curl` command sequences, and architecture diagrams.
 > Phase 18 tasks: [`docs/tasks/phase-18-documentation.md`](tasks/phase-18-documentation.md)

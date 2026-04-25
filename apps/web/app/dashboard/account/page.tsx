@@ -1,18 +1,20 @@
 /**
- * @fileoverview Account settings page — identity summary + password change.
+ * @fileoverview Account settings page — identity summary, password change, and
+ * (dev-only) WebSocket notification demo button.
  *
  * Server component: `requireAuth()` reads the verified JWT without a network
  * round-trip and provides `userId`, `role`, and `tenantId` for the identity card.
  *
- * The `PasswordChangeForm` is a Client Component rendered inside the page.
- * OAuth-only accounts are informed that password change is unavailable — the
- * backend returns 400 for those accounts when the form is submitted.
+ * The `PasswordChangeForm` and `SendTestNotificationButton` are Client Components
+ * rendered inside the page. The notification button is conditionally visible: it
+ * is hidden in production builds by `SendTestNotificationButton` itself.
  *
  * @layer pages/dashboard/account
  */
 
 import { requireAuth } from '@/lib/require-auth';
 import { PasswordChangeForm } from '@/components/dashboard/password-change-form';
+import { SendTestNotificationButton } from '@/components/dashboard/send-test-notification-button';
 
 /**
  * Account settings page — shows the signed-in user's identity and exposes
@@ -90,6 +92,24 @@ export default async function AccountPage() {
           <PasswordChangeForm />
         </section>
       </div>
+
+      {/* ── Notifications demo (dev only) ── */}
+      <section
+        aria-labelledby="notifications-heading"
+        className="rounded-xl border border-[rgba(255,98,36,0.15)] bg-[rgba(255,98,36,0.04)] p-6"
+      >
+        <h2
+          id="notifications-heading"
+          className="mb-1 font-mono text-sm font-semibold uppercase tracking-widest text-[rgba(255,255,255,0.4)]"
+        >
+          Notifications demo
+        </h2>
+        <p className="mb-4 text-xs text-[rgba(255,255,255,0.35)]">
+          Sends a test notification through the WebSocket gateway to this session. Only visible in
+          development.
+        </p>
+        <SendTestNotificationButton />
+      </section>
     </div>
   );
 }

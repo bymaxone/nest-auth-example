@@ -49,7 +49,7 @@
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🟢 Done · ⚪ Blocked · 🔵 In Review
 >
-> **Overall progress:** 🟡 91 / 126 tasks done (72%)
+> **Overall progress:** 🟡 94 / 126 tasks done (75%)
 
 | #   | Phase                                                           | Tasks file                                              | Done / Total | %    | Status |
 | --- | --------------------------------------------------------------- | ------------------------------------------------------- | ------------ | ---- | ------ |
@@ -69,7 +69,7 @@
 | 13  | Public Auth Pages (`app/(auth)`)                                | [phase-13](./tasks/phase-13-public-auth-pages.md)       | 8 / 8        | 100% | 🟢     |
 | 14  | Dashboard (Account, Security, Sessions, Team, Invitations)      | [phase-14](./tasks/phase-14-dashboard.md)               | 7 / 7        | 100% | 🟢     |
 | 15  | Platform Admin Area (Frontend)                                  | [phase-15](./tasks/phase-15-platform-frontend.md)       | 4 / 4        | 100% | 🟢     |
-| 16  | WebSocket Consumer + Notification Toast                         | [phase-16](./tasks/phase-16-websocket-frontend.md)      | 0 / 3        | 0%   | 🔴     |
+| 16  | WebSocket Consumer + Notification Toast                         | [phase-16](./tasks/phase-16-websocket-frontend.md)      | 3 / 3        | 100% | 🟢     |
 | 17  | Testing (Unit, E2E, Playwright)                                 | [phase-17](./tasks/phase-17-testing.md)                 | 0 / 10       | 0%   | 🔴     |
 | 18  | Documentation (docs/\*)                                         | [phase-18](./tasks/phase-18-documentation.md)           | 0 / 11       | 0%   | 🔴     |
 | 19  | CI/CD, Release Automation, Production Build                     | [phase-19](./tasks/phase-19-cicd.md)                    | 0 / 5        | 0%   | 🔴     |

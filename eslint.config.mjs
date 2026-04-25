@@ -31,10 +31,17 @@ export default tseslint.config(
     },
   },
   {
-    // Relax unsafe-type rules in test files: Jest globals (describe/it/expect) and
-    // supertest response objects are unresolvable at the ESLint level without full
-    // jest type augmentation, producing false-positive no-unsafe-* errors.
-    files: ['**/*.spec.ts', '**/*.e2e-spec.ts', '**/test/**/*.ts'],
+    // Relax unsafe-type rules in test files: Jest/Vitest globals (describe/it/expect)
+    // and test framework objects are unresolvable at the ESLint level without full
+    // type augmentation, producing false-positive no-unsafe-* and unbound-method errors.
+    files: [
+      '**/*.spec.ts',
+      '**/*.spec.tsx',
+      '**/*.test.ts',
+      '**/*.test.tsx',
+      '**/*.e2e-spec.ts',
+      '**/test/**/*.ts',
+    ],
     languageOptions: {
       globals: { ...globals.node, ...globals.jest },
     },
@@ -43,6 +50,9 @@ export default tseslint.config(
       '@typescript-eslint/no-unsafe-member-access': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',
       '@typescript-eslint/no-unsafe-argument': 'off',
+      // vi.fn() mock objects accessed as method references produce false-positive
+      // unbound-method warnings because TypeScript sees them as class methods.
+      '@typescript-eslint/unbound-method': 'off',
     },
   },
   prettier,

@@ -5,6 +5,10 @@
  * - `/api/:path*` rewrite proxies browser requests to the NestJS API at
  *   INTERNAL_API_URL, keeping the browser on a single registrable domain — a
  *   prerequisite for HttpOnly cookie flows and `createAuthProxy`.
+ * - `/ws/:path*` rewrite proxies WebSocket upgrade requests to the same NestJS
+ *   server. Browser WebSocket connections to the same origin automatically carry
+ *   HttpOnly cookies (SameSite=Strict), enabling cookie-based WS auth in the
+ *   `NotificationsGateway` without exposing tokens to JavaScript.
  * - React Compiler is enabled for React 19 performance optimisation.
  * - INTERNAL_API_URL is read directly from process.env here (not from lib/env.ts)
  *   because next.config runs before module-level env parsing in some contexts
@@ -23,6 +27,12 @@ const nextConfig = {
       {
         source: '/api/:path*',
         destination: `${internalApiUrl}/api/:path*`,
+      },
+      {
+        // Proxy WebSocket upgrade requests so the browser can connect to
+        // /ws/notifications on the same origin and have cookies forwarded.
+        source: '/ws/:path*',
+        destination: `${internalApiUrl}/ws/:path*`,
       },
     ];
   },

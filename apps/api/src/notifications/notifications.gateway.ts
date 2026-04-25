@@ -9,10 +9,12 @@
  * Path: `/ws/notifications`
  *
  * Authentication flow:
- *  1. Client connects, sending `Authorization: Bearer <access_token>` header.
+ *  1. Client connects. The gateway first looks for `Authorization: Bearer <token>` in
+ *     the upgrade request headers; if absent, it falls back to the `access_token`
+ *     HttpOnly cookie forwarded by the Next.js WS proxy (same-origin requests).
  *  2. `handleConnection` verifies the JWT using `JwtService`, sets `client.data`
  *     and a `handshake` shim so `WsJwtGuard` can run on any future message handler.
- *  3. If invalid, the connection is closed immediately with code 4401.
+ *  3. If no valid token is found, the connection is closed immediately with code 4401.
  *  4. On success, the userId → socket association is stored in an in-memory map.
  *
  * Disconnect-on-suspension:
@@ -97,11 +99,18 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
   /**
    * Called by the `WsAdapter` when a new WebSocket connection is established.
    *
-   * Verifies the JWT from the `Authorization: Bearer <token>` header on the
-   * HTTP upgrade request. On failure, closes the socket immediately with
-   * code 4401 (unauthorized). On success, registers the socket in the
-   * `userSockets` map and sets `client.data.user` + `client.handshake` so that
-   * `WsJwtGuard` works correctly on any future `@SubscribeMessage` handler.
+   * Verifies the JWT from the upgrade request using one of two sources (first match wins):
+   *   1. `Authorization: Bearer <token>` header — for non-browser clients or
+   *      direct connections where a custom header can be set.
+   *   2. `Cookie: access_token=<token>` — for browser WebSocket connections that
+   *      arrive via the Next.js same-origin proxy. Browsers cannot send custom
+   *      HTTP headers on WS upgrades, but they automatically forward HttpOnly
+   *      cookies for same-origin URLs.
+   *
+   * On failure, closes the socket immediately with code 4401 (unauthorized).
+   * On success, registers the socket in the `userSockets` map and sets
+   * `client.data.user` + `client.handshake` so that `WsJwtGuard` works
+   * correctly on any future `@SubscribeMessage` handler.
    *
    * @param client - The newly connected `ws.WebSocket` instance.
    * @param args - Additional connection arguments; index 0 is the `IncomingMessage`
@@ -112,7 +121,15 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
     const authHeader =
       typeof req?.headers['authorization'] === 'string' ? req.headers['authorization'] : undefined;
 
-    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
+    // Extract JWT: prefer Authorization header, fall back to access_token cookie.
+    let token: string | undefined;
+    if (authHeader?.startsWith('Bearer ')) {
+      token = authHeader.slice(7);
+    } else {
+      const cookieHeader = typeof req?.headers['cookie'] === 'string' ? req.headers['cookie'] : '';
+      const match = /(?:^|;\s*)access_token=([^;]+)/.exec(cookieHeader);
+      token = match?.[1];
+    }
 
     if (!token) {
       // Close with 4401 (application-level unauthorized) before the connection
@@ -147,8 +164,13 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
     }
 
     // Populate `data` and `handshake` shim before any guard invocation.
+    // The `handshake.headers.authorization` shim is required by `WsJwtGuard` on
+    // any future `@SubscribeMessage` handlers — synthesise it from the cookie
+    // token when no explicit Authorization header was present.
     client.data = { user: payload, userId: payload.sub };
-    client.handshake = { headers: { authorization: authHeader } };
+    client.handshake = {
+      headers: { authorization: authHeader ?? `Bearer ${token}` },
+    };
 
     const userId = payload.sub;
 

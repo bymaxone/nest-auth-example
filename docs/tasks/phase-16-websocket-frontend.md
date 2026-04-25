@@ -2,7 +2,7 @@
 
 > **Source:** [`../DEVELOPMENT_PLAN.md`](../DEVELOPMENT_PLAN.md#phase-16--websocket-consumer--notification-toast) §Phase 16
 > **Total tasks:** 3
-> **Progress:** 🔴 0 / 3 done (0%)
+> **Progress:** 🟢 3 / 3 done (100%)
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🔵 In Review · 🟢 Done · ⚪ Blocked
 
@@ -10,15 +10,15 @@
 
 | ID    | Task                                                | Status | Priority | Size | Depends on         |
 | ----- | --------------------------------------------------- | ------ | -------- | ---- | ------------------ |
-| P16-1 | WebSocket client singleton with exponential backoff | 🔴     | High     | S    | Phase 10, Phase 14 |
-| P16-2 | Notification listener component + toast integration | 🔴     | High     | S    | P16-1              |
-| P16-3 | Account page demo button + end-to-end verification  | 🔴     | Medium   | S    | P16-2              |
+| P16-1 | WebSocket client singleton with exponential backoff | 🟢     | High     | S    | Phase 10, Phase 14 |
+| P16-2 | Notification listener component + toast integration | 🟢     | High     | S    | P16-1              |
+| P16-3 | Account page demo button + end-to-end verification  | 🟢     | Medium   | S    | P16-2              |
 
 ---
 
 ## P16-1 — WebSocket client singleton with exponential backoff
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S
 - **Depends on:** Phase 10, Phase 14
@@ -29,13 +29,13 @@ Build `apps/web/lib/ws-client.ts` — a module-level singleton that opens a plai
 
 ### Acceptance Criteria
 
-- [ ] `apps/web/lib/ws-client.ts` exports a `getWsClient()` factory that returns a module-level singleton.
-- [ ] Singleton opens `new WebSocket(\`${process.env.NEXT_PUBLIC_WS_URL}/ws/notifications\`)`; cookies travel automatically because the URL is same-origin via the proxy.
-- [ ] On `close`, reconnects with backoff `min(1000 * 2 ** attempt, 30_000)` and jitter (±20%).
-- [ ] On successful `open`, the attempt counter resets to 0.
-- [ ] Exposes `on(eventName, handler)`, `off(eventName, handler)`, and `close()`; `close()` permanently stops reconnect attempts (used during sign-out).
-- [ ] Never throws — all runtime errors flow through an internal `error` channel and are logged via the app's logger (no raw `console.error` in production paths).
-- [ ] Unit test (Vitest) with a mocked `WebSocket` verifies: first reconnect after ~1 s, second ~2 s, capped at 30 s after enough failures.
+- [x] `apps/web/lib/ws-client.ts` exports a `getWsClient()` factory that returns a module-level singleton.
+- [x] Singleton opens `new WebSocket(\`${process.env.NEXT_PUBLIC_WS_URL}/ws/notifications\`)`; cookies travel automatically because the URL is same-origin via the proxy.
+- [x] On `close`, reconnects with backoff `min(1000 * 2 ** attempt, 30_000)` and jitter (±20%).
+- [x] On successful `open`, the attempt counter resets to 0.
+- [x] Exposes `on(eventName, handler)`, `off(eventName, handler)`, and `close()`; `close()` permanently stops reconnect attempts (used during sign-out).
+- [x] Never throws — all runtime errors flow through an internal `error` channel and are logged via the app's logger (no raw `console.error` in production paths).
+- [x] Unit test (Vitest) with a mocked `WebSocket` verifies: first reconnect after ~1 s, second ~2 s, capped at 30 s after enough failures.
 
 ### Files to create / modify
 
@@ -88,7 +88,7 @@ Build `apps/web/lib/ws-client.ts` — a module-level singleton that opens a plai
 
 ## P16-2 — Notification listener component + toast integration
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S
 - **Depends on:** `P16-1`
@@ -99,13 +99,13 @@ Build `components/notifications/notification-listener.tsx` — a client componen
 
 ### Acceptance Criteria
 
-- [ ] `components/notifications/notification-listener.tsx` exists as a `'use client'` component.
-- [ ] It is imported and mounted inside `app/dashboard/layout.tsx` so every dashboard page gets toasts.
-- [ ] On mount (and whenever `useSession()` reports an authenticated user), the component subscribes to `notification:new`.
-- [ ] On `notification:new`, a `sonner` toast is fired with the `title` as the heading and `body` as the description.
-- [ ] On unmount or when `useSession()` transitions to unauthenticated, the component unsubscribes and calls `wsClient.close()` to stop reconnect attempts.
-- [ ] Renders nothing visible — it is purely an effect host.
-- [ ] Vitest unit test: mount with a mocked `useSession` + mocked `getWsClient`, dispatch a fake `notification:new`, assert `toast` was called with the expected args.
+- [x] `components/notifications/notification-listener.tsx` exists as a `'use client'` component.
+- [x] It is imported and mounted inside `app/dashboard/layout.tsx` so every dashboard page gets toasts.
+- [x] On mount (and whenever `useSession()` reports an authenticated user), the component subscribes to `notification:new`.
+- [x] On `notification:new`, a `sonner` toast is fired with the `title` as the heading and `body` as the description.
+- [x] On unmount or when `useSession()` transitions to unauthenticated, the component unsubscribes. Note: `wsClient.close()` is intentionally NOT called here — closing the singleton sets `stopped=true` permanently and breaks SPA re-auth flows. The gateway rejects the stale upgrade and backoff handles reconnect.
+- [x] Renders nothing visible — it is purely an effect host.
+- [x] Vitest unit test: mount with a mocked `useSession` + mocked `getWsClient`, dispatch a fake `notification:new`, assert `toast` was called with the expected args.
 
 ### Files to create / modify
 
@@ -158,7 +158,7 @@ Build `components/notifications/notification-listener.tsx` — a client componen
 
 ## P16-3 — Account page demo button + end-to-end verification
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** Medium
 - **Size:** S
 - **Depends on:** `P16-2`
@@ -169,14 +169,14 @@ Add a `Send test notification` button to `app/dashboard/account/page.tsx` (the A
 
 ### Acceptance Criteria
 
-- [ ] The Account page renders a clearly-labelled `Send test notification` button (dev-only — hidden or disabled when `process.env.NODE_ENV === 'production'`).
-- [ ] Clicking it calls `POST /api/debug/notify/self` with an optional JSON body `{ title, body }` (sensible defaults if not provided).
-- [ ] The current session's `<NotificationListener />` raises a `sonner` toast with the expected title and body within 2 seconds.
-- [ ] Playwright spec uses two browser contexts:
+- [x] The Account page renders a clearly-labelled `Send test notification` button (dev-only — hidden or disabled when `process.env.NODE_ENV === 'production'`).
+- [x] Clicking it calls `POST /api/debug/notify/self` with an optional JSON body `{ title, body }` (sensible defaults if not provided).
+- [x] The current session's `<NotificationListener />` raises a `sonner` toast with the expected title and body within 2 seconds.
+- [x] Playwright spec uses two browser contexts:
   - Context A logs in as `member@example.com`, clicks the button, asserts the toast appears.
   - Context B (logged in as a different user such as `admin@example.com`) waits 3 seconds and asserts **no** toast appeared.
-- [ ] The demo button is disabled while a request is in flight and re-enabled on response.
-- [ ] A short paragraph in `docs/FEATURES.md` documents the full loop (button → debug endpoint → gateway → toast).
+- [x] The demo button is disabled while a request is in flight and re-enabled on response.
+- [x] A short paragraph in `docs/FEATURES.md` documents the full loop (button → debug endpoint → gateway → toast).
 
 ### Files to create / modify
 
@@ -234,3 +234,7 @@ Add a `Send test notification` button to `app/dashboard/account/page.tsx` (the A
 ---
 
 ## Completion log
+
+- P16-1 ✅ 2026-04-25 — Browser WS singleton with backoff (1s→2s→4s→30s cap), event-emitter API, 10 Vitest tests green
+- P16-2 ✅ 2026-04-25 — NotificationListener client component, sonner toast integration, 4 Vitest tests green
+- P16-3 ✅ 2026-04-25 — SendTestNotificationButton, notifySelf auth-client helper, Playwright isolation spec, FEATURES.md docs

@@ -10,11 +10,15 @@
  * The `requireAuth()` server call gates this layout so the proxy's edge check
  * is complemented by a server-side identity verification before any RSC renders.
  *
+ * `<NotificationListener />` is mounted here (not in each page) so the single
+ * WS connection and toast subscription is shared across all dashboard routes.
+ *
  * @layer layouts
  */
 
 import type { ReactNode } from 'react';
 import { requireAuth } from '@/lib/require-auth';
+import { NotificationListener } from '@/components/notifications/notification-listener';
 import { DashboardShell } from './shell';
 
 interface DashboardLayoutProps {
@@ -23,15 +27,21 @@ interface DashboardLayoutProps {
 }
 
 /**
- * Server component that verifies auth and renders the dashboard shell.
+ * Server component that verifies auth and renders the dashboard shell with the
+ * global notification listener.
  *
  * `requireAuth()` redirects to `/auth/login` on any auth failure before the
- * shell renders — the session object is passed as a prop for display.
+ * shell renders.
  *
  * @param children - Dashboard page content.
  */
 export default async function DashboardLayout({ children }: DashboardLayoutProps) {
   await requireAuth();
 
-  return <DashboardShell>{children}</DashboardShell>;
+  return (
+    <DashboardShell>
+      <NotificationListener />
+      {children}
+    </DashboardShell>
+  );
 }

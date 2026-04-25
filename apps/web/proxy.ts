@@ -48,6 +48,10 @@ const authProxy = createAuthProxy({
     '/platform/login',
     '/platform/tenants',
     '/platform/users',
+    // WebSocket upgrade requests — the proxy cannot validate WS upgrades the
+    // same way it does HTTP requests. The NotificationsGateway handles auth
+    // itself by reading the access_token cookie from the upgrade headers.
+    '/ws/notifications',
   ],
 
   publicRoutesRedirectIfAuthenticated: ['/auth/login', '/auth/register'],
