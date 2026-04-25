@@ -49,7 +49,7 @@
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🟢 Done · ⚪ Blocked · 🔵 In Review
 >
-> **Overall progress:** 🟡 66 / 126 tasks done (52%)
+> **Overall progress:** 🟡 72 / 126 tasks done (57%)
 
 | #   | Phase                                                           | Tasks file                                              | Done / Total | %    | Status |
 | --- | --------------------------------------------------------------- | ------------------------------------------------------- | ------------ | ---- | ------ |
@@ -65,7 +65,7 @@
 | 9   | Platform Admin Context (Backend)                                | [phase-09](./tasks/phase-09-platform-backend.md)        | 4 / 4        | 100% | 🟢     |
 | 10  | WebSocket Auth (Backend)                                        | [phase-10](./tasks/phase-10-websocket-backend.md)       | 3 / 3        | 100% | 🟢     |
 | 11  | `apps/web` Skeleton (Next.js 16 + Tailwind + shadcn/ui)         | [phase-11](./tasks/phase-11-web-skeleton.md)            | 6 / 6        | 100% | 🟢     |
-| 12  | Frontend Auth Wiring (Client, Provider, Proxy, Refresh, Logout) | [phase-12](./tasks/phase-12-frontend-auth-wiring.md)    | 0 / 6        | 0%   | 🔴     |
+| 12  | Frontend Auth Wiring (Client, Provider, Proxy, Refresh, Logout) | [phase-12](./tasks/phase-12-frontend-auth-wiring.md)    | 6 / 6        | 100% | 🟢     |
 | 13  | Public Auth Pages (`app/(auth)`)                                | [phase-13](./tasks/phase-13-public-auth-pages.md)       | 0 / 8        | 0%   | 🔴     |
 | 14  | Dashboard (Account, Security, Sessions, Team, Invitations)      | [phase-14](./tasks/phase-14-dashboard.md)               | 0 / 7        | 0%   | 🔴     |
 | 15  | Platform Admin Area (Frontend)                                  | [phase-15](./tasks/phase-15-platform-frontend.md)       | 0 / 4        | 0%   | 🔴     |

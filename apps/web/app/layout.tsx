@@ -4,8 +4,9 @@
  * Uses Geist Sans + Geist Mono from `next/font/google`. The font CSS variables
  * are injected into `<body>` and consumed by globals.css.
  *
- * Phase 12 will wrap `{children}` with `<AuthProvider>` — keep this shell
- * minimal and decomposition-friendly until then.
+ * The client provider boundary (`<Providers>`) lives in `app/providers.tsx` so
+ * this server component stays free of `'use client'`. Providers mounts
+ * `<AuthProvider>` + `<Toaster>` in a single boundary.
  */
 
 import type { Metadata } from 'next';
@@ -13,7 +14,7 @@ import { GeistSans } from 'geist/font/sans';
 import { GeistMono } from 'geist/font/mono';
 
 import './globals.css';
-import { Toaster } from '@/components/ui/sonner';
+import Providers from './providers';
 
 /** @see https://nextjs.org/docs/app/building-your-application/optimizing/metadata */
 export const metadata: Metadata = {
@@ -39,8 +40,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
       suppressHydrationWarning
     >
       <body>
-        {children}
-        <Toaster />
+        <Providers>{children}</Providers>
       </body>
     </html>
   );
