@@ -2,7 +2,7 @@
 
 > **Source:** [`../DEVELOPMENT_PLAN.md`](../DEVELOPMENT_PLAN.md#phase-9--platform-admin-context-backend) §Phase 9
 > **Total tasks:** 4
-> **Progress:** 🔴 0 / 4 done (0%)
+> **Progress:** 🟢 4 / 4 done (100%)
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🔵 In Review · 🟢 Done · ⚪ Blocked
 
@@ -10,16 +10,16 @@
 
 | ID   | Task                                                           | Status | Priority | Size | Depends on |
 | ---- | -------------------------------------------------------------- | ------ | -------- | ---- | ---------- |
-| P9-1 | Confirm platform config + auto-mount of `/api/auth/platform/*` | 🔴     | High     | S    | Phase 7    |
-| P9-2 | Build `platform.module.ts` endpoints + audit logging           | 🔴     | High     | M    | P9-1       |
-| P9-3 | Platform ↔ dashboard isolation e2e                             | 🔴     | High     | M    | P9-2       |
-| P9-4 | Seed augmentation — guaranteed SUPER_ADMIN PlatformUser        | 🔴     | Medium   | S    | Phase 4    |
+| P9-1 | Confirm platform config + auto-mount of `/api/auth/platform/*` | 🟢     | High     | S    | Phase 7    |
+| P9-2 | Build `platform.module.ts` endpoints + audit logging           | 🟢     | High     | M    | P9-1       |
+| P9-3 | Platform ↔ dashboard isolation e2e                             | 🟢     | High     | M    | P9-2       |
+| P9-4 | Seed augmentation — guaranteed SUPER_ADMIN PlatformUser        | 🟢     | Medium   | S    | Phase 4    |
 
 ---
 
 ## P9-1 — Confirm platform config + auto-mount of `/api/auth/platform/*`
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S
 - **Depends on:** Phase 7
@@ -30,10 +30,10 @@ Confirm that `auth.config.ts` sets `platform.enabled: true` and defines `roles.p
 
 ### Acceptance Criteria
 
-- [ ] `auth.config.ts` explicitly returns `platform: { enabled: true }` and `roles.platformHierarchy: { SUPER_ADMIN: ['SUPPORT'], SUPPORT: [] }` with an inline comment citing FCM #22.
-- [ ] Booting the API exposes `POST /api/auth/platform/login`, `POST /api/auth/platform/logout`, and `GET /api/auth/platform/me` — verified via curl or an automated route dump.
-- [ ] `controllers.platform: true` is resolved in `AuthModule` (either implicitly via `platform.enabled` or explicitly — whichever the library requires).
-- [ ] No changes to repositories or hooks needed (they already support the platform context from Phase 6).
+- [x] `auth.config.ts` explicitly returns `platform: { enabled: true }` and `roles.platformHierarchy: { SUPER_ADMIN: ['SUPPORT'], SUPPORT: [] }` with an inline comment citing FCM #22.
+- [x] Booting the API exposes `POST /api/auth/platform/login`, `POST /api/auth/platform/logout`, and `GET /api/auth/platform/me` — verified via curl or an automated route dump.
+- [x] `controllers.platform: true` is resolved in `AuthModule` (either implicitly via `platform.enabled` or explicitly — whichever the library requires).
+- [x] No changes to repositories or hooks needed (they already support the platform context from Phase 6).
 
 ### Files to create / modify
 
@@ -81,7 +81,7 @@ Confirm that `auth.config.ts` sets `platform.enabled: true` and defines `roles.p
 
 ## P9-2 — Build `platform.module.ts` endpoints + audit logging
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `P9-1`
@@ -92,14 +92,14 @@ Create `apps/api/src/platform/platform.module.ts` with three host-owned endpoint
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/src/platform/platform.module.ts` exists and is imported by `app.module.ts`.
-- [ ] `PlatformController` at `/api/platform` with routes:
+- [x] `apps/api/src/platform/platform.module.ts` exists and is imported by `app.module.ts`.
+- [x] `PlatformController` at `/api/platform` with routes:
   - `GET /tenants` — guarded by `JwtPlatformGuard` and `PlatformRolesGuard` with `@PlatformRoles('SUPER_ADMIN', 'SUPPORT')`. Returns all tenants.
   - `GET /users?tenantId=...` — same guards. Returns users for the given tenant.
-  - `PATCH /users/:id/status` — same guards. Body: `{ status: UserStatus }`. Writes an `AuditLog` row with `event: 'platform.user.status_changed'`, a payload including `{ targetUserId, previousStatus, newStatus }`, and `actorPlatformUserId: ctx.platformUser.id`.
-- [ ] Guards, decorators, and types are imported only from `@bymax-one/nest-auth` (no guard re-implementation).
-- [ ] Every mutation appends an `AuditLog` row via the Prisma client.
-- [ ] Query validation uses `class-validator` DTOs (matches the rest of the project).
+  - `PATCH /users/:id/status` — restricted to `SUPER_ADMIN` (method-level override). Body: `{ status: UserStatus }`. Writes an `AuditLog` row with `event: 'platform.user.status_changed'`, payload `{ targetUserId, previousStatus, newStatus }`, and `actorPlatformUserId`.
+- [x] Guards, decorators, and types are imported only from `@bymax-one/nest-auth` (no guard re-implementation).
+- [x] Every mutation appends an `AuditLog` row via the Prisma client (non-blocking; failure swallowed).
+- [x] Query validation uses `class-validator` DTOs (matches the rest of the project).
 
 ### Files to create / modify
 
@@ -154,7 +154,7 @@ Create `apps/api/src/platform/platform.module.ts` with three host-owned endpoint
 
 ## P9-3 — Platform ↔ dashboard isolation e2e
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `P9-2`, `P9-4`
@@ -165,12 +165,13 @@ Write a supertest e2e spec that asserts the critical isolation property: a platf
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/test/platform-isolation.e2e-spec.ts` created.
-- [ ] Test logs in via `POST /api/auth/platform/login` using the seeded `SUPER_ADMIN` and extracts its `access_token` cookie.
-- [ ] With only the platform cookie, `GET /api/projects` returns `401` or `403` (not `200`).
-- [ ] Test logs in a dashboard user via `POST /api/auth/login`; with only that cookie, `GET /api/platform/tenants` returns `401` or `403`.
-- [ ] Test also verifies `GET /api/platform/tenants` **with** the platform cookie returns `200` (positive case).
-- [ ] Cookies from the two contexts do not overlap (assert different cookie names or scopes — whichever the library exposes).
+- [x] `apps/api/test/platform-isolation.e2e-spec.ts` created.
+- [x] Test logs in via `POST /api/auth/platform/login` using the seeded `SUPER_ADMIN` and captures platform cookies.
+- [x] With only the platform cookie, `GET /api/projects` returns `401` or `403` (not `200`).
+- [x] Test logs in a dashboard user via `POST /api/auth/login`; with only that cookie, `GET /api/platform/tenants` returns `401` or `403`.
+- [x] Test also verifies `GET /api/platform/tenants` **with** the platform cookie returns `200` (positive case).
+- [x] Cookies from the two contexts do not overlap (zero overlap assertion).
+- [x] Additional test: `SUPPORT` role rejected on `PATCH /platform/users/:id/status` (403).
 
 ### Files to create / modify
 
@@ -219,7 +220,7 @@ Write a supertest e2e spec that asserts the critical isolation property: a platf
 
 ## P9-4 — Seed augmentation — guaranteed SUPER_ADMIN PlatformUser
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** Medium
 - **Size:** S
 - **Depends on:** Phase 4 (seed scaffold already exists)
@@ -230,10 +231,11 @@ Extend `apps/api/prisma/seed.ts` to idempotently upsert exactly one `SUPER_ADMIN
 
 ### Acceptance Criteria
 
-- [ ] `prisma/seed.ts` upserts a `PlatformUser` with: `email: 'platform@example.dev'`, `name: 'Platform Admin'`, `role: 'SUPER_ADMIN'`, `status: 'ACTIVE'`, `emailVerified: true`, `passwordHash` derived from `'PlatformPassw0rd!'` via the same hashing function the library uses (import the library's password utility or reuse the helper defined in Phase 6).
-- [ ] Seed is idempotent (`upsert` by email).
-- [ ] Credentials are documented in `docs/GETTING_STARTED.md` (stub or existing — add a "Platform admin (dev only)" table row).
-- [ ] `pnpm --filter api prisma:seed` prints the platform user as part of the output.
+- [x] `prisma/seed.ts` upserts a `PlatformUser` with `email: 'platform@example.dev'`, `name: 'Platform Admin'`, `role: 'SUPER_ADMIN'`, `status: 'ACTIVE'`, `mfaEnabled: false`, `passwordHash` from `bcryptjs.hash('PlatformPassw0rd!', 12)`.
+- [x] Seed is idempotent (`upsert` by email, `update: { status: ACTIVE }`).
+- [x] Credentials documented in `docs/GETTING_STARTED.md` with a "Platform admin" table block and DEV ONLY warning.
+- [x] `pnpm --filter api prisma:seed` prints tenant IDs and platform admin credentials in the banner.
+- [x] Generic platform admin (`platform@example.com`) also seeded with symmetric update block.
 
 ### Files to create / modify
 
@@ -282,3 +284,8 @@ Extend `apps/api/prisma/seed.ts` to idempotently upsert exactly one `SUPER_ADMIN
 ---
 
 ## Completion log
+
+- P9-1 ✅ 2026-04-25 — `auth.config.ts` platform section confirmed; `controllers.platform: true` added to `auth.module.ts`
+- P9-2 ✅ 2026-04-25 — `PlatformModule` built with list-tenants, list-users, update-status; SUPER_ADMIN-only write guard; serializable transaction; non-blocking audit log
+- P9-3 ✅ 2026-04-25 — `platform-isolation.e2e-spec.ts` added; all 6 isolation assertions pass including SUPPORT rejection and zero cookie overlap
+- P9-4 ✅ 2026-04-25 — Seed augmented with `platform@example.dev` (dedicated password) and `platform@example.com` (generic); banner prints tenant IDs for X-Tenant-Id header

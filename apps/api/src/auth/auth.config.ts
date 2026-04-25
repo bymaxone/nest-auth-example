@@ -116,7 +116,9 @@ export function buildAuthOptions(config: ConfigService<Env, true>): BymaxAuthMod
       otpTtlSeconds: 10 * 60, // 10 minutes
     },
 
-    // ── Platform admin ────────────────────────────────────────────────────────
+    // ── Platform admin (FCM #22 — Platform admin context) ────────────────────
+    // Enables JwtPlatformGuard, PlatformRolesGuard, and the platform auth routes
+    // under /api/auth/platform/*. Platform users never appear in tenant queries.
     platform: { enabled: true },
 
     // ── Invitations (FCM #21) ─────────────────────────────────────────────────

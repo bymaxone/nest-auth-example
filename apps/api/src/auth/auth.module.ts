@@ -102,6 +102,8 @@ const EmailProviderClass = chooseEmailProviderClass();
       controllers: {
         mfa: true,
         oauth: isGoogleOAuthConfigured(),
+        // FCM #22 — Platform admin context: mounts /api/auth/platform/* routes.
+        platform: true,
       },
       extraProviders: [
         { provide: BYMAX_AUTH_USER_REPOSITORY, useClass: PrismaUserRepository },

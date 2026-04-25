@@ -49,7 +49,7 @@
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🟢 Done · ⚪ Blocked · 🔵 In Review
 >
-> **Overall progress:** 🟡 53 / 126 tasks done (42%)
+> **Overall progress:** 🟡 57 / 126 tasks done (45%)
 
 | #   | Phase                                                           | Tasks file                                              | Done / Total | %    | Status |
 | --- | --------------------------------------------------------------- | ------------------------------------------------------- | ------------ | ---- | ------ |
@@ -62,7 +62,7 @@
 | 6   | Library Wiring (auth.config, repos, email, hooks)               | [phase-06](./tasks/phase-06-library-wiring.md)          | 6 / 6        | 100% | 🟢     |
 | 7   | `BymaxAuthModule.registerAsync` + Demo Domain                   | [phase-07](./tasks/phase-07-auth-module-demo-domain.md) | 8 / 8        | 100% | 🟢     |
 | 8   | OAuth (Google) & Invitations Backends                           | [phase-08](./tasks/phase-08-oauth-invitations.md)       | 5 / 5        | 100% | 🟢     |
-| 9   | Platform Admin Context (Backend)                                | [phase-09](./tasks/phase-09-platform-backend.md)        | 0 / 4        | 0%   | 🔴     |
+| 9   | Platform Admin Context (Backend)                                | [phase-09](./tasks/phase-09-platform-backend.md)        | 4 / 4        | 100% | 🟢     |
 | 10  | WebSocket Auth (Backend)                                        | [phase-10](./tasks/phase-10-websocket-backend.md)       | 0 / 3        | 0%   | 🔴     |
 | 11  | `apps/web` Skeleton (Next.js 16 + Tailwind + shadcn/ui)         | [phase-11](./tasks/phase-11-web-skeleton.md)            | 0 / 6        | 0%   | 🔴     |
 | 12  | Frontend Auth Wiring (Client, Provider, Proxy, Refresh, Logout) | [phase-12](./tasks/phase-12-frontend-auth-wiring.md)    | 0 / 6        | 0%   | 🔴     |
@@ -501,14 +501,14 @@ Phase 1 (Docker) ┘                                                            
 
 **Deliverables.**
 
-- [ ] `auth.config.ts` already sets `platform.enabled: true` and `roles.platformHierarchy`.
-- [ ] Library auto-mounts `/api/auth/platform/*` routes.
-- [ ] `apps/api/src/platform/platform.module.ts` — example endpoints:
-  - `GET /api/platform/tenants` — lists all tenants (protected by `JwtPlatformGuard` + `@PlatformRoles('SUPER_ADMIN', 'SUPPORT')`).
-  - `GET /api/platform/users?tenantId=...` — lists users in a tenant.
-  - `PATCH /api/platform/users/:id/status` — suspend/unsuspend from the platform side.
-  - Every mutation writes an `AuditLog` entry via `AppAuthHooks` (`afterLogout`, `afterLogin` already covered; custom platform events written directly).
-- [ ] Ensure platform JWT payload (`role: 'SUPER_ADMIN'`) never leaks into dashboard-guarded routes — add an e2e test that asserts `JwtAuthGuard` rejects a platform token on `/api/projects` (Phase 17).
+- [x] `auth.config.ts` sets `platform.enabled: true` and `roles.platformHierarchy`; `controllers.platform: true` in `auth.module.ts`.
+- [x] Library auto-mounts `/api/auth/platform/*` routes.
+- [x] `apps/api/src/platform/platform.module.ts` — example endpoints:
+  - `GET /api/platform/tenants` — lists up to 500 tenants (protected by `JwtPlatformGuard` + `@PlatformRoles('SUPER_ADMIN', 'SUPPORT')`).
+  - `GET /api/platform/users?tenantId=...` — lists up to 500 users in a tenant. Credentials excluded via `SAFE_USER_SELECT`.
+  - `PATCH /api/platform/users/:id/status` — `SUPER_ADMIN` only (method-level override). UUID-validated path param. Serializable transaction captures `previousStatus`. Audit log written post-commit (non-blocking).
+- [x] `platform-isolation.e2e-spec.ts` proves platform token rejected on dashboard routes and vice versa; also asserts SUPPORT cannot call the write endpoint.
+- [x] Seed augmented with `platform@example.dev` (canonical, distinct password) and banner prints tenant IDs for `X-Tenant-Id` header.
 
 **Definition of done.** `POST /api/auth/platform/login` with seeded super-admin credentials returns tokens; `GET /api/platform/tenants` returns the list; the same token fails on `GET /api/projects`.
 

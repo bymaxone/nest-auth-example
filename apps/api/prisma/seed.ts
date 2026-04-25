@@ -23,8 +23,14 @@ import 'dotenv/config';
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Shared password for all seeded users. DEV ONLY — document in GETTING_STARTED. */
+/** Shared password for all seeded tenant users. DEV ONLY — document in GETTING_STARTED. */
 const SEED_PASSWORD = 'Passw0rd!Passw0rd';
+/**
+ * Dedicated password for the seeded platform super-admin.
+ * Different from tenant user password to make the separation explicit in docs and tests.
+ * DEV ONLY — must never be used in production.
+ */
+const PLATFORM_ADMIN_PASSWORD = 'PlatformPassw0rd!';
 const BCRYPT_ROUNDS = 12;
 
 const TENANT_DEFINITIONS = [
@@ -52,6 +58,7 @@ const prisma = new PrismaClient({ adapter });
 
 async function main(): Promise<void> {
   const passwordHash = await bcryptjs.hash(SEED_PASSWORD, BCRYPT_ROUNDS);
+  const platformPasswordHash = await bcryptjs.hash(PLATFORM_ADMIN_PASSWORD, BCRYPT_ROUNDS);
 
   // Create tenants (upsert on slug)
   const tenants = await Promise.all(
@@ -86,16 +93,33 @@ async function main(): Promise<void> {
     }
   }
 
-  // Create one platform super-admin (upsert on email)
+  // Create one platform super-admin (generic, uses shared SEED_PASSWORD)
   await prisma.platformUser.upsert({
     where: { email: 'platform@example.com' },
-    update: {},
+    update: { status: UserStatus.ACTIVE },
     create: {
       email: 'platform@example.com',
-      name: 'Platform Admin',
+      name: 'Platform Admin (generic)',
       passwordHash,
       role: PlatformRole.SUPER_ADMIN,
       status: UserStatus.ACTIVE,
+    },
+  });
+
+  // Create the documented platform super-admin for e2e tests and Phase 15 frontend.
+  // Uses a dedicated password (PLATFORM_ADMIN_PASSWORD) distinct from the tenant
+  // seed password so docs and tests reference a single canonical credential.
+  // FCM #22 — Platform admin context.
+  await prisma.platformUser.upsert({
+    where: { email: 'platform@example.dev' },
+    update: { status: UserStatus.ACTIVE },
+    create: {
+      email: 'platform@example.dev',
+      name: 'Platform Admin',
+      passwordHash: platformPasswordHash,
+      role: PlatformRole.SUPER_ADMIN,
+      status: UserStatus.ACTIVE,
+      mfaEnabled: false,
     },
   });
 
@@ -105,13 +129,21 @@ async function main(): Promise<void> {
     '╔═══════════════════════════════════════════════════════╗',
     '║     DEV CREDENTIALS (seed) — NEVER USE IN PROD        ║',
     '╠═══════════════════════════════════════════════════════╣',
-    `║  Password (all users): ${SEED_PASSWORD.padEnd(31)}║`,
+    '║  Tenant IDs (use as X-Tenant-Id header):              ║',
+    ...tenants.map((t) => `║    ${t.slug}: ${t.id.padEnd(49 - t.slug.length)}║`),
+    '╠═══════════════════════════════════════════════════════╣',
+    `║  Password (all tenant users): ${SEED_PASSWORD.padEnd(24)}║`,
     '╠═══════════════════════════════════════════════════════╣',
     '║  Tenant users:                                        ║',
     ...seededEmails.map((e) => `║    ${e.padEnd(51)}║`),
     '╠═══════════════════════════════════════════════════════╣',
-    '║  Platform admin:                                      ║',
+    '║  Platform admin (generic):                            ║',
     '║    platform@example.com                               ║',
+    `║    Password: ${SEED_PASSWORD.padEnd(41)}║`,
+    '╠═══════════════════════════════════════════════════════╣',
+    '║  Platform admin (canonical, FCM #22):                 ║',
+    '║    Email:    platform@example.dev                     ║',
+    `║    Password: ${PLATFORM_ADMIN_PASSWORD.padEnd(41)}║`,
     '╚═══════════════════════════════════════════════════════╝',
     '',
   ];

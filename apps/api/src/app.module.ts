@@ -11,6 +11,8 @@
  *   demonstrate RBAC, multi-tenant scoping, and library decorators.
  * - `UsersModule` — exposes `PATCH /api/users/:id/status` for the admin
  *   suspension demo (FCM row #23).
+ * - `PlatformModule` — exposes `/api/platform/*` endpoints protected by
+ *   `JwtPlatformGuard` + `PlatformRolesGuard` (FCM row #22).
  * - `DebugModule` (non-production only) — dev helper for brute-force lockout
  *   demo (FCM row #16).
  * - Four global `APP_GUARD` providers registered in the exact order mandated by
@@ -44,6 +46,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { TenantsModule } from './tenants/tenants.module.js';
 import { ProjectsModule } from './projects/projects.module.js';
 import { UsersModule } from './users/users.module.js';
+import { PlatformModule } from './platform/platform.module.js';
 import { DebugModule } from './debug/debug.module.js';
 
 /**
@@ -72,6 +75,9 @@ import { DebugModule } from './debug/debug.module.js';
     TenantsModule,
     ProjectsModule,
     UsersModule,
+    // Phase 9 — Platform admin context (FCM #22). Mounts /api/platform/* routes
+    // that are protected by JwtPlatformGuard + PlatformRolesGuard.
+    PlatformModule,
     // DebugModule is conditionally included only outside of production to
     // keep brute-force demo helpers out of production deployments.
     ...(process.env['NODE_ENV'] !== 'production' ? [DebugModule] : []),
