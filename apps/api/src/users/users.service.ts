@@ -20,6 +20,7 @@ import type { SafeAuthUser } from '@bymax-one/nest-auth';
 
 import { PrismaUserRepository } from '../auth/prisma-user.repository.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { NotificationsGateway } from '../notifications/notifications.gateway.js';
 import type { UpdateStatusDto } from './dto/update-status.dto.js';
 
 /**
@@ -37,6 +38,7 @@ export class UsersService {
   constructor(
     private readonly userRepository: PrismaUserRepository,
     private readonly prisma: PrismaService,
+    private readonly notificationsGateway: NotificationsGateway,
   ) {}
 
   /**
@@ -109,6 +111,12 @@ export class UsersService {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+
+    // If the new status is blocked, forcibly close any open WebSocket connections
+    // for this user so they cannot continue to receive push notifications.
+    // This is non-blocking and fire-and-forget — a disconnect failure must not
+    // abort the status update.
+    this.notificationsGateway.maybeDisconnectBlockedUser(targetUserId, dto.status);
 
     const safe: SafeAuthUser = {
       id: updated.id,

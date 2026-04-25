@@ -49,7 +49,7 @@
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🟢 Done · ⚪ Blocked · 🔵 In Review
 >
-> **Overall progress:** 🟡 57 / 126 tasks done (45%)
+> **Overall progress:** 🟡 60 / 126 tasks done (48%)
 
 | #   | Phase                                                           | Tasks file                                              | Done / Total | %    | Status |
 | --- | --------------------------------------------------------------- | ------------------------------------------------------- | ------------ | ---- | ------ |
@@ -63,7 +63,7 @@
 | 7   | `BymaxAuthModule.registerAsync` + Demo Domain                   | [phase-07](./tasks/phase-07-auth-module-demo-domain.md) | 8 / 8        | 100% | 🟢     |
 | 8   | OAuth (Google) & Invitations Backends                           | [phase-08](./tasks/phase-08-oauth-invitations.md)       | 5 / 5        | 100% | 🟢     |
 | 9   | Platform Admin Context (Backend)                                | [phase-09](./tasks/phase-09-platform-backend.md)        | 4 / 4        | 100% | 🟢     |
-| 10  | WebSocket Auth (Backend)                                        | [phase-10](./tasks/phase-10-websocket-backend.md)       | 0 / 3        | 0%   | 🔴     |
+| 10  | WebSocket Auth (Backend)                                        | [phase-10](./tasks/phase-10-websocket-backend.md)       | 3 / 3        | 100% | 🟢     |
 | 11  | `apps/web` Skeleton (Next.js 16 + Tailwind + shadcn/ui)         | [phase-11](./tasks/phase-11-web-skeleton.md)            | 0 / 6        | 0%   | 🔴     |
 | 12  | Frontend Auth Wiring (Client, Provider, Proxy, Refresh, Logout) | [phase-12](./tasks/phase-12-frontend-auth-wiring.md)    | 0 / 6        | 0%   | 🔴     |
 | 13  | Public Auth Pages (`app/(auth)`)                                | [phase-13](./tasks/phase-13-public-auth-pages.md)       | 0 / 8        | 0%   | 🔴     |

@@ -42,6 +42,7 @@
     "@nestjs/core": "^11.1.19",
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/platform-express": "^11.1.19",
+    "@nestjs/platform-ws": "^11.1.19",
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/websockets": "^11.1.19",
     "@prisma/adapter-pg": "^7.7.0",
@@ -63,6 +64,7 @@
     "reflect-metadata": "^0.2.2",
     "resend": "^4.8.0",
     "rxjs": "^7.8.2",
+    "ws": "^8.20.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -77,6 +79,7 @@
     "@types/nodemailer": "^8.0.0",
     "@types/pg": "^8.20.0",
     "@types/supertest": "^7.2.0",
+    "@types/ws": "^8.18.1",
     "jest": "^30.3.0",
     "pino-pretty": "^13.0.0",
     "prisma": "^7.7.0",

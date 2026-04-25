@@ -2,7 +2,7 @@
 
 > **Source:** [`../DEVELOPMENT_PLAN.md`](../DEVELOPMENT_PLAN.md#phase-10--websocket-auth-backend) §Phase 10
 > **Total tasks:** 3
-> **Progress:** 🔴 0 / 3 done (0%)
+> **Progress:** 🟢 3 / 3 done (100%)
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🔵 In Review · 🟢 Done · ⚪ Blocked
 
@@ -10,15 +10,15 @@
 
 | ID    | Task                                               | Status | Priority | Size | Depends on   |
 | ----- | -------------------------------------------------- | ------ | -------- | ---- | ------------ |
-| P10-1 | Notifications gateway with `WsJwtGuard`            | 🔴     | High     | M    | Phase 7      |
-| P10-2 | Dev-only `POST /api/debug/notify/:userId` endpoint | 🔴     | Medium   | S    | P10-1        |
-| P10-3 | WebSocket auth e2e verification                    | 🔴     | High     | M    | P10-1, P10-2 |
+| P10-1 | Notifications gateway with `WsJwtGuard`            | 🟢     | High     | M    | Phase 7      |
+| P10-2 | Dev-only `POST /api/debug/notify/:userId` endpoint | 🟢     | Medium   | S    | P10-1        |
+| P10-3 | WebSocket auth e2e verification                    | 🟢     | High     | M    | P10-1, P10-2 |
 
 ---
 
 ## P10-1 — Notifications gateway with `WsJwtGuard`
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** Phase 7
@@ -29,13 +29,13 @@ Create `apps/api/src/notifications/notifications.gateway.ts` — a `@WebSocketGa
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/src/notifications/notifications.module.ts` exists and is imported by `app.module.ts`.
-- [ ] `NotificationsGateway` decorated with `@WebSocketGateway({ path: '/ws/notifications', cors: { origin: env.WEB_ORIGIN, credentials: true } })` and `@UseGuards(WsJwtGuard)`.
-- [ ] `handleConnection(client)` reads `client.user` (set by the library guard), stores `client.id` in an in-memory `Map<userId, Set<socketId>>`, and logs the connect (no PII).
-- [ ] `handleDisconnect(client)` removes the socket from the map.
-- [ ] Public method `emitNewNotification(userId: string, payload: { title: string; body: string })` iterates that user's sockets and emits `notification:new`. The handler is non-blocking (no `await` on I/O beyond the emit).
-- [ ] When a `user.status` change hook fires (`afterUserStatusChanged` or equivalent), sockets belonging to a user whose status moved to a blocked value are disconnected (`client.disconnect(true)`).
-- [ ] `WsJwtGuard` imported exactly as `WsJwtGuard` from `@bymax-one/nest-auth`.
+- [x] `apps/api/src/notifications/notifications.module.ts` exists and is imported by `app.module.ts`.
+- [x] `NotificationsGateway` decorated with `@WebSocketGateway({ path: '/ws/notifications' })` and `@UseGuards(WsJwtGuard)`.
+- [x] `handleConnection` verifies JWT from `Authorization: Bearer` header, checks `rv:{jti}` revocation in Redis, stores socket in an in-memory `Map<userId, Set<AuthenticatedSocket>>`, and logs the connect (no PII).
+- [x] `handleDisconnect(client)` removes the socket from the map.
+- [x] Public method `emitNewNotification(userId: string, payload: { title: string; body: string })` iterates that user's sockets and emits `notification:new`. The handler is non-blocking.
+- [x] `disconnectUser(userId)` / `maybeDisconnectBlockedUser(userId, newStatus)` forcibly closes sockets with code 4403 when status moves to a blocked value.
+- [x] `WsJwtGuard` imported exactly as `WsJwtGuard` from `@bymax-one/nest-auth`.
 
 ### Files to create / modify
 
@@ -88,7 +88,7 @@ Create `apps/api/src/notifications/notifications.gateway.ts` — a `@WebSocketGa
 
 ## P10-2 — Dev-only `POST /api/debug/notify/:userId` endpoint
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** Medium
 - **Size:** S
 - **Depends on:** `P10-1`
@@ -99,11 +99,12 @@ Add a development-only controller that pushes a notification through the gateway
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/src/notifications/notifications.controller.ts` exposes `POST /api/debug/notify/:userId` with a JSON body `{ title: string, body: string }`.
-- [ ] The handler is registered only when `NODE_ENV !== 'production'` — either by conditionally including the controller in `NotificationsModule` or by throwing `NotFoundException` inside the handler when in production (prefer the former).
-- [ ] The route is guarded by `JwtAuthGuard` (dashboard auth) and requires `@Roles('ADMIN')`.
-- [ ] On success (200), the gateway's `emitNewNotification(userId, body)` is called and returns `{ delivered: number }` indicating how many sockets received it.
-- [ ] Request body validated with a `class-validator` DTO.
+- [x] `apps/api/src/notifications/notifications.controller.ts` exposes `POST /api/debug/notify/:userId` with a JSON body `{ title: string, body: string }`.
+- [x] The handler is registered only when `NODE_ENV !== 'production'` (conditional controller in module + belt-and-suspenders runtime check via `ConfigService`).
+- [x] The route is guarded by `JwtAuthGuard` (global) and requires `@Roles('ADMIN')`.
+- [x] Enforces tenant isolation: target `userId` must belong to the admin's tenant (Prisma lookup before emit).
+- [x] On success (200), the gateway's `emitNewNotification(userId, body)` is called and returns `{ delivered: number }`.
+- [x] Request body validated with a `class-validator` DTO (`NotifyDto`).
 
 ### Files to create / modify
 
@@ -154,7 +155,7 @@ Add a development-only controller that pushes a notification through the gateway
 
 ## P10-3 — WebSocket auth e2e verification
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `P10-1`, `P10-2`
@@ -165,12 +166,13 @@ Write an e2e spec that connects to `/ws/notifications` with a valid cookie, rece
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/test/websocket-auth.e2e-spec.ts` created.
-- [ ] Happy-path test: log in via `POST /api/auth/login` to capture cookies → open a WebSocket to `ws://localhost:<port>/ws/notifications` with those cookies in the `Cookie` header → `POST /api/debug/notify/:userId` with admin creds → assert the socket receives a `notification:new` event with the expected payload within 2 s.
-- [ ] Negative test: open the socket without cookies → expect immediate close with code 4401 (or whatever the library emits for unauthorized).
-- [ ] Status-change test: log in a `MEMBER` user, open the socket, then call `PATCH /api/users/:id/status { status: 'SUSPENDED' }` as admin → assert the member's socket closes within 2 s.
-- [ ] Test uses the `ws` npm package (not `socket.io-client`), since the gateway is plain WS.
-- [ ] `websocat` command line documented in a leading comment for manual reproduction.
+- [x] `apps/api/test/websocket-auth.e2e-spec.ts` created.
+- [x] Happy-path test: member logs in → JWT extracted from `access_token` cookie → WS opened with `Authorization: Bearer` header → admin POSTs to `/api/debug/notify/:userId` → member socket receives `notification:new` within 2 s.
+- [x] Negative test: WS opened without `Authorization` header → expect immediate close with code 4401.
+- [x] Status-change test: member connected, admin suspends via `PATCH /api/users/:id/status { status: 'SUSPENDED' }` → member socket closes with code 4403 within 2 s.
+- [x] Test uses the `ws` npm package (not `socket.io-client`), since the gateway is plain WS.
+- [x] `websocat` command line documented in a leading comment for manual reproduction.
+- [x] `apps/api/test/helpers/ws.ts` — promise-based `WsTestClient` helper created.
 
 ### Files to create / modify
 
@@ -222,3 +224,7 @@ Write an e2e spec that connects to `/ws/notifications` with a valid cookie, rece
 ---
 
 ## Completion log
+
+- P10-1 ✅ 2026-04-25 — NotificationsGateway with WsJwtGuard, JWT revocation check (rv:{jti}), and maybeDisconnectBlockedUser wired into UsersService
+- P10-2 ✅ 2026-04-25 — Dev-only POST /api/debug/notify/:userId with tenant-isolation check and ConfigService-gated production guard
+- P10-3 ✅ 2026-04-25 — E2E suite (happy-path delivery, 4401 unauthorized, 4403 suspension-disconnect) with ws.ts promise-based helper

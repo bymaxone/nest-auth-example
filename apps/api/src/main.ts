@@ -19,6 +19,7 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ExpressAdapter } from '@nestjs/platform-express';
+import { WsAdapter } from '@nestjs/platform-ws';
 import { ConfigService } from '@nestjs/config';
 import { Logger } from 'nestjs-pino';
 import cookieParser from 'cookie-parser';
@@ -43,6 +44,11 @@ async function bootstrap(): Promise<void> {
   const pinoLogger = app.get(Logger);
   app.useLogger(pinoLogger);
   app.flushLogs();
+
+  // Switch to the plain WebSocket adapter (ws library) so the notifications
+  // gateway can be connected to with standard WebSocket clients.
+  // Must be set before app.listen() so the adapter is in place when the gateway binds.
+  app.useWebSocketAdapter(new WsAdapter(app));
 
   const config = app.get<ConfigService<Env, true>>(ConfigService);
 

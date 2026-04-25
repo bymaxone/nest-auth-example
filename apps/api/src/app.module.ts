@@ -15,6 +15,9 @@
  *   `JwtPlatformGuard` + `PlatformRolesGuard` (FCM row #22).
  * - `DebugModule` (non-production only) — dev helper for brute-force lockout
  *   demo (FCM row #16).
+ * - `NotificationsModule` — WebSocket gateway at `/ws/notifications` protected by
+ *   `WsJwtGuard`; includes the dev-only `POST /api/debug/notify/:userId` trigger
+ *   (FCM row #24).
  * - Four global `APP_GUARD` providers registered in the exact order mandated by
  *   `docs/guidelines/nest-auth-guidelines.md`: JwtAuthGuard → UserStatusGuard →
  *   MfaRequiredGuard → RolesGuard. Order must not be changed without an ADR.
@@ -47,6 +50,7 @@ import { TenantsModule } from './tenants/tenants.module.js';
 import { ProjectsModule } from './projects/projects.module.js';
 import { UsersModule } from './users/users.module.js';
 import { PlatformModule } from './platform/platform.module.js';
+import { NotificationsModule } from './notifications/notifications.module.js';
 import { DebugModule } from './debug/debug.module.js';
 
 /**
@@ -78,6 +82,11 @@ import { DebugModule } from './debug/debug.module.js';
     // Phase 9 — Platform admin context (FCM #22). Mounts /api/platform/* routes
     // that are protected by JwtPlatformGuard + PlatformRolesGuard.
     PlatformModule,
+    // Phase 10 — WebSocket notifications gateway (FCM #24). Mounts the
+    // /ws/notifications WebSocket endpoint guarded by WsJwtGuard. The dev-only
+    // POST /api/debug/notify/:userId controller is included by NotificationsModule
+    // itself when NODE_ENV !== 'production'.
+    NotificationsModule,
     // DebugModule is conditionally included only outside of production to
     // keep brute-force demo helpers out of production deployments.
     ...(process.env['NODE_ENV'] !== 'production' ? [DebugModule] : []),

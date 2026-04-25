@@ -15,16 +15,21 @@ import { Module } from '@nestjs/common';
 
 import { PrismaModule } from '../prisma/prisma.module.js';
 import { PrismaUserRepository } from '../auth/prisma-user.repository.js';
+import { NotificationsModule } from '../notifications/notifications.module.js';
 import { UsersController } from './users.controller.js';
 import { UsersService } from './users.service.js';
 
 /**
  * Self-contained module for tenant-admin user endpoints.
  *
+ * Imports `NotificationsModule` so that `UsersService` can call
+ * `NotificationsGateway.maybeDisconnectBlockedUser` when a user's status is
+ * changed to a blocked value (FCM row #24 — suspend disconnects the WS session).
+ *
  * @public
  */
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, NotificationsModule],
   controllers: [UsersController],
   providers: [UsersService, PrismaUserRepository],
 })
