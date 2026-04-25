@@ -1,0 +1,186 @@
+/**
+ * globals.css — Design system entry point for apps/web.
+ *
+ * Establishes:
+ * 1. Tailwind CSS v4 base utilities
+ * 2. shadcn/ui HSL CSS variable tokens (light + dark)
+ * 3. Brand design tokens (orange/dark theme from the design system)
+ * 4. Global base styles and keyframe animations
+ *
+ * Design system palette (mirrors ai-product-assistant):
+ *   Brand primary:  #ff6224 (orange)
+ *   Secondary:      #60a5fa (blue)
+ *   Background:     #0a0a0a (near-black)
+ *   Glass surfaces: rgba(255,255,255,0.05–0.08)
+ *   Typography:     monospace-first (Cascadia Code → Source Code Pro → Menlo)
+ */
+
+@import 'tailwindcss';
+
+/* ── shadcn/ui CSS variable tokens ─────────────────────────────────────────── */
+
+@layer base {
+  :root {
+    /* Light mode — near-white warm surface */
+    --background: 0 0% 100%;
+    --foreground: 20 14.3% 4.1%;
+    --card: 0 0% 100%;
+    --card-foreground: 20 14.3% 4.1%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 20 14.3% 4.1%;
+    --primary: 20.5 90.2% 57.8%; /* #ff6224 — brand orange */
+    --primary-foreground: 60 9.1% 97.8%;
+    --secondary: 60 4.8% 95.9%;
+    --secondary-foreground: 24 9.8% 10%;
+    --muted: 60 4.8% 95.9%;
+    --muted-foreground: 25 5.3% 44.7%;
+    --accent: 60 4.8% 95.9%;
+    --accent-foreground: 24 9.8% 10%;
+    --destructive: 0 72.2% 50.6%;
+    --destructive-foreground: 60 9.1% 97.8%;
+    --border: 20 5.9% 90%;
+    --input: 20 5.9% 90%;
+    --ring: 20.5 90.2% 57.8%; /* matches --primary */
+    --radius: 0.75rem;
+
+    /* ── Brand design tokens (light mode) ── */
+    --color-bg-primary: #fafaf9;
+    --glass-bg: rgba(0, 0, 0, 0.03);
+    --glass-bg-raised: rgba(0, 0, 0, 0.05);
+    --glass-bg-hover: rgba(0, 0, 0, 0.07);
+    --glass-card-bg: rgba(0, 0, 0, 0.03);
+    --glass-border: rgba(0, 0, 0, 0.08);
+    --color-border: rgba(0, 0, 0, 0.08);
+    --color-text-primary: #0a0a0a;
+    --text-80: rgba(10, 10, 10, 0.8);
+    --text-70: rgba(10, 10, 10, 0.7);
+    --color-text-secondary: rgba(10, 10, 10, 0.6);
+    --text-50: rgba(10, 10, 10, 0.5);
+    --text-40: rgba(10, 10, 10, 0.4);
+    --color-primary: #ff6224;
+    --color-primary-20: rgba(255, 98, 36, 0.2);
+    --color-primary-30: rgba(255, 98, 36, 0.3);
+    --color-secondary: #60a5fa;
+    --color-accent: #f97316;
+    --color-success: #22c55e;
+    --color-danger: #ef4444;
+    --shadow-primary: 0 0 24px rgba(255, 98, 36, 0.4);
+    --transition-fast: 0.2s ease;
+    --transition-slow: 0.7s ease-out;
+    --font-mono:
+      ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono',
+      monospace;
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 24px;
+    --radius-pill: 9999px;
+  }
+
+  .dark {
+    /* Dark mode — near-black surface with orange brand */
+    --background: 20 14.3% 4.1%;
+    --foreground: 60 9.1% 97.8%;
+    --card: 20 14.3% 4.1%;
+    --card-foreground: 60 9.1% 97.8%;
+    --popover: 20 14.3% 4.1%;
+    --popover-foreground: 60 9.1% 97.8%;
+    --primary: 20.5 90.2% 57.8%; /* #ff6224 — brand orange */
+    --primary-foreground: 20 14.3% 4.1%;
+    --secondary: 12 6.5% 15.1%;
+    --secondary-foreground: 60 9.1% 97.8%;
+    --muted: 12 6.5% 15.1%;
+    --muted-foreground: 24 5.4% 63.9%;
+    --accent: 12 6.5% 15.1%;
+    --accent-foreground: 60 9.1% 97.8%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 60 9.1% 97.8%;
+    --border: 12 6.5% 15.1%;
+    --input: 12 6.5% 15.1%;
+    --ring: 20.5 90.2% 57.8%;
+
+    /* ── Brand design tokens (dark mode) — exact values from design system ── */
+    --color-bg-primary: #0a0a0a;
+    --glass-bg: rgba(255, 255, 255, 0.05);
+    --glass-bg-raised: rgba(255, 255, 255, 0.08);
+    --glass-bg-hover: rgba(255, 255, 255, 0.1);
+    --glass-card-bg: rgba(255, 255, 255, 0.06);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --color-border: rgba(255, 255, 255, 0.1);
+    --color-text-primary: #ffffff;
+    --text-80: rgba(255, 255, 255, 0.8);
+    --text-70: rgba(255, 255, 255, 0.7);
+    --color-text-secondary: rgba(255, 255, 255, 0.6);
+    --text-50: rgba(255, 255, 255, 0.5);
+    --text-40: rgba(255, 255, 255, 0.4);
+    --color-primary: #ff6224;
+    --color-primary-20: rgba(255, 98, 36, 0.2);
+    --color-primary-30: rgba(255, 98, 36, 0.3);
+    --color-secondary: #60a5fa;
+    --color-accent: #f97316;
+    --color-success: #22c55e;
+    --color-danger: #ef4444;
+  }
+}
+
+/* ── Global base resets ─────────────────────────────────────────────────────── */
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--font-sans, system-ui, sans-serif);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-mono);
+  }
+}
+
+/* ── Ambient glow animations ────────────────────────────────────────────────── */
+
+@keyframes glow-float {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(20px, -20px);
+  }
+}
+
+@keyframes glow-drift {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(-15px, 15px);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

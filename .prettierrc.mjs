@@ -6,4 +6,7 @@ export default {
   semi: true,
   arrowParens: 'always',
   endOfLine: 'lf',
+  plugins: ['prettier-plugin-tailwindcss'],
+  tailwindConfig: './apps/web/tailwind.config.ts',
+  tailwindFunctions: ['cn', 'cva'],
 };

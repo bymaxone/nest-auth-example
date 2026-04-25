@@ -2,7 +2,7 @@
 
 > **Source:** [`../DEVELOPMENT_PLAN.md`](../DEVELOPMENT_PLAN.md#phase-11--appsweb-skeleton-nextjs-16--tailwind--shadcnui) §Phase 11
 > **Total tasks:** 6
-> **Progress:** 🔴 0 / 6 done (0%)
+> **Progress:** 🟢 6 / 6 done (100%)
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🔵 In Review · 🟢 Done · ⚪ Blocked
 
@@ -10,18 +10,18 @@
 
 | ID    | Task                                                                 | Status | Priority | Size | Depends on |
 | ----- | -------------------------------------------------------------------- | ------ | -------- | ---- | ---------- |
-| P11-1 | `apps/web/package.json` + dependency manifest + scripts              | 🔴     | High     | S    | Phase 2    |
-| P11-2 | `next.config.mjs` rewrites + `tsconfig.json` path alias              | 🔴     | High     | S    | P11-1      |
-| P11-3 | Tailwind CSS v4 setup (`tailwind.config.ts`, `globals.css`, PostCSS) | 🔴     | High     | S    | P11-1      |
-| P11-4 | shadcn/ui bootstrap + baseline component set                         | 🔴     | High     | M    | P11-3      |
-| P11-5 | `app/layout.tsx` (HTML shell + font) + `app/page.tsx` (landing)      | 🔴     | High     | S    | P11-3      |
-| P11-6 | `lib/env.ts` — zod-parsed, frozen env schema                         | 🔴     | High     | S    | P11-1      |
+| P11-1 | `apps/web/package.json` + dependency manifest + scripts              | 🟢     | High     | S    | Phase 2    |
+| P11-2 | `next.config.mjs` rewrites + `tsconfig.json` path alias              | 🟢     | High     | S    | P11-1      |
+| P11-3 | Tailwind CSS v4 setup (`tailwind.config.ts`, `globals.css`, PostCSS) | 🟢     | High     | S    | P11-1      |
+| P11-4 | shadcn/ui bootstrap + baseline component set                         | 🟢     | High     | M    | P11-3      |
+| P11-5 | `app/layout.tsx` (HTML shell + font) + `app/page.tsx` (landing)      | 🟢     | High     | S    | P11-3      |
+| P11-6 | `lib/env.ts` — zod-parsed, frozen env schema                         | 🟢     | High     | S    | P11-1      |
 
 ---
 
 ## P11-1 — `apps/web/package.json` + dependency manifest + scripts
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S
 - **Depends on:** Phase 2
@@ -74,7 +74,7 @@ Create the `apps/web` Next.js package manifest. The app is the reference fronten
 
 ## P11-2 — `next.config.mjs` rewrites + `tsconfig.json` path alias
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S
 - **Depends on:** `P11-1`
@@ -127,7 +127,7 @@ Wire Next.js rewrites so the browser always talks to the same origin (`/api/*`) 
 
 ## P11-3 — Tailwind CSS v4 setup (`tailwind.config.ts`, `globals.css`, PostCSS)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S
 - **Depends on:** `P11-1`
@@ -180,7 +180,7 @@ Install and configure Tailwind CSS v4 — the styling substrate for every page a
 
 ## P11-4 — shadcn/ui bootstrap + baseline component set
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `P11-3`
@@ -236,7 +236,7 @@ Run `npx shadcn@latest init` in `apps/web` to register the `@/components/ui` ali
 
 ## P11-5 — `app/layout.tsx` (HTML shell + font) + `app/page.tsx` (landing)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S
 - **Depends on:** `P11-3`, `P11-4`
@@ -290,7 +290,7 @@ Ship the root layout and marketing landing page. The layout owns the `<html>` / 
 
 ## P11-6 — `lib/env.ts` — zod-parsed, frozen env schema
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S
 - **Depends on:** `P11-1`
@@ -347,3 +347,10 @@ Define and parse every environment variable `apps/web` will consume, with zod, a
 ---
 
 ## Completion log
+
+- P11-1 ✅ 2026-04-25 — `apps/web/package.json` confirmed complete with all runtime + dev deps
+- P11-2 ✅ 2026-04-25 — `next.config.mjs` with /api proxy rewrite + `tsconfig.json` with @/\* alias
+- P11-3 ✅ 2026-04-25 — Tailwind v4 + PostCSS + globals.css with full orange/dark design system tokens
+- P11-4 ✅ 2026-04-25 — shadcn/ui components.json + 11 glassmorphism-styled UI primitives
+- P11-5 ✅ 2026-04-25 — Geist font layout + landing page with hero/features/CTA matching ai-product-assistant aesthetic
+- P11-6 ✅ 2026-04-25 — lib/env.ts with zod-validated frozen env + .env.example
