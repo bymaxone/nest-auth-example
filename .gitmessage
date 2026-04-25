@@ -1,0 +1,32 @@
+# <type>(<scope>): <subject>  ← keep under 72 chars
+#
+# Types: feat | fix | refactor | test | docs | chore | ci | perf | style
+#
+# Common scopes for this project:
+#   api        → apps/api (NestJS backend)
+#   web        → apps/web (Next.js frontend)
+#   auth       → auth wiring, guards, decorators
+#   dashboard  → apps/web/app/dashboard/**
+#   platform   → platform admin area
+#   prisma     → schema, migrations, seed
+#   infra      → Docker, Redis, config modules
+#   ws         → WebSocket gateway / client
+#   deps       → dependency updates
+#
+# Body (optional — wrap at 72 chars):
+#   Explain WHY, not what. The diff already shows what changed.
+#   Reference Matrix rows when a feature lands: "Covers FCM #8, #10."
+#
+# Co-authored-by line (add when AI assisted):
+# Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+#
+# Examples:
+#   feat(dashboard): add MFA setup + recovery codes modal
+#   fix(api): scope invitation list query by tenantId
+#   refactor(auth): extract scrypt helpers into account.service
+#   test(api): add e2e spec for session FIFO eviction
+#
+# NEVER commit:
+#   - .env files or secrets
+#   - node_modules, dist, .next, coverage
+#   - console.log / @ts-ignore / eslint-disable left in source

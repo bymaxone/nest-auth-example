@@ -11,6 +11,9 @@
  * Mobile behaviour: hidden when `isOpen=false`, shown as a fixed overlay below
  * the topbar (top: 64px) when `isOpen=true`.
  *
+ * Role gating: `Team` and `Invitations` items are hidden for `MEMBER` and `VIEWER`
+ * roles — only `ADMIN` and `OWNER` see them.
+ *
  * @layer components/layout
  */
 
@@ -18,9 +21,12 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, User, Shield, Monitor, Users, MailOpen } from 'lucide-react';
+import { LayoutDashboard, User, Shield, Monitor, Users, MailOpen, FolderOpen } from 'lucide-react';
 import { useSession } from '@bymax-one/nest-auth/react';
 import { cn } from '@/lib/utils';
+
+/** Roles that may view admin-only nav items. */
+const ADMIN_ROLES = new Set(['OWNER', 'ADMIN']);
 
 /** Navigation item definition. */
 interface NavItem {
@@ -29,6 +35,8 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
   /** When true, only exact path match marks the item active. */
   exact?: boolean;
+  /** When true, only ADMIN / OWNER roles see this item. */
+  adminOnly?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -36,8 +44,9 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Account', href: '/dashboard/account', icon: User },
   { label: 'Security', href: '/dashboard/security', icon: Shield },
   { label: 'Sessions', href: '/dashboard/sessions', icon: Monitor },
-  { label: 'Team', href: '/dashboard/team', icon: Users },
-  { label: 'Invitations', href: '/dashboard/invitations', icon: MailOpen },
+  { label: 'Projects', href: '/dashboard/projects', icon: FolderOpen },
+  { label: 'Team', href: '/dashboard/team', icon: Users, adminOnly: true },
+  { label: 'Invitations', href: '/dashboard/invitations', icon: MailOpen, adminOnly: true },
 ];
 
 interface SidebarNavItemProps {
@@ -84,11 +93,17 @@ interface SidebarProps {
 /**
  * Sidebar navigation panel for the authenticated dashboard.
  *
- * @param isOpen   - Controls mobile visibility.
+ * Admin-only items (`Team`, `Invitations`) are hidden for `MEMBER` and `VIEWER`
+ * roles using the `user.role` value from `useSession()`.
+ *
+ * @param isOpen     - Controls mobile visibility.
  * @param onNavClick - Closes the mobile overlay on navigation.
  */
 export function Sidebar({ isOpen, onNavClick }: SidebarProps) {
   const { user } = useSession();
+  const isAdmin = user !== null && ADMIN_ROLES.has(user.role);
+
+  const visibleItems = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
 
   return (
     <nav
@@ -106,7 +121,7 @@ export function Sidebar({ isOpen, onNavClick }: SidebarProps) {
       <div className="flex h-full flex-col gap-0 px-4 py-6">
         {/* ── Navigation items ── */}
         <div className="flex flex-1 flex-col gap-1">
-          {NAV_ITEMS.map((item) => (
+          {visibleItems.map((item) => (
             <SidebarNavItem
               key={item.href}
               item={item}

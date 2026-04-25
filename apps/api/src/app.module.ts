@@ -46,6 +46,8 @@ import { PrismaModule } from './prisma/prisma.module.js';
 import { RedisModule } from './redis/redis.module.js';
 import { HealthModule } from './health/health.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { AccountModule } from './account/account.module.js';
+import { InvitationsModule } from './invitations/invitations.module.js';
 import { TenantsModule } from './tenants/tenants.module.js';
 import { ProjectsModule } from './projects/projects.module.js';
 import { UsersModule } from './users/users.module.js';
@@ -76,6 +78,8 @@ import { DebugModule } from './debug/debug.module.js';
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     // ── Feature modules ────────────────────────────────────────────────────
     HealthModule,
+    AccountModule,
+    InvitationsModule,
     TenantsModule,
     ProjectsModule,
     UsersModule,

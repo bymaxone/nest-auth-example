@@ -11,17 +11,19 @@
  * @see docs/guidelines/nest-auth-guidelines.md
  */
 
-import { Body, Controller, Headers, Ip, Param, Patch } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Ip, Param, Patch } from '@nestjs/common';
 import { CurrentUser, Roles } from '@bymax-one/nest-auth';
 import type { AuthUser, SafeAuthUser } from '@bymax-one/nest-auth';
 
 import { UsersService } from './users.service.js';
+import type { TenantUserRecord } from './users.service.js';
 import { UpdateStatusDto } from './dto/update-status.dto.js';
 
 /**
  * Handles `/api/users` routes.
  *
  * All routes require an authenticated JWT (global `JwtAuthGuard`).
+ * Listing users is visible to any authenticated tenant member (`GET /api/users`).
  * Status update is restricted to the `ADMIN` role (and higher by hierarchy).
  *
  * @public
@@ -29,6 +31,22 @@ import { UpdateStatusDto } from './dto/update-status.dto.js';
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
+
+  /**
+   * Returns all users in the authenticated user's tenant.
+   *
+   * Scoped to the caller's `tenantId` JWT claim — no cross-tenant data can
+   * be accessed regardless of the `X-Tenant-Id` header value.
+   *
+   * GET /api/users
+   *
+   * @param user - Authenticated user injected by `@CurrentUser()`.
+   * @returns Array of safe user records (no credential fields).
+   */
+  @Get()
+  listByTenant(@CurrentUser() user: AuthUser): Promise<TenantUserRecord[]> {
+    return this.usersService.listByTenant(user.tenantId);
+  }
 
   /**
    * Updates a user's account status within the authenticated admin's tenant.

@@ -1,0 +1,82 @@
+---
+description: Conventional Commits guidelines for this project
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# Git commit messages — nest-auth-example
+
+Always use **Conventional Commits** format:
+
+```
+<type>(<scope>): <subject>
+
+[optional body — explain WHY, not what]
+
+[optional Co-Authored-By footer]
+```
+
+## Types
+
+| Type | When |
+|------|------|
+| `feat` | New feature or page (FCM row lands) |
+| `fix` | Bug fix |
+| `refactor` | Code change with no behavior change |
+| `test` | Adding or fixing tests |
+| `docs` | Documentation only |
+| `chore` | Tooling, scripts, config |
+| `ci` | CI/CD pipeline changes |
+| `perf` | Performance improvement |
+
+## Scopes for this project
+
+| Scope | Area |
+|-------|------|
+| `api` | `apps/api` backend (NestJS) |
+| `web` | `apps/web` frontend (Next.js) |
+| `auth` | Auth wiring, guards, decorators, library integration |
+| `dashboard` | `apps/web/app/dashboard/**` |
+| `platform` | Platform admin area |
+| `prisma` | Schema, migrations, seed |
+| `infra` | Docker, Redis, config modules |
+| `ws` | WebSocket gateway or client |
+| `account` | `apps/api/src/account/` |
+| `invitations` | `apps/api/src/invitations/` |
+| `users` | `apps/api/src/users/` |
+| `deps` | Dependency updates |
+
+## Rules
+
+- Subject line ≤ 72 characters, imperative mood ("add", "fix", not "added", "fixes")
+- Body explains the **why**, not the what — the diff shows the what
+- Reference Feature Coverage Matrix rows when a feature lands: `Covers FCM #8, #10.`
+- Never include `.env`, secrets, `node_modules`, `dist`, `coverage`, `.next`
+- Never commit `console.log`, `@ts-ignore`, or `// eslint-disable` left in source
+- Add `Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>` when AI assisted
+
+## Examples
+
+```
+feat(dashboard): add MFA setup flow with QR code and recovery codes modal
+
+Covers FCM rows #8 (TOTP enrollment) and #10 (recovery codes).
+QR rendered client-side via qrcode pkg — no external service contacted.
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+```
+
+```
+feat(api): add custom InvitationsModule with Redis+Prisma dual-write
+
+Library's InvitationService is not exported; replicate the Redis key
+format (nest-auth-example:inv:{sha256(token)}) so the library's accept
+endpoint can still consume the stored token.
+```
+
+```
+fix(api): scope invitation list query by tenantId
+
+listByTenant() was missing the tenantId filter, exposing cross-tenant
+invitation data on GET /api/invitations.
+```

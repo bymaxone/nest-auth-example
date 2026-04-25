@@ -5,7 +5,7 @@
  *   - Dark glass: rgba(10,10,10,0.85) + backdrop-blur-[12px]
  *   - 1px border-bottom: rgba(255,255,255,0.07)
  *   - Brand icon + gradient name (left, always visible)
- *   - Hamburger (mobile) + user dropdown (right)
+ *   - Hamburger (mobile) + `<TenantSwitcher />` + user dropdown (right)
  *
  * Height: 64px. Stacked above the sidebar on all screen sizes.
  *
@@ -16,6 +16,7 @@
 
 import { Menu } from 'lucide-react';
 import { useSession } from '@bymax-one/nest-auth/react';
+import { TenantSwitcher } from '@/components/auth/tenant-switcher';
 import SignOutButton from '@/components/auth/sign-out-button';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -26,7 +27,7 @@ interface TopbarProps {
 }
 
 /**
- * Fixed top bar — brand identity (left) + user menu (right).
+ * Fixed top bar — brand identity (left) + tenant switcher + user menu (right).
  *
  * @param onMenuOpen - Handler invoked by the mobile hamburger button.
  */
@@ -66,7 +67,7 @@ export function Topbar({ onMenuOpen }: TopbarProps) {
         </span>
       </div>
 
-      {/* ── Right: hamburger (mobile) + user info + sign out ── */}
+      {/* ── Right: hamburger (mobile) + tenant switcher + user info + sign out ── */}
       <div className="flex items-center gap-2">
         {/* Hamburger — mobile only */}
         <Button
@@ -78,6 +79,9 @@ export function Topbar({ onMenuOpen }: TopbarProps) {
         >
           <Menu className="h-4 w-4 text-[rgba(255,255,255,0.7)]" />
         </Button>
+
+        {/* Tenant switcher — desktop only */}
+        <TenantSwitcher />
 
         {/* User avatar + name */}
         {user && (

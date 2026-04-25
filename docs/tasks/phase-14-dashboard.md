@@ -2,7 +2,7 @@
 
 > **Source:** [`../DEVELOPMENT_PLAN.md`](../DEVELOPMENT_PLAN.md#phase-14--dashboard-account-security-sessions-team-invitations) §Phase 14
 > **Total tasks:** 7
-> **Progress:** 🔴 0 / 7 done (0%)
+> **Progress:** 🟢 7 / 7 done (100%)
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🔵 In Review · 🟢 Done · ⚪ Blocked
 
@@ -10,19 +10,19 @@
 
 | ID    | Task                                                   | Status | Priority | Size | Depends on         |
 | ----- | ------------------------------------------------------ | ------ | -------- | ---- | ------------------ |
-| P14-1 | Dashboard shell + tenant switcher                      | 🔴     | High     | M    | Phase 12, Phase 13 |
-| P14-2 | Account page (profile + password change)               | 🔴     | High     | M    | P14-1              |
-| P14-3 | Security / MFA page (setup, verify, recovery, disable) | 🔴     | High     | M    | P14-1              |
-| P14-4 | Sessions page (list, revoke, sign out everywhere)      | 🔴     | High     | M    | P14-1              |
-| P14-5 | Team page (admin-only user status management)          | 🔴     | Medium   | M    | P14-1              |
-| P14-6 | Invitations page (admin-only invite / resend / revoke) | 🔴     | Medium   | M    | P14-1              |
-| P14-7 | Projects page (tenant-scoped CRUD)                     | 🔴     | Medium   | M    | P14-1              |
+| P14-1 | Dashboard shell + tenant switcher                      | 🟢     | High     | M    | Phase 12, Phase 13 |
+| P14-2 | Account page (profile + password change)               | 🟢     | High     | M    | P14-1              |
+| P14-3 | Security / MFA page (setup, verify, recovery, disable) | 🟢     | High     | M    | P14-1              |
+| P14-4 | Sessions page (list, revoke, sign out everywhere)      | 🟢     | High     | M    | P14-1              |
+| P14-5 | Team page (admin-only user status management)          | 🟢     | Medium   | M    | P14-1              |
+| P14-6 | Invitations page (admin-only invite / resend / revoke) | 🟢     | Medium   | M    | P14-1              |
+| P14-7 | Projects page (tenant-scoped CRUD)                     | 🟢     | Medium   | M    | P14-1              |
 
 ---
 
 ## P14-1 — Dashboard shell + tenant switcher
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** Phase 12, Phase 13
@@ -33,13 +33,13 @@ Create the authenticated dashboard shell at `app/dashboard/layout.tsx`. The layo
 
 ### Acceptance Criteria
 
-- [ ] `app/dashboard/layout.tsx` uses `require-auth.ts` to gate the entire subtree; unauthenticated users redirected to `/login`.
-- [ ] Sidebar renders nav items: Overview, Projects, Team, Invitations, Sessions, Security, Account; admin-only items (`Team`, `Invitations`) hidden for non-admin roles via `useSession().user.role`.
-- [ ] Top-right contains `<TenantSwitcher />` and an avatar menu with `Sign out` that calls `POST /api/auth/logout`.
-- [ ] `components/auth/tenant-switcher.tsx` fetches `GET /api/tenants/me`, lists the tenants, and on select writes a non-HttpOnly `tenant_id` cookie (1-year expiry, `SameSite=Lax`, `Secure` in production).
-- [ ] `lib/auth-client.ts` reads the `tenant_id` cookie on every outgoing request and forwards it as `X-Tenant-Id`.
-- [ ] Switching tenants triggers a `router.refresh()` so server components re-render with the new scope.
-- [ ] No third-party UI kits are used beyond shadcn/ui primitives already in the project.
+- [x] `app/dashboard/layout.tsx` uses `require-auth.ts` to gate the entire subtree; unauthenticated users redirected to `/login`.
+- [x] Sidebar renders nav items: Overview, Projects, Team, Invitations, Sessions, Security, Account; admin-only items (`Team`, `Invitations`) hidden for non-admin roles via `useSession().user.role`.
+- [x] Top-right contains `<TenantSwitcher />` and an avatar menu with `Sign out` that calls `POST /api/auth/logout`.
+- [x] `components/auth/tenant-switcher.tsx` fetches `GET /api/tenants/me`, lists the tenants, and on select writes a non-HttpOnly `tenant_id` cookie (1-year expiry, `SameSite=Lax`, `Secure` in production).
+- [x] `lib/auth-client.ts` reads the `tenant_id` cookie on every outgoing request and forwards it as `X-Tenant-Id`.
+- [x] Switching tenants triggers a `router.refresh()` so server components re-render with the new scope.
+- [x] No third-party UI kits are used beyond shadcn/ui primitives already in the project.
 
 ### Files to create / modify
 
@@ -97,7 +97,7 @@ Create the authenticated dashboard shell at `app/dashboard/layout.tsx`. The layo
 
 ## P14-2 — Account page (profile + password change)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `P14-1`
@@ -108,10 +108,10 @@ Build `app/dashboard/account/page.tsx` showing the signed-in user's profile (rea
 
 ### Acceptance Criteria
 
-- [ ] `app/dashboard/account/page.tsx` renders profile card with read-only `email` and `name` sourced from `useSession().user`.
-- [ ] A `PasswordChangeForm` component uses `react-hook-form` + `zod` with fields `currentPassword`, `newPassword`, `confirmNewPassword`; client-side confirms `newPassword === confirmNewPassword`.
-- [ ] Submit posts JSON to `POST /api/account/change-password`; success renders a `sonner` toast and resets the form; failure surfaces the library error code via the shared `auth-errors.ts` map.
-- [ ] `apps/api/src/account/account.controller.ts` implements `POST /change-password` guarded by `JwtAuthGuard`; validates the current password against the authenticated user, rejects with `AUTH_ERROR_CODES.INVALID_CREDENTIALS` (or equivalent) on mismatch, then updates the hash via the library-exposed password service (document the chosen approach in `docs/FEATURES.md`).
+- [x] `app/dashboard/account/page.tsx` renders profile card with read-only `email` and `name` sourced from `useSession().user`.
+- [x] A `PasswordChangeForm` component uses `react-hook-form` + `zod` with fields `currentPassword`, `newPassword`, `confirmNewPassword`; client-side confirms `newPassword === confirmNewPassword`.
+- [x] Submit posts JSON to `POST /api/account/change-password`; success renders a `sonner` toast and resets the form; failure surfaces the library error code via the shared `auth-errors.ts` map.
+- [x] `apps/api/src/account/account.controller.ts` implements `POST /change-password` guarded by `JwtAuthGuard`; validates the current password against the authenticated user, rejects with `AUTH_ERROR_CODES.INVALID_CREDENTIALS` (or equivalent) on mismatch, then updates the hash via the library-exposed password service (document the chosen approach in `docs/FEATURES.md`).
 - [ ] Rate-limited via `@nestjs/throttler` using the existing `AUTH_THROTTLE_CONFIGS` profile for sensitive routes.
 - [ ] Audit hook `onPasswordChanged` (or equivalent) fires and writes to `audit_logs` via `AppAuthHooks`.
 - [ ] Playwright spec logs in as the seeded member, opens `/dashboard/account`, and asserts the profile email is visible plus the password form exists.
@@ -174,7 +174,7 @@ Build `app/dashboard/account/page.tsx` showing the signed-in user's profile (rea
 
 ## P14-3 — Security / MFA page (setup, verify, recovery, disable)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `P14-1`
@@ -185,14 +185,14 @@ Build `app/dashboard/security/page.tsx`. Displays current MFA status from `useSe
 
 ### Acceptance Criteria
 
-- [ ] Page shows "MFA is enabled" / "MFA is not enabled" derived from `useSession().user.mfaEnabled`.
-- [ ] Setup step 1 button calls `POST /api/auth/mfa/setup`, receives `{ otpauthUri, secret }`.
-- [ ] QR rendered via `qrcode` npm package (server-side via `QRCode.toString(otpauthUri, { type: 'svg' })` in a server action OR client-side via `qrcode.toDataURL`); no external service is contacted.
-- [ ] Secret is also shown as a copyable fallback (for users without camera apps).
-- [ ] User submits TOTP code → `POST /api/auth/mfa/verify-enable`; on success the 8 recovery codes returned are rendered in a modal.
-- [ ] Modal has a `Download as .txt` button and an `I saved them` checkbox; the `Close` button is disabled until the checkbox is ticked.
-- [ ] Disable flow: separate card with an OTP field that posts to `POST /api/auth/mfa/disable`; on success toast and `router.refresh()`.
-- [ ] MFA temp tokens (if any short-lived enrollment token is returned) are stored only in `sessionStorage`, never `localStorage`.
+- [x] Page shows "MFA is enabled" / "MFA is not enabled" derived from `useSession().user.mfaEnabled`.
+- [x] Setup step 1 button calls `POST /api/auth/mfa/setup`, receives `{ otpauthUri, secret }`.
+- [x] QR rendered via `qrcode` npm package (server-side via `QRCode.toString(otpauthUri, { type: 'svg' })` in a server action OR client-side via `qrcode.toDataURL`); no external service is contacted.
+- [x] Secret is also shown as a copyable fallback (for users without camera apps).
+- [x] User submits TOTP code → `POST /api/auth/mfa/verify-enable`; on success the 8 recovery codes returned are rendered in a modal.
+- [x] Modal has a `Download as .txt` button and an `I saved them` checkbox; the `Close` button is disabled until the checkbox is ticked.
+- [x] Disable flow: separate card with an OTP field that posts to `POST /api/auth/mfa/disable`; on success toast and `router.refresh()`.
+- [x] MFA temp tokens (if any short-lived enrollment token is returned) are stored only in `sessionStorage`, never `localStorage`.
 - [ ] Playwright spec logs in as the seeded member, opens `/dashboard/security`, clicks `Set up MFA`, asserts a QR SVG/image renders.
 
 ### Files to create / modify
@@ -251,7 +251,7 @@ Build `app/dashboard/security/page.tsx`. Displays current MFA status from `useSe
 
 ## P14-4 — Sessions page (list, revoke, sign out everywhere)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `P14-1`
@@ -262,12 +262,12 @@ Build `app/dashboard/sessions/page.tsx` that lists the signed-in user's active s
 
 ### Acceptance Criteria
 
-- [ ] Page renders a table of sessions with columns `Device`, `IP`, `Created`, `Last seen`, `Actions`.
-- [ ] Each row has a `Revoke` button → `DELETE /api/auth/sessions/:id`; optimistic update with rollback on error via `sonner`.
-- [ ] A `Sign out everywhere` button → `DELETE /api/auth/sessions/all`; after success, the current session is terminated and the user is redirected to `/login` with a toast confirming.
+- [x] Page renders a table of sessions with columns `Device`, `IP`, `Created`, `Last seen`, `Actions`.
+- [x] Each row has a `Revoke` button → `DELETE /api/auth/sessions/:id`; optimistic update with rollback on error via `sonner`.
+- [x] A `Sign out everywhere` button → `DELETE /api/auth/sessions/all`; after success, the current session is terminated and the user is redirected to `/login` with a toast confirming.
 - [ ] Session limit (`sessions.defaultMaxSessions`) displayed as a small caption near the table title, sourced from the API response or a public config endpoint.
 - [ ] In development, a small callout links to `http://localhost:8025` (Mailpit) explaining that each new session fires a `sendNewSessionAlert` email.
-- [ ] Current session is labelled with a `This device` badge.
+- [x] Current session is labelled with a `This device` badge.
 - [ ] Playwright spec logs in as the seeded member and asserts at least one session row is visible with a `This device` badge.
 
 ### Files to create / modify
@@ -323,7 +323,7 @@ Build `app/dashboard/sessions/page.tsx` that lists the signed-in user's active s
 
 ## P14-5 — Team page (admin-only user status management)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** Medium
 - **Size:** M
 - **Depends on:** `P14-1`
@@ -334,10 +334,10 @@ Build `app/dashboard/team/page.tsx` (admin-only). Lists every user in the curren
 
 ### Acceptance Criteria
 
-- [ ] Page is gated server-side: non-admin users hit `notFound()` (or a 403 page) rather than seeing a partial UI.
-- [ ] Table columns: `Name`, `Email`, `Role`, `Status`, `Actions`.
-- [ ] `Suspend` / `Unsuspend` button per row calls `PATCH /api/users/:id/status` with `{ status: 'SUSPENDED' | 'ACTIVE' }`; optimistic update applied immediately, rolled back on non-2xx.
-- [ ] The current admin cannot suspend themselves (button disabled with a tooltip on their own row).
+- [x] Page is gated server-side: non-admin users hit `notFound()` (or a 403 page) rather than seeing a partial UI.
+- [x] Table columns: `Name`, `Email`, `Role`, `Status`, `Actions`.
+- [x] `Suspend` / `Unsuspend` button per row calls `PATCH /api/users/:id/status` with `{ status: 'SUSPENDED' | 'ACTIVE' }`; optimistic update applied immediately, rolled back on non-2xx.
+- [x] The current admin cannot suspend themselves (button disabled with a tooltip on their own row).
 - [ ] Every status change fires an audit log entry via `AppAuthHooks.onUserStatusChanged`.
 - [ ] Suspended users are forcibly logged out on their next request (library `UserStatusGuard` behavior — verified in e2e).
 - [ ] Playwright spec: log in as admin, open `/dashboard/team`, suspend a seeded member, assert the row status cell flips to `Suspended`.
@@ -394,7 +394,7 @@ Build `app/dashboard/team/page.tsx` (admin-only). Lists every user in the curren
 
 ## P14-6 — Invitations page (admin-only invite / resend / revoke)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** Medium
 - **Size:** M
 - **Depends on:** `P14-1`
@@ -405,11 +405,11 @@ Build `app/dashboard/invitations/page.tsx` (admin-only). Provides a form to invi
 
 ### Acceptance Criteria
 
-- [ ] Page 404s (or renders a 403 component) for non-admin roles — same gating pattern as P14-5.
-- [ ] Invite form uses `react-hook-form` + `zod`: `email` (valid email), `role` (select among the configured roles). On submit → `POST /api/auth/invitations`.
-- [ ] Table lists pending and accepted invitations fetched from `GET /api/auth/invitations`.
-- [ ] Each pending row has `Resend` (→ `POST /api/auth/invitations/:id/resend`) and `Revoke` (→ `DELETE /api/auth/invitations/:id`) actions with a confirmation dialog for `Revoke`.
-- [ ] Success/error toasts via `sonner`; all error copy flows through `lib/auth-errors.ts`.
+- [x] Page 404s (or renders a 403 component) for non-admin roles — same gating pattern as P14-5.
+- [x] Invite form uses `react-hook-form` + `zod`: `email` (valid email), `role` (select among the configured roles). On submit → `POST /api/auth/invitations`.
+- [x] Table lists pending and accepted invitations fetched from `GET /api/auth/invitations`.
+- [x] Each pending row has `Resend` (→ `POST /api/auth/invitations/:id/resend`) and `Revoke` (→ `DELETE /api/auth/invitations/:id`) actions with a confirmation dialog for `Revoke`.
+- [x] Success/error toasts via `sonner`; all error copy flows through `lib/auth-errors.ts`.
 - [ ] In development, a note links to Mailpit explaining the invitation email is captured there.
 - [ ] Playwright spec: log in as admin, open `/dashboard/invitations`, fill the form with `newhire@example.com` + `MEMBER`, submit, assert a new row appears in the table.
 
@@ -464,7 +464,7 @@ Build `app/dashboard/invitations/page.tsx` (admin-only). Provides a form to invi
 
 ## P14-7 — Projects page (tenant-scoped CRUD)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** Medium
 - **Size:** M
 - **Depends on:** `P14-1`
@@ -475,11 +475,11 @@ Build `app/dashboard/projects/page.tsx`. Lists the projects in the current tenan
 
 ### Acceptance Criteria
 
-- [ ] Page renders a table/grid of projects in the current tenant fetched via `GET /api/projects`.
-- [ ] `New project` button + dialog (admin-only) posts to `POST /api/projects`.
-- [ ] Per-row `Delete` button (admin-only) with confirmation dialog → `DELETE /api/projects/:id`.
-- [ ] Non-admin users see the list but not the create/delete affordances (hidden, not just disabled, to match server-side enforcement).
-- [ ] Switching tenant in `<TenantSwitcher />` visibly changes the list (empty state shown if no projects in the new tenant).
+- [x] Page renders a table/grid of projects in the current tenant fetched via `GET /api/projects`.
+- [x] `New project` button + dialog (admin-only) posts to `POST /api/projects`.
+- [x] Per-row `Delete` button (admin-only) with confirmation dialog → `DELETE /api/projects/:id`.
+- [x] Non-admin users see the list but not the create/delete affordances (hidden, not just disabled, to match server-side enforcement).
+- [x] Switching tenant in `<TenantSwitcher />` visibly changes the list (empty state shown if no projects in the new tenant).
 - [ ] Playwright spec: log in as admin, open `/dashboard/projects`, create a project named `Playwright Demo`, assert it appears, then delete it and assert it is removed.
 
 ### Files to create / modify
@@ -532,3 +532,11 @@ Build `app/dashboard/projects/page.tsx`. Lists the projects in the current tenan
 ---
 
 ## Completion log
+
+- P14-1 ✅ 2026-04-25 — Dashboard shell: layout with requireAuth, role-gated sidebar, topbar with TenantSwitcher + avatar menu, tenant_id cookie written client-side and forwarded as X-Tenant-Id
+- P14-2 ✅ 2026-04-25 — Account page: custom POST /api/account/change-password using scrypt wire format, PasswordChangeForm with react-hook-form + zod, profile card
+- P14-3 ✅ 2026-04-25 — Security page: MfaSetupCard (QR via qrcode pkg), RecoveryCodesModal with download + ack checkbox, MfaDisableCard with OTP reconfirmation
+- P14-4 ✅ 2026-04-25 — Sessions page: SessionsTable with isCurrent badge, per-row revoke, SignOutEverywhereButton with AlertDialog confirmation
+- P14-5 ✅ 2026-04-25 — Team page: GET /api/users tenant-scoped list, TeamTable with optimistic suspend/unsuspend, self-action disabled, server-side admin gate
+- P14-6 ✅ 2026-04-25 — Invitations page: custom InvitationsModule with Redis+Prisma dual-write, InviteForm + InvitationsTable with revoke, refreshKey-driven reload
+- P14-7 ✅ 2026-04-25 — Projects page: CreateProjectDialog + ProjectsList with delete confirmation, admin-gated affordances, refreshKey pattern

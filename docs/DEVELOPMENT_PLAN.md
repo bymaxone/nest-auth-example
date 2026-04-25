@@ -49,7 +49,7 @@
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🟢 Done · ⚪ Blocked · 🔵 In Review
 >
-> **Overall progress:** 🟡 80 / 126 tasks done (63%)
+> **Overall progress:** 🟡 87 / 126 tasks done (69%)
 
 | #   | Phase                                                           | Tasks file                                              | Done / Total | %    | Status |
 | --- | --------------------------------------------------------------- | ------------------------------------------------------- | ------------ | ---- | ------ |
@@ -67,7 +67,7 @@
 | 11  | `apps/web` Skeleton (Next.js 16 + Tailwind + shadcn/ui)         | [phase-11](./tasks/phase-11-web-skeleton.md)            | 6 / 6        | 100% | 🟢     |
 | 12  | Frontend Auth Wiring (Client, Provider, Proxy, Refresh, Logout) | [phase-12](./tasks/phase-12-frontend-auth-wiring.md)    | 6 / 6        | 100% | 🟢     |
 | 13  | Public Auth Pages (`app/(auth)`)                                | [phase-13](./tasks/phase-13-public-auth-pages.md)       | 8 / 8        | 100% | 🟢     |
-| 14  | Dashboard (Account, Security, Sessions, Team, Invitations)      | [phase-14](./tasks/phase-14-dashboard.md)               | 0 / 7        | 0%   | 🔴     |
+| 14  | Dashboard (Account, Security, Sessions, Team, Invitations)      | [phase-14](./tasks/phase-14-dashboard.md)               | 7 / 7        | 100% | 🟢     |
 | 15  | Platform Admin Area (Frontend)                                  | [phase-15](./tasks/phase-15-platform-frontend.md)       | 0 / 4        | 0%   | 🔴     |
 | 16  | WebSocket Consumer + Notification Toast                         | [phase-16](./tasks/phase-16-websocket-frontend.md)      | 0 / 3        | 0%   | 🔴     |
 | 17  | Testing (Unit, E2E, Playwright)                                 | [phase-17](./tasks/phase-17-testing.md)                 | 0 / 10       | 0%   | 🔴     |

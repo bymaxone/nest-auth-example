@@ -24,6 +24,23 @@ import { NotificationsGateway } from '../notifications/notifications.gateway.js'
 import type { UpdateStatusDto } from './dto/update-status.dto.js';
 
 /**
+ * Safe user representation returned from list and status-update endpoints.
+ * Mirrors the fields exposed by the `TenantUserInfo` interface on the frontend.
+ *
+ * @public
+ */
+export interface TenantUserRecord {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  status: string;
+  emailVerified: boolean;
+  mfaEnabled: boolean;
+  createdAt: Date;
+}
+
+/**
  * Service that handles user-admin operations.
  *
  * Only exposes operations that are safe for tenant admins to perform.
@@ -132,5 +149,34 @@ export class UsersService {
     };
 
     return safe;
+  }
+
+  /**
+   * Returns all users belonging to `tenantId`, ordered by creation date.
+   *
+   * Results are scoped by tenantId in the WHERE clause — cross-tenant enumeration
+   * is impossible even if the caller supplies a forged tenant ID (the JWT claim
+   * is the authoritative source for tenantId passed here from the controller).
+   *
+   * @param tenantId - Tenant to scope the query to.
+   * @returns Array of safe user records (no credential fields).
+   */
+  async listByTenant(tenantId: string): Promise<TenantUserRecord[]> {
+    const rows = await this.prisma.user.findMany({
+      where: { tenantId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        status: true,
+        emailVerified: true,
+        mfaEnabled: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return rows;
   }
 }

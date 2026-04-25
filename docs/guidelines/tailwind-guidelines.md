@@ -81,7 +81,7 @@ export function cn(...inputs: ClassValue[]): string {
 ```
 
 ```tsx
-<button className={cn('rounded-md px-3 py-2 text-sm', isPrimary && 'bg-primary text-primary-fg')} />
+<button className={cn('rounded-md px-3 py-2 text-sm', isPrimary && 'text-primary-fg bg-primary')} />
 ```
 
 - **Full class literals** — never `text-${variant}`. Tailwind's JIT does not expand template literals; the class is never generated.
