@@ -33,65 +33,74 @@ import type { Env } from '../config/env.schema.js';
  * `NODE_ENV`. Imports `ConfigModule` explicitly so the factory can resolve
  * `ConfigService` even before global providers settle during bootstrap.
  *
+ * Called from `AppModule`'s `@Module` decorator (not at `logger.module.ts` load
+ * time) so that `nestjs-pino`'s `createProvidersForDecorated()` runs after all
+ * `@InjectPinoLogger(name)` decorators have been evaluated — avoiding an ESM
+ * module-evaluation-order race where named logger providers would otherwise be
+ * missing from the global `LoggerModule`.
+ *
+ * @returns Configured `nestjs-pino` `DynamicModule`.
  * @public
  */
-export const AppLoggerModule: DynamicModule = PinoLoggerModule.forRootAsync({
-  imports: [ConfigModule],
-  inject: [ConfigService],
-  useFactory: (config: ConfigService<Env, true>) => {
-    const level = config.getOrThrow<string>('LOG_LEVEL');
-    const isDev = config.getOrThrow('NODE_ENV') === 'development';
+export function createAppLoggerModule(): DynamicModule {
+  return PinoLoggerModule.forRootAsync({
+    imports: [ConfigModule],
+    inject: [ConfigService],
+    useFactory: (config: ConfigService<Env, true>) => {
+      const level = config.getOrThrow<string>('LOG_LEVEL');
+      const isDev = config.getOrThrow('NODE_ENV') === 'development';
 
-    return {
-      pinoHttp: {
-        level,
-        // pino-pretty is a devDependency; never enable in production images.
-        ...(isDev ? { transport: { target: 'pino-pretty', options: { singleLine: true } } } : {}),
-        autoLogging: {
-          // Suppress per-request access logs for the health probe to avoid
-          // flooding log streams with orchestrator liveness checks.
-          ignore: (req: IncomingMessage) => req.url === '/api/health',
-        },
-        redact: {
-          paths: [
-            'req.headers.authorization',
-            'req.headers.cookie',
-            'req.headers["x-api-key"]',
-            'res.headers["set-cookie"]',
-            '*.password',
-            '*.passwordHash',
-            '*.mfaSecret',
-            '*.mfaRecoveryCodes',
-            '*.token',
-            '*.refreshToken',
-            '*.accessToken',
-            '*.otp',
-          ],
-          censor: '[REDACTED]',
-        },
-        serializers: {
-          req: (req: {
-            id: string;
-            method: string;
-            url: string;
-            headers: Record<string, string | string[] | undefined>;
-          }) => ({
-            id: req.id,
-            method: req.method,
-            url: req.url,
-            // Delegate header sanitization entirely to the library helper.
-            // Never implement a local allowlist — it will drift.
-            headers: sanitizeHeaders(req.headers),
+      return {
+        pinoHttp: {
+          level,
+          // pino-pretty is a devDependency; never enable in production images.
+          ...(isDev ? { transport: { target: 'pino-pretty', options: { singleLine: true } } } : {}),
+          autoLogging: {
+            // Suppress per-request access logs for the health probe to avoid
+            // flooding log streams with orchestrator liveness checks.
+            ignore: (req: IncomingMessage) => req.url === '/api/health',
+          },
+          redact: {
+            paths: [
+              'req.headers.authorization',
+              'req.headers.cookie',
+              'req.headers["x-api-key"]',
+              'res.headers["set-cookie"]',
+              '*.password',
+              '*.passwordHash',
+              '*.mfaSecret',
+              '*.mfaRecoveryCodes',
+              '*.token',
+              '*.refreshToken',
+              '*.accessToken',
+              '*.otp',
+            ],
+            censor: '[REDACTED]',
+          },
+          serializers: {
+            req: (req: {
+              id: string;
+              method: string;
+              url: string;
+              headers: Record<string, string | string[] | undefined>;
+            }) => ({
+              id: req.id,
+              method: req.method,
+              url: req.url,
+              // Delegate header sanitization entirely to the library helper.
+              // Never implement a local allowlist — it will drift.
+              headers: sanitizeHeaders(req.headers),
+            }),
+            res: (res: { statusCode: number }) => ({ statusCode: res.statusCode }),
+          },
+          // Attach requestId and tenantId to every log line for cross-service tracing.
+          // tenantId is a runtime property attached by the request pipeline from X-Tenant-Id.
+          customProps: (req: IncomingMessage) => ({
+            requestId: req.id,
+            tenantId: (req as IncomingMessage & { tenantId?: string }).tenantId,
           }),
-          res: (res: { statusCode: number }) => ({ statusCode: res.statusCode }),
         },
-        // Attach requestId and tenantId to every log line for cross-service tracing.
-        // tenantId is a runtime property attached by the request pipeline from X-Tenant-Id.
-        customProps: (req: IncomingMessage) => ({
-          requestId: req.id,
-          tenantId: (req as IncomingMessage & { tenantId?: string }).tenantId,
-        }),
-      },
-    };
-  },
-});
+      };
+    },
+  });
+}

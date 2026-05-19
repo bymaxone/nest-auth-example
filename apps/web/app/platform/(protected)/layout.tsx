@@ -13,7 +13,7 @@
  */
 
 import type { ReactNode } from 'react';
-import { PlatformShell } from './shell';
+import { PlatformShell } from '../shell';
 
 interface PlatformLayoutProps {
   /** Platform admin page content. */

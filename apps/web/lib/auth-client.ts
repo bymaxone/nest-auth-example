@@ -94,7 +94,10 @@ const tenantAwareFetch: AuthFetch = (input, init) => {
  * Uses `tenantAwareFetch` so every auth call carries `X-Tenant-Id` automatically.
  */
 export const authClient = createAuthClient({
-  baseUrl: '/api',
+  // Empty baseUrl: createAuthClient.buildUrl generates paths like '/auth/login'.
+  // innerAuthFetch (baseUrl '/api') then prepends '/api' → '/api/auth/login'.
+  // Using '/api' here would cause '/api' to be prepended twice.
+  baseUrl: '',
   routePrefix: 'auth',
   authFetch: tenantAwareFetch,
 });
@@ -175,6 +178,59 @@ export function handleAuthClientError(
   }
 }
 
+// ── Tenant pre-login resolution ───────────────────────────────────────────────
+
+/**
+ * Thrown by `resolveTenantForLogin` when the API confirms the slug does not
+ * map to any tenant (HTTP 404). Lets pages distinguish "tenant missing" from
+ * "invalid credentials" instead of letting both surface as the same toast.
+ *
+ * @public
+ */
+export class TenantNotFoundError extends Error {
+  constructor(public readonly slug: string) {
+    super(`Tenant not found: ${slug}`);
+    this.name = 'TenantNotFoundError';
+  }
+}
+
+/**
+ * Resolves a tenant slug (e.g. `'acme'`) to its internal CUID via the public
+ * `GET /api/tenants/resolve?slug=` endpoint.
+ *
+ * Throws `TenantNotFoundError` when the API explicitly reports 404 so the
+ * login/forgot-password pages can surface a clear "tenant missing" banner
+ * instead of a misleading invalid-credentials toast. Falls back to the
+ * original value only on network errors or unexpected non-2xx responses,
+ * covering the case where `slugOrId` is already a CUID.
+ *
+ * Must be called before `login()` or `forgotPassword()` so the `tenant_id`
+ * cookie can be set with the correct CUID for `tenantAwareFetch` to inject it
+ * as `X-Tenant-Id`. The API's `tenantIdResolver` reads only from that header.
+ *
+ * @param slugOrId - Tenant slug or CUID from the `?tenantId=` URL parameter.
+ * @returns The tenant's CUID, or `slugOrId` unchanged when resolution fails for
+ *   reasons other than an explicit 404.
+ * @throws {TenantNotFoundError} When the API returns 404 for the given slug.
+ */
+export async function resolveTenantForLogin(slugOrId: string): Promise<string> {
+  let response: Response;
+  try {
+    response = await fetch(`/api/tenants/resolve?slug=${encodeURIComponent(slugOrId)}`);
+  } catch {
+    // Network error — let the caller try the login anyway with the raw value.
+    return slugOrId;
+  }
+  if (response.status === 404) {
+    throw new TenantNotFoundError(slugOrId);
+  }
+  if (response.ok) {
+    const data = (await response.json()) as { id?: unknown };
+    if (typeof data.id === 'string') return data.id;
+  }
+  return slugOrId;
+}
+
 // ── Generic API fetch helper ──────────────────────────────────────────────────
 
 /**
@@ -194,11 +250,9 @@ export function handleAuthClientError(
  * @throws `AuthClientError` on non-2xx responses.
  */
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const existingHeaders =
-    init.headers !== undefined ? (init.headers as Record<string, string>) : {};
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...existingHeaders,
+    ...(init.headers as Record<string, string> | undefined),
   };
 
   const response = await tenantAwareFetch(path, { ...init, headers });
@@ -717,11 +771,9 @@ function readPlatformToken(): string | null {
  */
 async function platformApiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = readPlatformToken();
-  const existingHeaders =
-    init.headers !== undefined ? (init.headers as Record<string, string>) : {};
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...existingHeaders,
+    ...(init.headers as Record<string, string> | undefined),
   };
   if (token !== null) {
     headers['Authorization'] = `Bearer ${token}`;

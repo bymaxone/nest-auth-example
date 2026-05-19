@@ -5,9 +5,9 @@
  * Registers `PlatformController` and `PlatformService` and imports `PrismaModule`
  * so the service can query tenants, users, and audit logs directly.
  *
- * This module does NOT import `AuthModule` — guards and decorators are imported
- * from `@bymax-one/nest-auth` directly in the controller. This avoids a circular
- * dependency and keeps the platform boundary clean.
+ * Imports `AuthModule` (which re-exports `BymaxAuthModule`) so that
+ * `JwtPlatformGuard` and `PlatformRolesGuard` singleton instances created inside
+ * `BymaxAuthModule` are available for `@UseGuards()` in `PlatformController`.
  *
  * Covers FCM row #22 (Platform admin context).
  *
@@ -18,6 +18,7 @@
 
 import { Module } from '@nestjs/common';
 
+import { AuthModule } from '../auth/auth.module.js';
 import { PrismaModule } from '../prisma/prisma.module.js';
 import { PlatformController } from './platform.controller.js';
 import { PlatformService } from './platform.service.js';
@@ -31,7 +32,7 @@ import { PlatformService } from './platform.service.js';
  * @public
  */
 @Module({
-  imports: [PrismaModule],
+  imports: [AuthModule, PrismaModule],
   controllers: [PlatformController],
   providers: [PlatformService],
 })

@@ -44,6 +44,7 @@ import {
 import type { AuthPlatformUser } from '@bymax-one/nest-auth';
 import type { Tenant } from '@prisma/client';
 
+import { SkipJwtAuth } from '../auth/skip-jwt-auth.decorator.js';
 import { PlatformService } from './platform.service.js';
 import type { PlatformSafeUser } from './platform.service.js';
 import { ListUsersDto } from './dto/list-users.dto.js';
@@ -58,6 +59,10 @@ import { UpdateUserStatusDto } from './dto/update-user-status.dto.js';
  * @public
  */
 @Controller('platform')
+// @SkipJwtAuth bypasses ONLY the global cookie-JWT guard so JwtPlatformGuard
+// can authenticate via the platform bearer token. The previous @Public() also
+// disabled JwtPlatformGuard, leaving these routes unauthenticated.
+@SkipJwtAuth()
 @UseGuards(JwtPlatformGuard, PlatformRolesGuard)
 @PlatformRoles('SUPER_ADMIN', 'SUPPORT')
 export class PlatformController {

@@ -1,3 +1,4 @@
+import { WsAdapter } from '@nestjs/platform-ws';
 /**
  * @file auth-smoke.e2e-spec.ts
  * @description Phase 7 smoke e2e test that exercises the core auth flow end-to-end:
@@ -19,14 +20,14 @@
 // These must be set before the Zod schema parses process.env.
 process.env['NODE_ENV'] = 'test';
 process.env['DATABASE_URL'] = 'postgresql://postgres:postgres@localhost:55432/example_app_test';
-process.env['REDIS_URL'] = 'redis://localhost:56379';
+process.env['REDIS_URL'] = 'redis://127.0.0.1:56379';
 process.env['SMTP_HOST'] = 'localhost';
 process.env['SMTP_PORT'] = '51025';
 process.env['EMAIL_PROVIDER'] = 'mailpit';
 process.env['WEB_ORIGIN'] = 'http://localhost:3000';
 process.env['API_PORT'] = '4001';
 process.env['PASSWORD_RESET_METHOD'] = 'token';
-process.env['LOG_LEVEL'] = 'silent';
+process.env['LOG_LEVEL'] = 'warn';
 // JWT_SECRET and MFA_ENCRYPTION_KEY use deterministic test-only values.
 // These are intentionally committed — they are meaningless outside of the
 // ephemeral test stack and must never be reused in any other environment.
@@ -112,6 +113,7 @@ describe('Auth smoke — register → verify → login → /me → /projects →
       }),
     );
     app.useGlobalFilters(new AuthExceptionFilter());
+    app.useWebSocketAdapter(new WsAdapter(app));
     await app.init();
 
     prisma = moduleRef.get<PrismaService>(PrismaService);
@@ -139,11 +141,11 @@ describe('Auth smoke — register → verify → login → /me → /projects →
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password: 'P@ssw0rd12345', name: 'Smoke Test' });
+      .send({ email, password: 'P@ssw0rd12345', name: 'Smoke Test', tenantId: 'acme' });
 
     expect(res.status).toBe(201);
-    expect(res.body).toMatchObject({ email, status: 'PENDING' });
-    expect(res.body).not.toHaveProperty('passwordHash');
+    expect(res.body).toMatchObject({ user: { email, status: 'PENDING' } });
+    expect(res.body.user).not.toHaveProperty('passwordHash');
 
     // Verify the email was sent to Mailpit.
     const html = await waitForEmail(email);
@@ -162,7 +164,7 @@ describe('Auth smoke — register → verify → login → /me → /projects →
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password: 'P@ssw0rd12345', name: 'Smoke User' });
+      .send({ email, password: 'P@ssw0rd12345', name: 'Smoke User', tenantId: 'acme' });
 
     expect(registerRes.status).toBe(201);
 
@@ -171,21 +173,21 @@ describe('Auth smoke — register → verify → login → /me → /projects →
     const otp = extractOtpFromHtml(verifyHtml);
     expect(otp).toMatch(/^\d{6}$/);
 
-    // 3. Verify email — expect 200.
+    // 3. Verify email — expect 204 (No Content; library returns void).
     const verifyRes = await agent
       .post('/api/auth/verify-email')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, otp });
+      .send({ email, otp, tenantId: 'acme' });
 
-    expect(verifyRes.status).toBe(200);
+    expect(verifyRes.status).toBe(204);
 
     // 4. Login — expect 200 with Set-Cookie for access_token, refresh_token, has_session.
     const loginRes = await agent
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password: 'P@ssw0rd12345' });
+      .send({ email, password: 'P@ssw0rd12345', tenantId: 'acme' });
 
     expect(loginRes.status).toBe(200);
     const cookies = loginRes.headers['set-cookie'] as string[] | undefined;
@@ -238,7 +240,7 @@ describe('Auth smoke — register → verify → login → /me → /projects →
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email: 'nobody@example.test', password: 'wrongPassword1!' });
+      .send({ email: 'nobody@example.test', password: 'wrongPassword1!', tenantId: 'acme' });
 
     expect(res.status).toBe(401);
     expect(res.body).toMatchObject({

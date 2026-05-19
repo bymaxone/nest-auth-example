@@ -13,7 +13,7 @@
 
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
 import { CurrentUser, Roles } from '@bymax-one/nest-auth';
-import type { AuthUser } from '@bymax-one/nest-auth';
+import type { DashboardJwtPayload } from '@bymax-one/nest-auth';
 
 import { InvitationsService } from './invitations.service.js';
 import type { InvitationRecord } from './invitations.service.js';
@@ -36,7 +36,7 @@ export class InvitationsController {
    * @param user - Authenticated user injected by `@CurrentUser()`.
    */
   @Get()
-  list(@CurrentUser() user: AuthUser): Promise<InvitationRecord[]> {
+  list(@CurrentUser() user: DashboardJwtPayload): Promise<InvitationRecord[]> {
     return this.invitationsService.listByTenant(user.tenantId);
   }
 
@@ -56,9 +56,9 @@ export class InvitationsController {
   @Roles('ADMIN')
   create(
     @Body() dto: CreateInvitationDto,
-    @CurrentUser() user: AuthUser,
+    @CurrentUser() user: DashboardJwtPayload,
   ): Promise<InvitationRecord> {
-    return this.invitationsService.create(user.id, user.tenantId, dto);
+    return this.invitationsService.create(user.sub, user.tenantId, dto);
   }
 
   /**
@@ -74,7 +74,7 @@ export class InvitationsController {
   @Delete(':id')
   @Roles('ADMIN')
   @HttpCode(HttpStatus.NO_CONTENT)
-  revoke(@Param('id') id: string, @CurrentUser() user: AuthUser): Promise<void> {
+  revoke(@Param('id') id: string, @CurrentUser() user: DashboardJwtPayload): Promise<void> {
     return this.invitationsService.revoke(id, user.tenantId);
   }
 }

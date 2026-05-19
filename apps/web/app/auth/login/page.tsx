@@ -14,8 +14,10 @@
  * Clicking it uses a full-page navigation (`<a>`) so the browser follows the library's
  * 302 redirect — a client-side `fetch` would not work for OAuth redirects.
  *
- * Reads `tenantId` from the `?tenant=` search param; defaults to `'default'` for
- * single-tenant / development use.
+ * Reads `tenantId` from the `?tenantId=` search param; defaults to `'default'` for
+ * single-tenant / development use. Before login, resolves the slug to a CUID via
+ * `GET /api/tenants/resolve` and sets the `tenant_id` cookie so `tenantAwareFetch`
+ * can inject `X-Tenant-Id` — the API's `tenantIdResolver` reads only that header.
  *
  * @layer pages/auth
  */
@@ -34,7 +36,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/auth/password-input';
 import { loginSchema, type LoginFormValues } from '@/lib/schemas/auth';
-import { mapAuthClientError } from '@/lib/auth-client';
+import { mapAuthClientError, resolveTenantForLogin, TenantNotFoundError } from '@/lib/auth-client';
 import { translateAuthError } from '@/lib/auth-errors';
 
 /**
@@ -46,7 +48,7 @@ import { translateAuthError } from '@/lib/auth-errors';
 export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const tenantId = searchParams.get('tenant') ?? 'default';
+  const tenantSlug = searchParams.get('tenantId') ?? 'default';
   const { login } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -66,6 +68,11 @@ export default function LoginPage() {
   const onSubmit = async (data: LoginFormValues) => {
     setIsSubmitting(true);
     try {
+      // Resolve slug → CUID so tenantAwareFetch can inject X-Tenant-Id.
+      // tenantIdResolver on the API reads only the header, not the body.
+      const tenantId = await resolveTenantForLogin(tenantSlug);
+      document.cookie = `tenant_id=${tenantId}; Path=/; SameSite=Lax; Max-Age=31536000`;
+
       const result = await login(data.email, data.password, { tenantId });
 
       if ('mfaRequired' in result) {
@@ -77,6 +84,12 @@ export default function LoginPage() {
 
       router.replace('/dashboard');
     } catch (err) {
+      if (err instanceof TenantNotFoundError) {
+        toast.error(
+          `Workspace "${err.slug}" was not found. Open the link with ?tenantId=<slug> (e.g. ?tenantId=acme).`,
+        );
+        return;
+      }
       const { code } = mapAuthClientError(err);
       toast.error(translateAuthError(code === 'UNKNOWN' ? '' : code));
     } finally {

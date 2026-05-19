@@ -17,7 +17,7 @@
 import 'reflect-metadata';
 
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, type LoggerService } from '@nestjs/common';
 import { ExpressAdapter } from '@nestjs/platform-express';
 import { WsAdapter } from '@nestjs/platform-ws';
 import { ConfigService } from '@nestjs/config';
@@ -28,6 +28,39 @@ import helmet from 'helmet';
 import { AppModule } from './app.module.js';
 import { AuthExceptionFilter } from './auth/auth-exception.filter.js';
 import type { Env } from './config/env.schema.js';
+
+/**
+ * Strips the NestJS `LegacyRouteConverter` warning that fires twice on boot
+ * because the Express 5 adapter normalizes the `/api/*` global-prefix mount
+ * through `path-to-regexp@^8`. The adapter auto-converts `*` → `*path`, so the
+ * warning is cosmetic and obscures real boot-time signal. Every other log line
+ * (including warnings from other contexts) passes through untouched.
+ */
+class LegacyRouteWarningFilter implements LoggerService {
+  constructor(private readonly inner: LoggerService) {}
+  log(message: unknown, ...optionalParams: unknown[]): void {
+    this.inner.log(message, ...optionalParams);
+  }
+  error(message: unknown, ...optionalParams: unknown[]): void {
+    this.inner.error(message, ...optionalParams);
+  }
+  warn(message: unknown, ...optionalParams: unknown[]): void {
+    if (optionalParams.includes('LegacyRouteConverter')) return;
+    this.inner.warn(message, ...optionalParams);
+  }
+  debug(message: unknown, ...optionalParams: unknown[]): void {
+    this.inner.debug?.(message, ...optionalParams);
+  }
+  verbose(message: unknown, ...optionalParams: unknown[]): void {
+    this.inner.verbose?.(message, ...optionalParams);
+  }
+  fatal(message: unknown, ...optionalParams: unknown[]): void {
+    this.inner.fatal?.(message, ...optionalParams);
+  }
+  setLogLevels?(levels: Parameters<NonNullable<LoggerService['setLogLevels']>>[0]): void {
+    this.inner.setLogLevels?.(levels);
+  }
+}
 
 /**
  * Bootstrap the NestJS application.
@@ -41,8 +74,10 @@ async function bootstrap(): Promise<void> {
   });
 
   // Hand the logger to Nest and flush logs buffered before pino was ready.
+  // Wrap pino with a filter that drops the cosmetic LegacyRouteConverter
+  // warning emitted by NestJS 11 + Express 5's path-to-regexp v8 upgrade.
   const pinoLogger = app.get(Logger);
-  app.useLogger(pinoLogger);
+  app.useLogger(new LegacyRouteWarningFilter(pinoLogger));
   app.flushLogs();
 
   // Switch to the plain WebSocket adapter (ws library) so the notifications

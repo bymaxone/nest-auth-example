@@ -56,6 +56,16 @@ class MockWebSocket {
   simulateMessage(data: object) {
     this.onmessage?.({ data: JSON.stringify(data) });
   }
+
+  /** Test helper — fires the message callback with a raw string. */
+  simulateRawMessage(raw: string) {
+    this.onmessage?.({ data: raw });
+  }
+
+  /** Test helper — fires the onerror callback. */
+  simulateError() {
+    this.onerror?.();
+  }
 }
 
 // ── Test setup ────────────────────────────────────────────────────────────────
@@ -274,5 +284,216 @@ describe('on / off event emitter', () => {
     });
 
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('does not dispatch notification:new when the payload is missing the title field', () => {
+    /*
+     * Scenario: the gateway sends a `notification:new` event whose data object
+     * is missing `title`. The runtime guard in `dispatch` must reject the payload
+     * and not invoke any handlers (line 112 — the early return inside the guard).
+     * Protects: P16-1 — malformed payloads must not reach toast handlers.
+     */
+    const ws = getWsClient();
+    const handler = vi.fn<NotificationHandler>();
+    ws.on('notification:new', handler);
+
+    MockWebSocket.instances[0]!.simulateMessage({
+      event: 'notification:new',
+      data: { body: 'Missing title field' },
+    });
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('does not dispatch notification:new when the payload is missing the body field', () => {
+    /*
+     * Scenario: the gateway sends a `notification:new` event whose data object
+     * is missing `body`. The runtime guard must reject it and not invoke handlers.
+     * Protects: P16-1 — incomplete payloads must not reach toast handlers.
+     */
+    const ws = getWsClient();
+    const handler = vi.fn<NotificationHandler>();
+    ws.on('notification:new', handler);
+
+    MockWebSocket.instances[0]!.simulateMessage({
+      event: 'notification:new',
+      data: { title: 'Missing body' },
+    });
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('does not dispatch notification:new when the payload data is null', () => {
+    /*
+     * Scenario: the gateway sends `notification:new` with `data: null` — the
+     * null-check in the runtime guard must reject it before dispatching.
+     * Protects: P16-1 — null data must not reach toast handlers.
+     */
+    const ws = getWsClient();
+    const handler = vi.fn<NotificationHandler>();
+    ws.on('notification:new', handler);
+
+    MockWebSocket.instances[0]!.simulateMessage({
+      event: 'notification:new',
+      data: null,
+    });
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('does not dispatch notification:new when the payload data is a primitive', () => {
+    /*
+     * Scenario: the gateway sends `notification:new` with `data: "string"` — a
+     * non-object value. The `typeof data !== 'object'` check must reject it.
+     * Protects: P16-1 — primitive data values must not reach toast handlers.
+     */
+    const ws = getWsClient();
+    const handler = vi.fn<NotificationHandler>();
+    ws.on('notification:new', handler);
+
+    MockWebSocket.instances[0]!.simulateMessage({
+      event: 'notification:new',
+      data: 'not-an-object',
+    });
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('does not throw when an individual handler throws', () => {
+    /*
+     * Scenario: a registered handler that throws must not propagate the error
+     * or prevent subsequent handlers from executing. The try-catch inside the
+     * dispatch loop must absorb the exception.
+     * Protects: P16-1 — individual handler errors must not crash the event loop.
+     */
+    const ws = getWsClient();
+    const throwingHandler = vi.fn<NotificationHandler>(() => {
+      throw new Error('handler error');
+    });
+    const survivingHandler = vi.fn<NotificationHandler>();
+
+    ws.on('notification:new', throwingHandler);
+    ws.on('notification:new', survivingHandler);
+
+    expect(() => {
+      MockWebSocket.instances[0]!.simulateMessage({
+        event: 'notification:new',
+        data: { title: 'Hi', body: 'Test' },
+      });
+    }).not.toThrow();
+
+    expect(throwingHandler).toHaveBeenCalledOnce();
+    expect(survivingHandler).toHaveBeenCalledOnce();
+  });
+});
+
+describe('connect() guard branches', () => {
+  it('does not open a WebSocket when WebSocket is not defined (server-side guard)', () => {
+    /*
+     * Scenario: connect() must no-op when `typeof WebSocket === 'undefined'` to
+     * prevent crashes in server-side rendering contexts where the WebSocket API
+     * is absent.
+     * Protects: line 131 — `typeof WebSocket === 'undefined'` early return branch.
+     */
+    // Remove the global WebSocket to simulate a server-side environment.
+    vi.stubGlobal('WebSocket', undefined);
+    getWsClient();
+    // No socket should have been opened.
+    expect(MockWebSocket.instances).toHaveLength(0);
+    // Restore for subsequent tests.
+    vi.stubGlobal('WebSocket', MockWebSocket);
+  });
+
+  it('does not dispatch when the gateway message event field is not a string', () => {
+    /*
+     * Scenario: a gateway message whose `event` field is not a string (e.g. a
+     * number) must not invoke any handlers.
+     * Protects: line 143 — `if (typeof msg.event === 'string')` false branch.
+     */
+    const ws = getWsClient();
+    const handler = vi.fn<NotificationHandler>();
+    ws.on('notification:new', handler);
+
+    // Directly invoke onmessage with a message where event is a number.
+    const socket0 = MockWebSocket.instances[0]!;
+    socket0.onmessage?.({ data: JSON.stringify({ event: 42, data: {} }) });
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('silently ignores malformed (non-JSON) gateway messages', () => {
+    /*
+     * Scenario: receiving a non-JSON string from the gateway must not throw or
+     * invoke any handlers — the catch block discards the parse error.
+     * Protects: lines 146-148 — catch block inside onmessage discards malformed data.
+     */
+    const ws = getWsClient();
+    const handler = vi.fn<NotificationHandler>();
+    ws.on('notification:new', handler);
+
+    const socket0 = MockWebSocket.instances[0]!;
+    // Send invalid JSON — this must not throw.
+    expect(() => {
+      socket0.simulateRawMessage('not valid json }{');
+    }).not.toThrow();
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('onerror callback fires without throwing', () => {
+    /*
+     * Scenario: the onerror callback must be a no-op function that does not
+     * throw — errors are handled in onclose to prevent double-scheduling.
+     * Protects: lines 163-167 — onerror callback function body.
+     */
+    getWsClient();
+    const socket0 = MockWebSocket.instances[0]!;
+    // Firing onerror must not throw.
+    expect(() => {
+      socket0.simulateError();
+    }).not.toThrow();
+  });
+});
+
+describe('connect() with missing NEXT_PUBLIC_WS_URL', () => {
+  it('uses empty string as the base URL when NEXT_PUBLIC_WS_URL is not set', () => {
+    /*
+     * Scenario: when `NEXT_PUBLIC_WS_URL` is absent from the environment the
+     * `?? ''` fallback fires, resulting in a WebSocket URL of `'/ws/notifications'`.
+     * Protects: line 133 — `process.env['NEXT_PUBLIC_WS_URL'] ?? ''` null-coalescing branch.
+     */
+    // Remove the env var to trigger the fallback branch.
+    delete process.env['NEXT_PUBLIC_WS_URL'];
+    getWsClient();
+    expect(MockWebSocket.instances).toHaveLength(1);
+    // URL should be /ws/notifications (empty string base).
+    expect(MockWebSocket.instances[0]!.url).toBe('/ws/notifications');
+  });
+});
+
+describe('close() with pending reconnect timer', () => {
+  it('cancels the pending reconnect timer when close() is called during backoff', () => {
+    /*
+     * Scenario: close() is called while a reconnect timer is active (i.e., after
+     * a disconnect and before the backoff delay fires). Lines 189-190 inside
+     * close() must call clearTimeout and set reconnectTimer to null, preventing
+     * any future reconnect attempt even after the timer would have elapsed.
+     * Protects: P16-1 — close() permanently stops reconnects even mid-backoff.
+     */
+    const ws = getWsClient();
+    const socket0 = MockWebSocket.instances[0]!;
+
+    // Trigger a disconnect so a reconnect timer is scheduled.
+    socket0.simulateClose();
+
+    // At this point the reconnect timer is armed but has not fired.
+    expect(MockWebSocket.instances).toHaveLength(1);
+
+    // Call close() to cancel the timer.
+    ws.close();
+
+    // Advance time well past the backoff window — no new socket should open.
+    vi.advanceTimersByTime(60_000);
+    expect(MockWebSocket.instances).toHaveLength(1);
   });
 });

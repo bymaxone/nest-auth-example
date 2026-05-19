@@ -10,5 +10,12 @@
     "isolatedModules": false,
     "skipLibCheck": true
   },
-  "include": ["src/**/*", "test/**/*", "jest.config.ts", "prisma.config.ts", "prisma/**/*"]
+  "include": [
+    "src/**/*",
+    "test/**/*",
+    "jest.config.ts",
+    "jest.e2e.config.ts",
+    "prisma.config.ts",
+    "prisma/**/*"
+  ]
 }

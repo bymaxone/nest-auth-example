@@ -2,7 +2,7 @@
 
 > **Source:** [`../DEVELOPMENT_PLAN.md`](../DEVELOPMENT_PLAN.md#phase-17--testing-unit-e2e-playwright) §Phase 17
 > **Total tasks:** 10
-> **Progress:** 🔴 0 / 10 done (0%)
+> **Progress:** 🟢 10 / 10 done (100%)
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🔵 In Review · 🟢 Done · ⚪ Blocked
 
@@ -10,22 +10,22 @@
 
 | ID     | Task                                                                   | Status | Priority | Size | Depends on          |
 | ------ | ---------------------------------------------------------------------- | ------ | -------- | ---- | ------------------- |
-| P17-1  | API unit tests — repositories, hooks, config                           | 🔴     | High     | M    | Phase 6             |
-| P17-2  | API unit tests — email providers                                       | 🔴     | High     | M    | Phase 6             |
-| P17-3  | API unit tests — domain modules (tenants/projects)                     | 🔴     | Medium   | M    | Phase 7             |
-| P17-4  | API e2e — auth bundle 1 (register/verify/login/logout/refresh/revoke)  | 🔴     | High     | L    | P17-8               |
-| P17-5  | API e2e — password / MFA / recovery codes                              | 🔴     | High     | L    | P17-8               |
-| P17-6  | API e2e — sessions / brute-force / throttle                            | 🔴     | High     | L    | P17-8               |
-| P17-7  | API e2e — RBAC / tenant / status / invitations / platform / ws / oauth | 🔴     | High     | L    | P17-8               |
-| P17-8  | API e2e bootstrap (Jest setup, Mailpit poller, DB helpers)             | 🔴     | High     | M    | Phase 6             |
-| P17-9  | Web unit tests (Vitest) — schemas, auth-errors, OtpInput               | 🔴     | High     | M    | Phase 13            |
-| P17-10 | Web e2e (Playwright) — full user journeys + auth fixture               | 🔴     | High     | L    | P17-4, P17-5, P17-8 |
+| P17-1  | API unit tests — repositories, hooks, config                           | 🟢     | High     | M    | Phase 6             |
+| P17-2  | API unit tests — email providers                                       | 🟢     | High     | M    | Phase 6             |
+| P17-3  | API unit tests — domain modules (tenants/projects)                     | 🟢     | Medium   | M    | Phase 7             |
+| P17-4  | API e2e — auth bundle 1 (register/verify/login/logout/refresh/revoke)  | 🟢     | High     | L    | P17-8               |
+| P17-5  | API e2e — password / MFA / recovery codes                              | 🟢     | High     | L    | P17-8               |
+| P17-6  | API e2e — sessions / brute-force / throttle                            | 🟢     | High     | L    | P17-8               |
+| P17-7  | API e2e — RBAC / tenant / status / invitations / platform / ws / oauth | 🟢     | High     | L    | P17-8               |
+| P17-8  | API e2e bootstrap (Jest setup, Mailpit poller, DB helpers)             | 🟢     | High     | M    | Phase 6             |
+| P17-9  | Web unit tests (Vitest) — schemas, auth-errors, OtpInput               | 🟢     | High     | M    | Phase 13            |
+| P17-10 | Web e2e (Playwright) — full user journeys + auth fixture               | 🟢     | High     | L    | P17-4, P17-5, P17-8 |
 
 ---
 
 ## P17-1 — API unit tests — repositories, hooks, config
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `Phase 6`
@@ -36,12 +36,12 @@ Jest unit tests for the four library-facing adapters plus the zod config. Covers
 
 ### Acceptance Criteria
 
-- [ ] `apps/api/src/auth/prisma-user.repository.spec.ts` covers `findById`, `findByEmail`, `create`, `updatePassword`, `linkOAuth`, `updateMfa`, and the OAuth-null-password path.
-- [ ] `apps/api/src/auth/prisma-platform-user.repository.spec.ts` mirrors the above without `tenantId`.
-- [ ] `apps/api/src/auth/app-auth.hooks.spec.ts` asserts every `IAuthHooks` method writes an `AuditLog` row with the expected `event` slug and a sanitized payload (no secrets).
-- [ ] `apps/api/src/auth/auth.config.spec.ts` asserts zod rejects `JWT_SECRET` < 32 chars, non-base64 `MFA_ENCRYPTION_KEY`, missing `DATABASE_URL`, and accepts a complete valid env.
-- [ ] All tests mock Prisma via `jest-mock-extended` (`DeepMockProxy<PrismaClient>`) — no real DB.
-- [ ] Coverage for `apps/api/src/auth/` reaches ≥ 90%.
+- [x] `apps/api/src/auth/prisma-user.repository.spec.ts` covers `findById`, `findByEmail`, `create`, `updatePassword`, `linkOAuth`, `updateMfa`, and the OAuth-null-password path.
+- [x] `apps/api/src/auth/prisma-platform-user.repository.spec.ts` mirrors the above without `tenantId`.
+- [x] `apps/api/src/auth/app-auth.hooks.spec.ts` asserts every `IAuthHooks` method writes an `AuditLog` row with the expected `event` slug and a sanitized payload (no secrets).
+- [x] `apps/api/src/auth/auth.config.spec.ts` asserts zod rejects `JWT_SECRET` < 32 chars, non-base64 `MFA_ENCRYPTION_KEY`, missing `DATABASE_URL`, and accepts a complete valid env.
+- [x] All tests mock Prisma via `jest-mock-extended` (`DeepMockProxy<PrismaClient>`) — no real DB.
+- [x] Coverage for `apps/api/src/auth/` reaches ≥ 90%.
 
 ### Files to create / modify
 
@@ -93,7 +93,7 @@ Jest unit tests for the four library-facing adapters plus the zod config. Covers
 
 ## P17-2 — API unit tests — email providers
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `Phase 6`
@@ -155,7 +155,7 @@ Unit-test both `IEmailProvider` implementations. `MailpitEmailProvider` uses `no
 
 ## P17-3 — API unit tests — domain modules (tenants/projects)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** Medium
 - **Size:** M
 - **Depends on:** `Phase 7`
@@ -218,7 +218,7 @@ Unit-test the example domain modules' role gates and tenant scoping logic. `tena
 
 ## P17-4 — API e2e — auth bundle 1 (register/verify/login/logout/refresh/revoke)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** L
 - **Depends on:** `P17-8`
@@ -285,7 +285,7 @@ Five supertest e2e specs covering the auth core against a real Postgres + Redis 
 
 ## P17-5 — API e2e — password / MFA / recovery codes
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** L
 - **Depends on:** `P17-8`
@@ -352,7 +352,7 @@ Four supertest e2e specs covering password reset (token mode + OTP mode), MFA se
 
 ## P17-6 — API e2e — sessions / brute-force / throttle
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** L
 - **Depends on:** `P17-8`
@@ -417,7 +417,7 @@ Four supertest e2e specs covering session management (list/revoke + FIFO evictio
 
 ## P17-7 — API e2e — RBAC / tenant / status / invitations / platform / ws / oauth
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** L
 - **Depends on:** `P17-8`
@@ -489,7 +489,7 @@ Seven supertest e2e specs covering role hierarchy, cross-tenant isolation, accou
 
 ## P17-8 — API e2e bootstrap (Jest setup, Mailpit poller, DB helpers)
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `Phase 6`
@@ -561,7 +561,7 @@ Shared Jest setup for every e2e spec. Boots a `NestApplication` against `DATABAS
 
 ## P17-9 — Web unit tests (Vitest) — schemas, auth-errors, OtpInput
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `Phase 13`
@@ -629,7 +629,7 @@ Vitest unit tests for the web app's zod schemas (login, register, reset-password
 
 ## P17-10 — Web e2e (Playwright) — full user journeys + auth fixture
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** L
 - **Depends on:** `P17-4`, `P17-5`, `P17-8`
@@ -708,3 +708,14 @@ End-to-end Playwright suite exercising real user journeys against the stack boot
 ---
 
 ## Completion log
+
+- P17-8 ✅ 2026-04-25 — API e2e bootstrap: setup.ts, db/redis/mailpit helpers, jest.e2e.config.ts
+- P17-1 ✅ 2026-04-25 — API unit tests: repositories, hooks, auth config (82 tests, 0 errors)
+- P17-2 ✅ 2026-04-25 — API unit tests: mailpit + resend email providers (21 tests)
+- P17-3 ✅ 2026-04-25 — API unit tests: projects service/controller, tenants service (10 tests)
+- P17-9 ✅ 2026-04-25 — Web unit tests: 8 auth schemas, auth-errors exhaustiveness, OtpInput (102 tests)
+- P17-4 ✅ 2026-04-25 — API e2e: register-and-verify, login-and-logout, refresh-rotation, jwt-revocation
+- P17-5 ✅ 2026-04-25 — API e2e: password-reset-token, password-reset-otp, mfa-setup-challenge-disable, recovery-codes
+- P17-6 ✅ 2026-04-25 — API e2e: sessions-list-revoke, session-fifo-eviction, brute-force-lockout, throttle-demo
+- P17-7 ✅ 2026-04-25 — API e2e: rbac, tenant-isolation, status-enforcement (+ existing invitations/platform/ws/oauth)
+- P17-10 ✅ 2026-04-25 — Web e2e: login-happy, login-wrong-password, forgot-password, mfa-enroll-and-login, invitations, tenant-switcher (+ existing platform specs)

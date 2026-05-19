@@ -23,6 +23,21 @@ export default defineConfig({
     setupFiles: ['./vitest.setup.ts'],
     include: ['**/*.test.ts', '**/*.test.tsx'],
     exclude: ['node_modules', '.next', 'e2e'],
+    coverage: {
+      provider: 'v8',
+      // Exclude Next.js pages, layouts, and route handlers — they are server-only
+      // (use cookies()/redirect()/headers()) and cannot run in jsdom. They are
+      // covered by Playwright e2e tests instead.
+      include: ['lib/**/*.ts', 'components/**/*.tsx'],
+      exclude: ['node_modules', '.next', 'e2e', '**/*.d.ts', '**/*.config.ts', '**/index.ts'],
+      reporter: ['text', 'lcov', 'html'],
+      thresholds: {
+        branches: 100,
+        lines: 100,
+        functions: 100,
+        statements: 100,
+      },
+    },
   },
   resolve: {
     alias: {

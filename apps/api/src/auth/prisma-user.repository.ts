@@ -135,7 +135,8 @@ export class PrismaUserRepository implements IUserRepository {
    * @returns The newly created `AuthUser`.
    */
   async create(data: CreateUserData): Promise<AuthUser> {
-    const role = Object.values(Role).find((r) => r === data.role);
+    const role =
+      data.role === undefined ? Role.MEMBER : Object.values(Role).find((r) => r === data.role);
     if (role === undefined) {
       throw new Error(`Unknown Role: '${data.role}' — library/schema mismatch`);
     }
@@ -287,7 +288,8 @@ export class PrismaUserRepository implements IUserRepository {
    * @returns The created or updated `AuthUser`.
    */
   async createWithOAuth(data: CreateWithOAuthData): Promise<AuthUser> {
-    const role = Object.values(Role).find((r) => r === data.role);
+    const role =
+      data.role === undefined ? Role.MEMBER : Object.values(Role).find((r) => r === data.role);
     if (role === undefined) {
       throw new Error(`Unknown Role: '${data.role}' — library/schema mismatch`);
     }

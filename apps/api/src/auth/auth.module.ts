@@ -1,8 +1,8 @@
 /**
  * @file auth.module.ts
  * @description Phase 7 module that wires `BymaxAuthModule.registerAsync` with all
- * four required implementation bindings: user repository, platform user repository,
- * email provider, and auth hooks.
+ * five required implementation bindings: user repository, platform user repository,
+ * Redis client, email provider, and auth hooks.
  *
  * Design notes:
  * - `chooseEmailProviderClass` is evaluated once at module decoration time (before
@@ -11,8 +11,9 @@
  *   `@Module()` metadata must be synchronous — see AGENTS.md §Critical Rules.
  * - `controllers.mfa` and `controllers.oauth` are synchronous flags on `registerAsync`
  *   (not inside `useFactory`) because the module is built before `useFactory` resolves.
- * - `BYMAX_AUTH_REDIS_CLIENT` is already provided by the global `RedisModule` and does
- *   not need a duplicate binding here — the token is resolved from the global scope.
+ * - `BYMAX_AUTH_REDIS_CLIENT` must be in `extraProviders` — the library's `registerAsync`
+ *   validates this eagerly and does not check `imports`. The global `RedisModule` provides
+ *   a separate client instance for other feature modules (e.g. NotificationsModule).
  *
  * Covers FCM rows #1–#5, #13–#20, #23, #29–#32 (module-level wiring layer).
  *
@@ -29,12 +30,13 @@ import {
   BYMAX_AUTH_EMAIL_PROVIDER,
   BYMAX_AUTH_HOOKS,
   BYMAX_AUTH_PLATFORM_USER_REPOSITORY,
+  BYMAX_AUTH_REDIS_CLIENT,
   BYMAX_AUTH_USER_REPOSITORY,
 } from '@bymax-one/nest-auth';
 import type { BymaxAuthModuleOptions, IEmailProvider } from '@bymax-one/nest-auth';
+import { Redis } from 'ioredis';
 
 import { PrismaModule } from '../prisma/prisma.module.js';
-import { RedisModule } from '../redis/redis.module.js';
 import type { Env } from '../config/env.schema.js';
 import { buildAuthOptions } from './auth.config.js';
 import { AppAuthHooks } from './app-auth.hooks.js';
@@ -89,7 +91,7 @@ const EmailProviderClass = chooseEmailProviderClass();
 @Module({
   imports: [
     BymaxAuthModule.registerAsync({
-      imports: [ConfigModule, PrismaModule, RedisModule],
+      imports: [ConfigModule, PrismaModule],
       // Cast required because AuthModuleAsyncOptions.useFactory is typed as
       // (...args: unknown[]) => ... but we need a typed ConfigService parameter.
       // This is the standard NestJS async-options pattern: inject ensures the
@@ -102,10 +104,26 @@ const EmailProviderClass = chooseEmailProviderClass();
       controllers: {
         mfa: true,
         oauth: isGoogleOAuthConfigured(),
+        // FCM #13 — Session management: mounts /api/auth/sessions/* routes.
+        sessions: true,
         // FCM #22 — Platform admin context: mounts /api/auth/platform/* routes.
         platform: true,
+        // FCM #21 — Invitation flow: mounts /api/auth/invitations routes.
+        invitations: true,
       },
       extraProviders: [
+        {
+          provide: BYMAX_AUTH_REDIS_CLIENT,
+          inject: [ConfigService],
+          useFactory: (config: ConfigService<Env, true>): Redis => {
+            const url = config.getOrThrow<string>('REDIS_URL');
+            return new Redis(url, {
+              lazyConnect: true,
+              maxRetriesPerRequest: null,
+              retryStrategy: (times: number) => Math.min(times * 200, 2_000),
+            });
+          },
+        },
         { provide: BYMAX_AUTH_USER_REPOSITORY, useClass: PrismaUserRepository },
         { provide: BYMAX_AUTH_PLATFORM_USER_REPOSITORY, useClass: PrismaPlatformUserRepository },
         { provide: BYMAX_AUTH_EMAIL_PROVIDER, useClass: EmailProviderClass },

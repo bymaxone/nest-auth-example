@@ -30,6 +30,7 @@ import { Resend } from 'resend';
 import type { IEmailProvider, InviteData, SessionInfo } from '@bymax-one/nest-auth';
 
 import type { Env } from '../config/env.schema.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 
 /**
  * Directory that contains the HTML email templates shared with `MailpitEmailProvider`.
@@ -91,7 +92,10 @@ export class ResendEmailProvider implements IEmailProvider {
    *
    * @param config - Zod-validated `ConfigService`.
    */
-  constructor(config: ConfigService<Env, true>) {
+  constructor(
+    config: ConfigService<Env, true>,
+    private readonly prisma: PrismaService,
+  ) {
     const apiKey = config.getOrThrow<string>('RESEND_API_KEY');
     this.client = new Resend(apiKey);
     this.from = config.getOrThrow<string>('SMTP_FROM');
@@ -177,7 +181,16 @@ export class ResendEmailProvider implements IEmailProvider {
    * @param _locale - BCP 47 locale tag (unused; single locale supported).
    */
   async sendPasswordResetToken(email: string, token: string, _locale?: string): Promise<void> {
-    const resetUrl = `${this.webOrigin}/auth/reset-password?mode=token&token=${encodeURIComponent(token)}`;
+    const user = await this.prisma.user.findFirst({
+      where: { email: email.toLowerCase() },
+      select: { tenantId: true },
+    });
+    const tenantId = user?.tenantId ?? 'default';
+    const resetUrl =
+      `${this.webOrigin}/auth/reset-password?mode=token` +
+      `&email=${encodeURIComponent(email)}` +
+      `&tenantId=${encodeURIComponent(tenantId)}` +
+      `&token=${encodeURIComponent(token)}`;
     const html = this.render('password-reset-token', {}, { resetUrl });
     await this.send(email, 'Reset your password', html);
   }

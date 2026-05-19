@@ -13,7 +13,7 @@ services:
     ports:
       - '127.0.0.1:55432:5432'
     tmpfs:
-      - /var/lib/postgresql/data
+      - /var/lib/postgresql
     healthcheck:
       # Tighter interval (3s) for faster CI feedback.
       test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER:-postgres} -d example_app_test']
@@ -34,7 +34,7 @@ services:
       - '--appendonly'
       - 'no'
       - '--protected-mode'
-      - 'yes'
+      - 'no'
       - '--maxmemory'
       - '256mb'
       - '--maxmemory-policy'

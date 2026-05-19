@@ -126,4 +126,28 @@ describe('NotificationListener', () => {
 
     expect(ws.off).toHaveBeenCalledWith('notification:new', registeredHandler);
   });
+
+  it('calls ws.off when user transitions from authenticated to null (sign-out)', () => {
+    /*
+     * Scenario: when the user transitions from authenticated to null (sign-out
+     * without a full page reload) the component must call ws.off with the
+     * stored handlerRef so the stale listener is removed.
+     * Protects: P16-2 — lines 55-57 (handlerRef.current !== null branch).
+     */
+    // Start authenticated.
+    vi.mocked(useSession).mockReturnValue(makeSession('user-1') as ReturnType<typeof useSession>);
+
+    const { rerender } = render(<NotificationListener />);
+
+    const ws = getWsClient();
+    const registeredHandler = vi.mocked(ws.on).mock.calls[0]?.[1];
+    expect(registeredHandler).toBeDefined();
+
+    // Transition to signed-out — triggers the user === null branch in useEffect.
+    vi.mocked(useSession).mockReturnValue(makeSession(null) as ReturnType<typeof useSession>);
+    rerender(<NotificationListener />);
+
+    // ws.off must have been called with the previously registered handler.
+    expect(ws.off).toHaveBeenCalledWith('notification:new', registeredHandler);
+  });
 });

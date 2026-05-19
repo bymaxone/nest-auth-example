@@ -13,7 +13,7 @@
 
 import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { CurrentUser } from '@bymax-one/nest-auth';
-import type { AuthUser } from '@bymax-one/nest-auth';
+import type { DashboardJwtPayload } from '@bymax-one/nest-auth';
 
 import { AccountService } from './account.service.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
@@ -40,7 +40,10 @@ export class AccountController {
    */
   @Post('change-password')
   @HttpCode(HttpStatus.NO_CONTENT)
-  changePassword(@Body() dto: ChangePasswordDto, @CurrentUser() user: AuthUser): Promise<void> {
-    return this.accountService.changePassword(user.id, user.tenantId, dto);
+  changePassword(
+    @Body() dto: ChangePasswordDto,
+    @CurrentUser() user: DashboardJwtPayload,
+  ): Promise<void> {
+    return this.accountService.changePassword(user.sub, user.tenantId, dto);
   }
 }

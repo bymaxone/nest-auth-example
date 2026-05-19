@@ -24,7 +24,7 @@
  *
  * Import order is intentional:
  * 1. `AppConfigModule` must be first — registers `ConfigService` globally.
- * 2. `AppLoggerModule` comes next to capture all subsequent bootstrap logs.
+ * 2. `createAppLoggerModule()` comes next to capture all subsequent bootstrap logs.
  * 3. `PrismaModule` and `RedisModule` are infrastructure with no ordering constraint.
  * 4. `AuthModule` depends on Prisma + Redis being available.
  * 5. `ThrottlerModule` must be imported before feature modules that apply throttling.
@@ -36,16 +36,22 @@
  */
 
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, RouterModule } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
-import { JwtAuthGuard, MfaRequiredGuard, RolesGuard, UserStatusGuard } from '@bymax-one/nest-auth';
+import {
+  BymaxAuthModule,
+  MfaRequiredGuard,
+  RolesGuard,
+  UserStatusGuard,
+} from '@bymax-one/nest-auth';
 
 import { AppConfigModule } from './config/config.module.js';
-import { AppLoggerModule } from './logger/logger.module.js';
+import { createAppLoggerModule } from './logger/logger.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { RedisModule } from './redis/redis.module.js';
 import { HealthModule } from './health/health.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { AppJwtAuthGuard } from './auth/app-jwt-auth.guard.js';
 import { AccountModule } from './account/account.module.js';
 import { InvitationsModule } from './invitations/invitations.module.js';
 import { TenantsModule } from './tenants/tenants.module.js';
@@ -67,11 +73,15 @@ import { DebugModule } from './debug/debug.module.js';
   imports: [
     // ── Infrastructure (must come before feature modules) ──────────────────
     AppConfigModule,
-    AppLoggerModule,
+    createAppLoggerModule(),
     PrismaModule,
     RedisModule,
     // ── Auth library (depends on Prisma + Redis) ───────────────────────────
     AuthModule,
+    // Mount all BymaxAuthModule controllers under the `auth/` path prefix so
+    // routes resolve as /api/auth/register, /api/auth/login, etc. The prefix
+    // combines with setGlobalPrefix('api') configured in main.ts.
+    RouterModule.register([{ path: 'auth', module: BymaxAuthModule }]),
     // ── Throttler ──────────────────────────────────────────────────────────
     // Global rate-limiting baseline: 100 requests per 60 s per IP.
     // Individual auth endpoints apply tighter limits via @Throttle(AUTH_THROTTLE_CONFIGS.*).
@@ -98,19 +108,26 @@ import { DebugModule } from './debug/debug.module.js';
   controllers: [],
   providers: [
     // ── Global guards — ORDER IS CRITICAL; do not reorder without an ADR ──
-    // 1. JwtAuthGuard: extracts and verifies the access-token cookie.
-    //    Routes decorated with @Public() bypass the rest of the pipeline.
-    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // useExisting reuses the singleton instances already created in BymaxAuthModule
+    // (where JwtService and other library-internal deps are in scope). Using
+    // useClass would create new instances in AppModule's scope where JwtService
+    // is not exported, causing a DI resolution failure.
+    // 1. AppJwtAuthGuard: extracts and verifies the access-token cookie.
+    //    Wraps the library's JwtAuthGuard so @SkipJwtAuth() can bypass it
+    //    WITHOUT also bypassing the other guards (unlike @Public() which
+    //    disables every guard via IS_PUBLIC_KEY).
+    AppJwtAuthGuard,
+    { provide: APP_GUARD, useClass: AppJwtAuthGuard },
     // 2. UserStatusGuard: rejects users whose status is in `blockedStatuses`
     //    (BANNED, INACTIVE, SUSPENDED). Runs after JWT is verified so the
     //    user identity is available.
-    { provide: APP_GUARD, useClass: UserStatusGuard },
+    { provide: APP_GUARD, useExisting: UserStatusGuard },
     // 3. MfaRequiredGuard: enforces MFA challenge completion when the user
     //    has MFA enabled. Routes decorated with @SkipMfa() bypass this guard.
-    { provide: APP_GUARD, useClass: MfaRequiredGuard },
+    { provide: APP_GUARD, useExisting: MfaRequiredGuard },
     // 4. RolesGuard: enforces @Roles(...) requirements using the role hierarchy
     //    defined in auth.config.ts. Routes without @Roles() pass through.
-    { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_GUARD, useExisting: RolesGuard },
   ],
 })
 export class AppModule {}

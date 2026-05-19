@@ -49,7 +49,7 @@
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🟢 Done · ⚪ Blocked · 🔵 In Review
 >
-> **Overall progress:** 🟡 94 / 126 tasks done (75%)
+> **Overall progress:** 🟡 104 / 126 tasks done (83%)
 
 | #   | Phase                                                           | Tasks file                                              | Done / Total | %    | Status |
 | --- | --------------------------------------------------------------- | ------------------------------------------------------- | ------------ | ---- | ------ |
@@ -70,7 +70,7 @@
 | 14  | Dashboard (Account, Security, Sessions, Team, Invitations)      | [phase-14](./tasks/phase-14-dashboard.md)               | 7 / 7        | 100% | 🟢     |
 | 15  | Platform Admin Area (Frontend)                                  | [phase-15](./tasks/phase-15-platform-frontend.md)       | 4 / 4        | 100% | 🟢     |
 | 16  | WebSocket Consumer + Notification Toast                         | [phase-16](./tasks/phase-16-websocket-frontend.md)      | 3 / 3        | 100% | 🟢     |
-| 17  | Testing (Unit, E2E, Playwright)                                 | [phase-17](./tasks/phase-17-testing.md)                 | 0 / 10       | 0%   | 🔴     |
+| 17  | Testing (Unit, E2E, Playwright)                                 | [phase-17](./tasks/phase-17-testing.md)                 | 10 / 10      | 100% | 🟢     |
 | 18  | Documentation (docs/\*)                                         | [phase-18](./tasks/phase-18-documentation.md)           | 0 / 11       | 0%   | 🔴     |
 | 19  | CI/CD, Release Automation, Production Build                     | [phase-19](./tasks/phase-19-cicd.md)                    | 0 / 5        | 0%   | 🔴     |
 | 20  | Coverage Audit & Hardening                                      | [phase-20](./tasks/phase-20-audit-hardening.md)         | 0 / 4        | 0%   | 🔴     |
@@ -756,16 +756,16 @@ Phase 1 (Docker) ┘                                                            
 
 ### 17.1 `apps/api` unit tests (Jest)
 
-- [ ] `prisma-user.repository.spec.ts` — covers each method, including mapping edge cases (null `passwordHash` for OAuth users, empty `mfaRecoveryCodes`).
-- [ ] `prisma-platform-user.repository.spec.ts`.
-- [ ] `mailpit-email.provider.spec.ts` / `resend-email.provider.spec.ts` — mock SMTP / mock Resend client.
-- [ ] `app-auth.hooks.spec.ts` — asserts `AuditLog` rows are written with correct event slugs for each hook.
-- [ ] `auth.config.spec.ts` — asserts zod validation rejects short `JWT_SECRET`, non-base64 `MFA_ENCRYPTION_KEY`, etc.
-- [ ] Domain module tests (`tenants`, `projects`) for role gates.
+- [x] `prisma-user.repository.spec.ts` — covers each method, including mapping edge cases (null `passwordHash` for OAuth users, empty `mfaRecoveryCodes`).
+- [x] `prisma-platform-user.repository.spec.ts`.
+- [x] `mailpit-email.provider.spec.ts` / `resend-email.provider.spec.ts` — mock SMTP / mock Resend client.
+- [x] `app-auth.hooks.spec.ts` — asserts `AuditLog` rows are written with correct event slugs for each hook.
+- [x] `auth.config.spec.ts` — asserts zod validation rejects short `JWT_SECRET`, non-base64 `MFA_ENCRYPTION_KEY`, etc.
+- [x] Domain module tests (`tenants`, `projects`) for role gates.
 
 ### 17.2 `apps/api` e2e tests (supertest + real Postgres/Redis via `docker-compose.test.yml`)
 
-- [ ] One spec file per Matrix row. Example list:
+- [x] One spec file per Matrix row. Example list:
   - `register-and-verify.e2e-spec.ts`.
   - `login-and-logout.e2e-spec.ts`.
   - `refresh-rotation.e2e-spec.ts` — includes grace-window race.
@@ -785,25 +785,25 @@ Phase 1 (Docker) ┘                                                            
   - `platform-auth-isolation.e2e-spec.ts`.
   - `status-enforcement.e2e-spec.ts`.
   - `websocket-auth.e2e-spec.ts`.
-- [ ] Test bootstrap: spins `PrismaService` against `DATABASE_URL_TEST`, runs `prisma migrate deploy`, truncates between suites.
-- [ ] Mailpit assertion helper — polls `http://localhost:58025/api/v1/messages` for captured emails.
+- [x] Test bootstrap: spins `PrismaService` against `DATABASE_URL_TEST`, runs `prisma migrate deploy`, truncates between suites.
+- [x] Mailpit assertion helper — polls `http://localhost:58025/api/v1/messages` for captured emails.
 
 ### 17.3 `apps/web` unit tests (Vitest)
 
-- [ ] Schema tests: login, register, reset-password.
-- [ ] Auth error-map coverage test — asserts every key in `AUTH_ERROR_CODES` has a matching message in `auth-errors.ts`.
-- [ ] `<OtpInput />` component tests.
+- [x] Schema tests: login, register, reset-password.
+- [x] Auth error-map coverage test — asserts every key in `AUTH_ERROR_CODES` has a matching message in `auth-errors.ts`.
+- [x] `<OtpInput />` component tests.
 
 ### 17.4 `apps/web` e2e tests (Playwright)
 
-- [ ] `login-happy-path.spec.ts`.
-- [ ] `login-wrong-password-shows-error.spec.ts`.
-- [ ] `forgot-password.spec.ts` — reads token out of Mailpit.
-- [ ] `mfa-enroll-and-login.spec.ts` — uses `otplib` to generate TOTPs.
-- [ ] `invitations.spec.ts` — admin invites, new browser context accepts.
-- [ ] `platform-admin.spec.ts`.
-- [ ] `tenant-switcher.spec.ts`.
-- [ ] Playwright fixture `auth.ts` that performs cookie-based login once and reuses storage state across specs.
+- [x] `login-happy-path.spec.ts`.
+- [x] `login-wrong-password-shows-error.spec.ts`.
+- [x] `forgot-password.spec.ts` — reads token out of Mailpit.
+- [x] `mfa-enroll-and-login.spec.ts` — uses `otplib` to generate TOTPs.
+- [x] `invitations.spec.ts` — admin invites, new browser context accepts.
+- [x] `platform-admin.spec.ts`.
+- [x] `tenant-switcher.spec.ts`.
+- [x] Playwright fixture `auth.ts` that performs cookie-based login once and reuses storage state across specs.
 
 **Definition of done.** `pnpm test && pnpm test:e2e` pass locally and in CI against `docker-compose.test.yml`. Overall coverage ≥ 80% per app; `apps/api/src/auth/` coverage ≥ 90%.
 

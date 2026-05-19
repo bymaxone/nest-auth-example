@@ -7,6 +7,14 @@ export default tseslint.config(
   { ignores: ['**/dist', '**/.next', '**/coverage', '**/node_modules', '**/*.d.ts'] },
   js.configs.recommended,
   {
+    // Plain JavaScript files (CJS/MJS helpers, config scripts) need Node globals
+    // declared explicitly because the TypeScript block below only covers *.ts files.
+    files: ['**/*.{js,cjs,mjs}'],
+    languageOptions: {
+      globals: { ...globals.node },
+    },
+  },
+  {
     files: ['**/*.{ts,tsx,mts,cts}'],
     extends: [...tseslint.configs.recommendedTypeChecked],
     languageOptions: {

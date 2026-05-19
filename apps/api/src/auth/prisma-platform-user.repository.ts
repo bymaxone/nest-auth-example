@@ -38,6 +38,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
  */
 @Injectable()
 export class PrismaPlatformUserRepository implements IPlatformUserRepository {
+  /* istanbul ignore next — decorator metadata branch is unreachable in tests */
   constructor(private readonly prisma: PrismaService) {}
 
   /**

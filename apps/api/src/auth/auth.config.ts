@@ -179,9 +179,15 @@ export function buildAuthOptions(config: ConfigService<Env, true>): BymaxAuthMod
     options.oauth = { google: googleOauth };
   }
 
-  // Conditionally merge cookies block — only set when resolveDomains is needed.
+  // refreshCookiePath must include the /api global prefix so the refresh_token
+  // cookie (Path: /auth by default) is actually sent to /api/auth/refresh.
+  // Without this, cookie-aware HTTP clients (browsers, supertest) never attach
+  // the refresh_token on requests to /api/auth/refresh because the path /auth
+  // does not prefix-match /api/auth/refresh per RFC 6265.
   if (resolveDomains) {
-    options.cookies = { resolveDomains };
+    options.cookies = { refreshCookiePath: '/api/auth', resolveDomains };
+  } else {
+    options.cookies = { refreshCookiePath: '/api/auth' };
   }
 
   return options;

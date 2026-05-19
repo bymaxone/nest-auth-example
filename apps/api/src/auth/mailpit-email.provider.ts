@@ -31,6 +31,7 @@ import type { Transporter } from 'nodemailer';
 import type { IEmailProvider, InviteData, SessionInfo } from '@bymax-one/nest-auth';
 
 import type { Env } from '../config/env.schema.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 
 /**
  * Directory that contains the HTML email templates.
@@ -92,7 +93,10 @@ export class MailpitEmailProvider implements IEmailProvider {
    * @param config - Zod-validated `ConfigService`. `SMTP_HOST`, `SMTP_PORT`, and
    *   `SMTP_FROM` are required and guaranteed present by the Zod schema defaults.
    */
-  constructor(config: ConfigService<Env, true>) {
+  constructor(
+    config: ConfigService<Env, true>,
+    private readonly prisma: PrismaService,
+  ) {
     const host = config.getOrThrow<string>('SMTP_HOST');
     const port = config.getOrThrow<number>('SMTP_PORT');
     this.from = config.getOrThrow<string>('SMTP_FROM');
@@ -193,7 +197,20 @@ export class MailpitEmailProvider implements IEmailProvider {
    * @param _locale - BCP 47 locale tag (unused; single locale supported).
    */
   async sendPasswordResetToken(email: string, token: string, _locale?: string): Promise<void> {
-    const resetUrl = `${this.webOrigin}/auth/reset-password?mode=token&token=${encodeURIComponent(token)}`;
+    // The library's resetWithToken() validates that the submitted email AND tenantId
+    // match the stored context. Include both in the URL so the reset page can
+    // pass them back. Look up tenantId via Prisma because the IEmailProvider
+    // interface does not expose it; this is acceptable for the dev-only provider.
+    const user = await this.prisma.user.findFirst({
+      where: { email: email.toLowerCase() },
+      select: { tenantId: true },
+    });
+    const tenantId = user?.tenantId ?? 'default';
+    const resetUrl =
+      `${this.webOrigin}/auth/reset-password?mode=token` +
+      `&email=${encodeURIComponent(email)}` +
+      `&tenantId=${encodeURIComponent(tenantId)}` +
+      `&token=${encodeURIComponent(token)}`;
     const html = this.render('password-reset-token', {}, { resetUrl });
     await this.send(email, 'Reset your password', html);
   }

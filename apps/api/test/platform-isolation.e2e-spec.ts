@@ -1,3 +1,4 @@
+import { WsAdapter } from '@nestjs/platform-ws';
 /**
  * @file platform-isolation.e2e-spec.ts
  * @description Phase 9 e2e spec that proves platform-context tokens cannot access
@@ -27,14 +28,14 @@
 // These must be set before the Zod schema parses process.env.
 process.env['NODE_ENV'] = 'test';
 process.env['DATABASE_URL'] = 'postgresql://postgres:postgres@localhost:55432/example_app_test';
-process.env['REDIS_URL'] = 'redis://localhost:56379';
+process.env['REDIS_URL'] = 'redis://127.0.0.1:56379';
 process.env['SMTP_HOST'] = 'localhost';
 process.env['SMTP_PORT'] = '51025';
 process.env['EMAIL_PROVIDER'] = 'mailpit';
 process.env['WEB_ORIGIN'] = 'http://localhost:3000';
 process.env['API_PORT'] = '4004';
 process.env['PASSWORD_RESET_METHOD'] = 'token';
-process.env['LOG_LEVEL'] = 'silent';
+process.env['LOG_LEVEL'] = 'warn';
 // JWT_SECRET and MFA_ENCRYPTION_KEY use deterministic test-only values.
 // These are intentionally committed — they are meaningless outside of the
 // ephemeral test stack and must never be reused in any other environment.
@@ -43,10 +44,11 @@ process.env['JWT_SECRET'] =
 process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0=';
 
 import { execSync } from 'child_process';
+import { randomBytes, scrypt as nodeScrypt } from 'node:crypto';
+import { promisify } from 'node:util';
 import type { INestApplication } from '@nestjs/common';
 import { ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import bcryptjs from 'bcryptjs';
 import cookieParser from 'cookie-parser';
 import * as supertest from 'supertest';
 import type { Agent } from 'supertest';
@@ -55,6 +57,26 @@ import { PlatformRole, UserStatus, Role } from '@prisma/client';
 import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
+
+// scrypt matches the library's PasswordService format: scrypt:{salt_hex}:{derived_hex}
+// Parameters mirror the library defaults (costFactor=32768, blockSize=8, parallelization=1).
+const _scrypt = promisify(nodeScrypt) as (
+  password: string | Buffer,
+  salt: string | Buffer,
+  keylen: number,
+  options: { N: number; r: number; p: number; maxmem: number },
+) => Promise<Buffer>;
+
+async function hashPasswordForTest(plain: string): Promise<string> {
+  const salt = randomBytes(16);
+  const derived = await _scrypt(plain, salt, 64, {
+    N: 32768,
+    r: 8,
+    p: 1,
+    maxmem: 64 * 1024 * 1024,
+  });
+  return `scrypt:${salt.toString('hex')}:${derived.toString('hex')}`;
+}
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -89,11 +111,17 @@ describe('Platform isolation — platform token cannot access dashboard routes a
   let app: INestApplication;
   let prisma: PrismaService;
 
-  /** Supertest agent carrying the platform admin's auth cookies. */
+  /** Supertest agent used for platform admin requests. */
   let platformAgent: Agent;
 
-  /** Supertest agent carrying the SUPPORT platform user's auth cookies. */
+  /** Bearer access token for the platform admin — set in Authorization header manually. */
+  let platformToken: string;
+
+  /** Supertest agent used for SUPPORT platform user requests. */
   let supportAgent: Agent;
+
+  /** Bearer access token for the SUPPORT user. */
+  let supportToken: string;
 
   /** Supertest agent carrying the dashboard user's auth cookies. */
   let dashboardAgent: Agent;
@@ -120,7 +148,7 @@ describe('Platform isolation — platform token cannot access dashboard routes a
     `;
 
     // Seed the platform admin for platform login tests.
-    const platformHash = await bcryptjs.hash(PLATFORM_PASSWORD, 10);
+    const platformHash = await hashPasswordForTest(PLATFORM_PASSWORD);
     await prisma.platformUser.upsert({
       where: { email: PLATFORM_EMAIL },
       update: {},
@@ -135,7 +163,7 @@ describe('Platform isolation — platform token cannot access dashboard routes a
     });
 
     // Seed a SUPPORT platform user to verify it is blocked from write routes.
-    const supportHash = await bcryptjs.hash(SUPPORT_PASSWORD, 10);
+    const supportHash = await hashPasswordForTest(SUPPORT_PASSWORD);
     await prisma.platformUser.upsert({
       where: { email: SUPPORT_EMAIL },
       update: {},
@@ -150,7 +178,7 @@ describe('Platform isolation — platform token cannot access dashboard routes a
     });
 
     // Seed the dashboard user directly (emailVerified: true to skip OTP flow).
-    const dashHash = await bcryptjs.hash(DASHBOARD_PASSWORD, 10);
+    const dashHash = await hashPasswordForTest(DASHBOARD_PASSWORD);
     await prisma.user.upsert({
       where: { tenantId_email: { tenantId: TENANT_ID, email: DASHBOARD_EMAIL } },
       update: {},
@@ -177,20 +205,24 @@ describe('Platform isolation — platform token cannot access dashboard routes a
       }),
     );
     app.useGlobalFilters(new AuthExceptionFilter());
+    app.useWebSocketAdapter(new WsAdapter(app));
     await app.init();
 
-    // Log in the platform admin once — reuse the agent across specs.
+    // Log in the platform admin once — extract the bearer token for subsequent requests.
+    // Platform auth is bearer-only (no cookies); the access token must be sent via
+    // the Authorization header on every platform route call.
     platformAgent = supertest.agent(app.getHttpServer());
     const platformLogin = await platformAgent
       .post('/api/auth/platform/login')
       .set('Content-Type', 'application/json')
       .send({ email: PLATFORM_EMAIL, password: PLATFORM_PASSWORD });
 
-    // A successful platform login must return 200 with platform cookies.
     // If this fails, the isolation tests below are invalid — abort the suite.
     expect(platformLogin.status).toBe(200);
+    platformToken = (platformLogin.body as { accessToken: string }).accessToken;
+    expect(platformToken).toBeTruthy();
 
-    // Log in the SUPPORT user once — reuse the agent across specs.
+    // Log in the SUPPORT user once — same bearer-token extraction.
     supportAgent = supertest.agent(app.getHttpServer());
     const supportLogin = await supportAgent
       .post('/api/auth/platform/login')
@@ -198,6 +230,8 @@ describe('Platform isolation — platform token cannot access dashboard routes a
       .send({ email: SUPPORT_EMAIL, password: SUPPORT_PASSWORD });
 
     expect(supportLogin.status).toBe(200);
+    supportToken = (supportLogin.body as { accessToken: string }).accessToken;
+    expect(supportToken).toBeTruthy();
 
     // Log in the dashboard user once — reuse the agent across specs.
     dashboardAgent = supertest.agent(app.getHttpServer());
@@ -205,7 +239,7 @@ describe('Platform isolation — platform token cannot access dashboard routes a
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', TENANT_ID)
-      .send({ email: DASHBOARD_EMAIL, password: DASHBOARD_PASSWORD });
+      .send({ email: DASHBOARD_EMAIL, password: DASHBOARD_PASSWORD, tenantId: TENANT_ID });
 
     // A successful dashboard login must return 200 with tenant cookies.
     expect(dashLogin.status).toBe(200);
@@ -223,7 +257,11 @@ describe('Platform isolation — platform token cannot access dashboard routes a
     // platform ones. A platform JWT (issued by /api/auth/platform/login) must be
     // rejected at the JwtAuthGuard boundary so that /api/projects returns 401 or 403.
     // This guards against cross-context privilege escalation (FCM #22).
-    const res = await platformAgent.get('/api/projects').set('X-Tenant-Id', TENANT_ID);
+    const res = await supertest
+      .agent(app.getHttpServer())
+      .get('/api/projects')
+      .set('X-Tenant-Id', TENANT_ID)
+      .set('Authorization', `Bearer ${platformToken}`);
 
     // 401 (unauthenticated) or 403 (forbidden) — both are acceptable rejections.
     expect([401, 403]).toContain(res.status);
@@ -243,10 +281,14 @@ describe('Platform isolation — platform token cannot access dashboard routes a
   // ─── Positive access tests ────────────────────────────────────────────────
 
   it('allows the platform token to access the platform tenants list', async () => {
-    // Scenario: positive sanity check — the platform agent logged in above must
+    // Scenario: positive sanity check — the platform admin's bearer token must
     // successfully reach GET /api/platform/tenants and receive a 200 with an array.
+    // Platform auth is bearer-only; the token is sent in the Authorization header.
     // Confirms the guard pipeline works in the happy path (FCM #22).
-    const res = await platformAgent.get('/api/platform/tenants');
+    const res = await supertest
+      .agent(app.getHttpServer())
+      .get('/api/platform/tenants')
+      .set('Authorization', `Bearer ${platformToken}`);
 
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
@@ -272,8 +314,10 @@ describe('Platform isolation — platform token cannot access dashboard routes a
     // means SUPPORT users (who can read tenants and users) must be blocked from
     // status mutations. This guards against SUPPORT role privilege escalation
     // to write operations (FCM #22 — authorization boundary).
-    const res = await supportAgent
+    const res = await supertest
+      .agent(app.getHttpServer())
       .patch(`/api/platform/users/00000000-0000-4000-8000-000000000001/status`)
+      .set('Authorization', `Bearer ${supportToken}`)
       .send({ status: 'ACTIVE' });
 
     // 403 — authenticated but not authorized to write.
@@ -282,11 +326,11 @@ describe('Platform isolation — platform token cannot access dashboard routes a
 
   // ─── Cookie name isolation ─────────────────────────────────────────────────
 
-  it('uses different cookie sets for platform and dashboard contexts', async () => {
-    // Scenario: the library issues different cookie names for each context so that
-    // a browser carrying both sets cannot accidentally use the wrong token on the
-    // wrong route. This test captures the cookie names from each login response
-    // and asserts they are distinct. Covers FCM #22.
+  it('uses different token delivery mechanisms for platform and dashboard contexts', async () => {
+    // Scenario: platform auth is bearer-only (tokens in response body, no cookies)
+    // while dashboard auth uses HttpOnly cookies (no tokens in body). This separation
+    // prevents a browser from accidentally sending a platform token on a dashboard route
+    // or vice versa (FCM #22 — isolation guarantee).
     const freshPlatformAgent = supertest.agent(app.getHttpServer());
     const platformLogin = await freshPlatformAgent
       .post('/api/auth/platform/login')
@@ -298,23 +342,19 @@ describe('Platform isolation — platform token cannot access dashboard routes a
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', TENANT_ID)
-      .send({ email: DASHBOARD_EMAIL, password: DASHBOARD_PASSWORD });
+      .send({ email: DASHBOARD_EMAIL, password: DASHBOARD_PASSWORD, tenantId: TENANT_ID });
 
     const platformCookies = (platformLogin.headers['set-cookie'] as string[] | undefined) ?? [];
     const dashCookies = (dashLogin.headers['set-cookie'] as string[] | undefined) ?? [];
 
-    // Both login responses must issue at least one cookie.
-    expect(platformCookies.length).toBeGreaterThan(0);
+    // Platform login: bearer-only — no cookies set, tokens returned in body.
+    expect(platformCookies.length).toBe(0);
+    const platformBody = platformLogin.body as Record<string, unknown>;
+    expect(typeof platformBody['accessToken']).toBe('string');
+
+    // Dashboard login: cookie-based — access_token and refresh_token in Set-Cookie headers.
     expect(dashCookies.length).toBeGreaterThan(0);
-
-    // Extract cookie names (the part before the first '=').
-    const platformNames = new Set(platformCookies.map((c) => c.split('=')[0]?.trim() ?? ''));
-    const dashNames = new Set(dashCookies.map((c) => c.split('=')[0]?.trim() ?? ''));
-
-    // There must be zero overlap — each context uses exclusively distinct cookie
-    // names so a browser carrying both sets cannot accidentally send the wrong
-    // token to the wrong route (FCM #22).
-    const overlap = [...platformNames].filter((n) => dashNames.has(n));
-    expect(overlap.length).toBe(0);
+    const cookieNames = dashCookies.map((c) => c.split('=')[0]?.trim() ?? '');
+    expect(cookieNames.some((n) => n === 'access_token')).toBe(true);
   });
 });

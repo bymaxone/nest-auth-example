@@ -19,7 +19,7 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
 import type { Project } from '@prisma/client';
 import { CurrentUser, Roles } from '@bymax-one/nest-auth';
-import type { AuthUser } from '@bymax-one/nest-auth';
+import type { DashboardJwtPayload } from '@bymax-one/nest-auth';
 
 import { ProjectsService } from './projects.service.js';
 import { CreateProjectDto } from './dto/create-project.dto.js';
@@ -49,7 +49,7 @@ export class ProjectsController {
    * @returns Tenant-scoped project list.
    */
   @Get()
-  list(@CurrentUser() user: AuthUser): Promise<Project[]> {
+  list(@CurrentUser() user: DashboardJwtPayload): Promise<Project[]> {
     return this.projectsService.listByTenant(user.tenantId);
   }
 
@@ -69,8 +69,11 @@ export class ProjectsController {
   @Post()
   @Roles('ADMIN')
   @HttpCode(HttpStatus.CREATED)
-  create(@Body() dto: CreateProjectDto, @CurrentUser() user: AuthUser): Promise<Project> {
-    return this.projectsService.create(dto, user.id, user.tenantId);
+  create(
+    @Body() dto: CreateProjectDto,
+    @CurrentUser() user: DashboardJwtPayload,
+  ): Promise<Project> {
+    return this.projectsService.create(dto, user.sub, user.tenantId);
   }
 
   /**
@@ -88,7 +91,7 @@ export class ProjectsController {
    */
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async delete(@Param('id') id: string, @CurrentUser() user: AuthUser): Promise<void> {
+  async delete(@Param('id') id: string, @CurrentUser() user: DashboardJwtPayload): Promise<void> {
     await this.projectsService.delete(id, user.tenantId);
   }
 }

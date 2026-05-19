@@ -30,7 +30,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { forgotPasswordSchema, type ForgotPasswordFormValues } from '@/lib/schemas/auth';
-import { mapAuthClientError } from '@/lib/auth-client';
+import { mapAuthClientError, resolveTenantForLogin, TenantNotFoundError } from '@/lib/auth-client';
 import { translateAuthError } from '@/lib/auth-errors';
 
 /**
@@ -39,7 +39,7 @@ import { translateAuthError } from '@/lib/auth-errors';
  */
 export default function ForgotPasswordPage() {
   const searchParams = useSearchParams();
-  const tenantId = searchParams.get('tenant') ?? 'default';
+  const tenantSlug = searchParams.get('tenantId') ?? 'default';
   const { forgotPassword } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -58,10 +58,21 @@ export default function ForgotPasswordPage() {
   const onSubmit = async (data: ForgotPasswordFormValues) => {
     setIsSubmitting(true);
     try {
+      // Resolve slug → CUID so tenantAwareFetch injects X-Tenant-Id.
+      const tenantId = await resolveTenantForLogin(tenantSlug);
+      document.cookie = `tenant_id=${tenantId}; Path=/; SameSite=Lax; Max-Age=31536000`;
+
       await forgotPassword(data.email, tenantId);
       // Always show the generic confirmation — the server never leaks user existence
       setSubmitted(true);
     } catch (err) {
+      if (err instanceof TenantNotFoundError) {
+        // Tenant identity is public infrastructure, not user-identifying — safe to surface.
+        toast.error(
+          `Workspace "${err.slug}" was not found. Open the link with ?tenantId=<slug> (e.g. ?tenantId=acme).`,
+        );
+        return;
+      }
       const { code } = mapAuthClientError(err);
       // Translate and surface only transport-level errors (rate limit, network)
       // Account-not-found is indistinguishable from success by design

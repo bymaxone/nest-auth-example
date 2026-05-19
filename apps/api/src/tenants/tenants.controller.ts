@@ -11,10 +11,10 @@
  * @see docs/guidelines/nest-auth-guidelines.md
  */
 
-import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query } from '@nestjs/common';
 import type { Tenant } from '@prisma/client';
-import { CurrentUser, Roles } from '@bymax-one/nest-auth';
-import type { AuthUser } from '@bymax-one/nest-auth';
+import { CurrentUser, Public, Roles } from '@bymax-one/nest-auth';
+import type { DashboardJwtPayload } from '@bymax-one/nest-auth';
 
 import { TenantsService } from './tenants.service.js';
 import { CreateTenantDto } from './dto/create-tenant.dto.js';
@@ -32,6 +32,24 @@ export class TenantsController {
   constructor(private readonly tenantsService: TenantsService) {}
 
   /**
+   * Resolves a tenant slug to its internal CUID.
+   *
+   * Public endpoint — no authentication required. Used by the login page to
+   * convert a `?tenantId=<slug>` URL parameter to the CUID needed in the
+   * `X-Tenant-Id` header before the login request is sent.
+   *
+   * GET /api/tenants/resolve?slug=acme
+   *
+   * @param slug - URL-safe tenant slug.
+   * @returns Object with the tenant's `id` (CUID).
+   */
+  @Public()
+  @Get('resolve')
+  resolveBySlug(@Query('slug') slug: string): Promise<{ id: string }> {
+    return this.tenantsService.resolveBySlug(slug);
+  }
+
+  /**
    * Returns the list of tenants the authenticated user belongs to.
    *
    * Uses `@CurrentUser()` to receive the JWT-decoded user — never accesses
@@ -43,8 +61,8 @@ export class TenantsController {
    * @returns Array of tenants the user is a member of.
    */
   @Get('me')
-  listForMe(@CurrentUser() user: AuthUser): Promise<Tenant[]> {
-    return this.tenantsService.listForUser(user.id);
+  listForMe(@CurrentUser() user: DashboardJwtPayload): Promise<Tenant[]> {
+    return this.tenantsService.listForUser(user.sub);
   }
 
   /**

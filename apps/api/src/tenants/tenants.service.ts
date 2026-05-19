@@ -10,7 +10,7 @@
  * @see docs/guidelines/prisma-guidelines.md
  */
 
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type Tenant } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -45,6 +45,25 @@ export class TenantsService {
       },
       orderBy: { createdAt: 'asc' },
     });
+  }
+
+  /**
+   * Resolves a tenant slug to its internal CUID.
+   *
+   * Used by the public tenant-resolve endpoint so the login page can convert
+   * the `?tenantId=<slug>` URL param to the CUID required in `X-Tenant-Id`.
+   *
+   * @param slug - URL-safe tenant slug (e.g. `'acme'`).
+   * @returns Object with the tenant's CUID `id` field.
+   * @throws `NotFoundException` when no tenant with that slug exists.
+   */
+  async resolveBySlug(slug: string): Promise<{ id: string }> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { slug },
+      select: { id: true },
+    });
+    if (!tenant) throw new NotFoundException(`Tenant not found: ${slug}`);
+    return { id: tenant.id };
   }
 
   /**

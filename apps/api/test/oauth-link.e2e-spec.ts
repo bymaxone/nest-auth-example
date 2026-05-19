@@ -1,3 +1,4 @@
+import { WsAdapter } from '@nestjs/platform-ws';
 /**
  * @file oauth-link.e2e-spec.ts
  * @description Phase 8 e2e spec that verifies the OAuth account-linking guarantee:
@@ -24,14 +25,14 @@
 // These must be set before the Zod schema parses process.env.
 process.env['NODE_ENV'] = 'test';
 process.env['DATABASE_URL'] = 'postgresql://postgres:postgres@localhost:55432/example_app_test';
-process.env['REDIS_URL'] = 'redis://localhost:56379';
+process.env['REDIS_URL'] = 'redis://127.0.0.1:56379';
 process.env['SMTP_HOST'] = 'localhost';
 process.env['SMTP_PORT'] = '51025';
 process.env['EMAIL_PROVIDER'] = 'mailpit';
 process.env['WEB_ORIGIN'] = 'http://localhost:3000';
 process.env['API_PORT'] = '4002';
 process.env['PASSWORD_RESET_METHOD'] = 'token';
-process.env['LOG_LEVEL'] = 'silent';
+process.env['LOG_LEVEL'] = 'warn';
 // JWT_SECRET and MFA_ENCRYPTION_KEY use deterministic test-only values.
 // These are intentionally committed — they are meaningless outside of the
 // ephemeral test stack and must never be reused in any other environment.
@@ -121,6 +122,7 @@ describe('OAuth account linking — email/password user links to Google OAuth', 
       }),
     );
     app.useGlobalFilters(new AuthExceptionFilter());
+    app.useWebSocketAdapter(new WsAdapter(app));
     await app.init();
 
     agent = supertest.agent(app.getHttpServer());
@@ -151,7 +153,7 @@ describe('OAuth account linking — email/password user links to Google OAuth', 
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password: 'P@ssw0rd12345', name: 'OAuth Link Test' });
+      .send({ email, password: 'P@ssw0rd12345', name: 'OAuth Link Test', tenantId: 'acme' });
 
     expect(registerRes.status).toBe(201);
 
@@ -165,9 +167,9 @@ describe('OAuth account linking — email/password user links to Google OAuth', 
       .post('/api/auth/verify-email')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, otp });
+      .send({ email, otp, tenantId: 'acme' });
 
-    expect(verifyRes.status).toBe(200);
+    expect(verifyRes.status).toBe(204);
 
     // 4. Install the fake Google stub before triggering the OAuth flow.
     //    The stub intercepts `globalThis.fetch` calls to:

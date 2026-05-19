@@ -203,15 +203,19 @@ export class AppAuthHooks implements IAuthHooks {
    *
    * Persists the session hash (never the raw token) for incident forensics.
    *
+   * Arrow function — the library destructures this method from the hooks object
+   * (`const { onNewSession } = this.hooks`) which loses the prototype `this`
+   * binding. Using an arrow function ensures `this` is always the class instance.
+   *
    * @param user - The authenticated user (credentials omitted).
    * @param sessionInfo - Device, IP, and session hash for the new session.
    * @param context - Request metadata.
    */
-  async onNewSession(
+  onNewSession = async (
     user: SafeAuthUser,
     sessionInfo: SessionInfo,
     context: HookContext,
-  ): Promise<void> {
+  ): Promise<void> => {
     await this.record('session.new', context, {
       userId: user.id,
       tenantId: user.tenantId,
@@ -219,7 +223,7 @@ export class AppAuthHooks implements IAuthHooks {
       sessionHash: sessionInfo.sessionHash,
       device: sessionInfo.device,
     });
-  }
+  };
 
   /**
    * Called after the user's email address has been verified.

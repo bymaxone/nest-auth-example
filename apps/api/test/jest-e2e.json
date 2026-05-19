@@ -3,11 +3,23 @@
   "rootDir": "..",
   "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
+  "maxWorkers": 1,
+  "testTimeout": 30000,
+  "forceExit": true,
+  "setupFiles": ["<rootDir>/test/setup-env.cjs"],
   "transform": {
-    "^.+\\.(t|j)s$": ["ts-jest", { "tsconfig": "tsconfig.json", "useESM": true }]
+    "^.+\\.(t|j)s$": ["ts-jest", { "tsconfig": "tsconfig.e2e.json", "useESM": true }]
   },
   "extensionsToTreatAsEsm": [".ts"],
   "moduleNameMapper": {
-    "^(\\.{1,2}/.*)\\.js$": "$1"
+    "^(\\.{1,2}/.*)\\.js$": "$1",
+    "^@nestjs/common$": "<rootDir>/node_modules/@nestjs/common",
+    "^@nestjs/common/(.*)$": "<rootDir>/node_modules/@nestjs/common/$1",
+    "^@nestjs/core$": "<rootDir>/node_modules/@nestjs/core",
+    "^@nestjs/core/(.*)$": "<rootDir>/node_modules/@nestjs/core/$1",
+    "^@nestjs/jwt$": "<rootDir>/node_modules/@nestjs/jwt",
+    "^@nestjs/jwt/(.*)$": "<rootDir>/node_modules/@nestjs/jwt/$1",
+    "^@nestjs/throttler$": "<rootDir>/node_modules/@nestjs/throttler",
+    "^@nestjs/throttler/(.*)$": "<rootDir>/node_modules/@nestjs/throttler/$1"
   }
 }

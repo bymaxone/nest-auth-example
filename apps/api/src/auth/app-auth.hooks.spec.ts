@@ -16,7 +16,7 @@
  * @see apps/api/src/auth/app-auth.hooks.ts
  */
 
-import type { HookContext, OAuthProfile, SafeAuthUser } from '@bymax-one/nest-auth';
+import type { HookContext, OAuthProfile, SafeAuthUser, SessionInfo } from '@bymax-one/nest-auth';
 import { jest } from '@jest/globals';
 import { Test } from '@nestjs/testing';
 
@@ -76,6 +76,429 @@ describe('AppAuthHooks', () => {
 
   afterEach(() => {
     jest.resetAllMocks();
+  });
+
+  // ─── beforeRegister ────────────────────────────────────────────────────────
+
+  describe('beforeRegister', () => {
+    it('always returns { allowed: true } and writes a user.register.attempted audit row', async () => {
+      // The reference app does not block any registration — this hook is wired
+      // so that consumers can see the pattern and add domain allowlists here.
+      const ctx = makeContext({ tenantId: 'acme' });
+      const data = { email: 'new@example.test', name: 'New User', tenantId: 'acme' };
+
+      const result = await hooks.beforeRegister(data, ctx);
+
+      expect(result).toEqual({ allowed: true });
+      expect(auditLogCreate).toHaveBeenCalledTimes(1);
+      expect(auditLogCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            event: 'user.register.attempted',
+            payload: expect.objectContaining({ tenantId: 'acme' }),
+          }),
+        }),
+      );
+    });
+
+    it('swallows AuditLog write failures so the registration flow is never blocked', async () => {
+      // Non-blocking audit: a broken DB must not surface as an HTTP 500 during
+      // registration. The hook logs the error and returns { allowed: true }.
+      auditLogCreate.mockRejectedValue(new Error('DB connection lost'));
+      const ctx = makeContext({ tenantId: 'acme' });
+      const data = { email: 'x@example.test', name: 'X', tenantId: 'acme' };
+
+      const result = await hooks.beforeRegister(data, ctx);
+
+      expect(result).toEqual({ allowed: true });
+    });
+  });
+
+  // ─── onLoginAttempt (beforeLogin) ──────────────────────────────────────────
+
+  describe('beforeLogin', () => {
+    it('writes a user.login.attempted audit row with tenantId and email', async () => {
+      // FCM #30 — every login attempt must be audited so security teams can
+      // correlate brute-force attempts with account lockout events.
+      const ctx = makeContext({ tenantId: 'acme' });
+
+      await hooks.beforeLogin('alice@example.test', 'acme', ctx);
+
+      expect(auditLogCreate).toHaveBeenCalledTimes(1);
+      expect(auditLogCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            event: 'user.login.attempted',
+            payload: expect.objectContaining({
+              tenantId: 'acme',
+              email: 'alice@example.test',
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('swallows AuditLog write failures so the login flow is never blocked', async () => {
+      // A broken audit DB must not prevent a valid user from logging in.
+      auditLogCreate.mockRejectedValue(new Error('timeout'));
+      const ctx = makeContext({ tenantId: 'acme' });
+
+      await expect(hooks.beforeLogin('alice@example.test', 'acme', ctx)).resolves.toBeUndefined();
+    });
+  });
+
+  // ─── onLoginSuccess (afterLogin) ───────────────────────────────────────────
+
+  describe('afterLogin', () => {
+    it('writes a user.login.succeeded audit row with userId, tenantId, and role', async () => {
+      // FCM #30 — a successful login must produce an audit row that lets admins
+      // confirm when and from which IP a session was established.
+      const user = makeSafeUser({ id: 'user-1', tenantId: 'acme', role: 'MEMBER' });
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await hooks.afterLogin(user, ctx);
+
+      expect(auditLogCreate).toHaveBeenCalledTimes(1);
+      expect(auditLogCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            event: 'user.login.succeeded',
+            payload: expect.objectContaining({
+              userId: 'user-1',
+              tenantId: 'acme',
+              role: 'MEMBER',
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('swallows AuditLog write failures so the login flow is never blocked', async () => {
+      // afterLogin is called AFTER the token has been issued — a failed audit
+      // write must not roll back the already-issued token or return a 500.
+      auditLogCreate.mockRejectedValue(new Error('write failed'));
+      const user = makeSafeUser();
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await expect(hooks.afterLogin(user, ctx)).resolves.toBeUndefined();
+    });
+  });
+
+  // ─── onLoginFailure (afterLogin rejected via brute-force) ─────────────────
+  // Note: the library calls `beforeLogin` for every attempt. A separate
+  // "onLoginFailure" is surfaced here via the error-swallowing test pattern
+  // to demonstrate that the attempted row is sufficient for failure auditing.
+
+  // ─── onLogout (afterLogout) ────────────────────────────────────────────────
+
+  describe('afterLogout', () => {
+    it('writes a user.logout audit row with userId', async () => {
+      // FCM #30 — logout events must be audited so admins can reconstruct session
+      // lifecycles (connect + disconnect) for security investigations.
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await hooks.afterLogout('user-1', ctx);
+
+      expect(auditLogCreate).toHaveBeenCalledTimes(1);
+      expect(auditLogCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            event: 'user.logout',
+            payload: expect.objectContaining({ userId: 'user-1' }),
+          }),
+        }),
+      );
+    });
+
+    it('swallows AuditLog write failures so the logout flow is never blocked', async () => {
+      // A broken audit DB must not prevent the session from being invalidated.
+      auditLogCreate.mockRejectedValue(new Error('DB error'));
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await expect(hooks.afterLogout('user-1', ctx)).resolves.toBeUndefined();
+    });
+  });
+
+  // ─── onMfaEnabled (afterMfaEnabled) ───────────────────────────────────────
+
+  describe('afterMfaEnabled', () => {
+    it('writes a mfa.enabled audit row with userId and tenantId', async () => {
+      // Enabling MFA is a security-critical account change — the audit row
+      // lets admins verify the change was intentional and not a takeover.
+      const user = makeSafeUser({ id: 'user-1', tenantId: 'acme' });
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await hooks.afterMfaEnabled(user, ctx);
+
+      expect(auditLogCreate).toHaveBeenCalledTimes(1);
+      expect(auditLogCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            event: 'mfa.enabled',
+            payload: expect.objectContaining({ userId: 'user-1', tenantId: 'acme' }),
+          }),
+        }),
+      );
+    });
+
+    it('swallows AuditLog write failures so the MFA enable flow is never blocked', async () => {
+      // The TOTP secret is already committed before this hook runs — a failed audit
+      // must not roll back the MFA activation.
+      auditLogCreate.mockRejectedValue(new Error('DB error'));
+      const user = makeSafeUser();
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await expect(hooks.afterMfaEnabled(user, ctx)).resolves.toBeUndefined();
+    });
+  });
+
+  // ─── onMfaDisabled (afterMfaDisabled) ─────────────────────────────────────
+
+  describe('afterMfaDisabled', () => {
+    it('writes a mfa.disabled audit row with userId and tenantId', async () => {
+      // Disabling MFA is equally security-critical — an unexpected mfa.disabled
+      // row triggers an investigation into a potential account compromise.
+      const user = makeSafeUser({ id: 'user-1', tenantId: 'acme' });
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await hooks.afterMfaDisabled(user, ctx);
+
+      expect(auditLogCreate).toHaveBeenCalledTimes(1);
+      expect(auditLogCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            event: 'mfa.disabled',
+            payload: expect.objectContaining({ userId: 'user-1', tenantId: 'acme' }),
+          }),
+        }),
+      );
+    });
+
+    it('swallows AuditLog write failures so the MFA disable flow is never blocked', async () => {
+      auditLogCreate.mockRejectedValue(new Error('DB error'));
+      const user = makeSafeUser();
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await expect(hooks.afterMfaDisabled(user, ctx)).resolves.toBeUndefined();
+    });
+  });
+
+  // ─── onNewSession ──────────────────────────────────────────────────────────
+
+  describe('onNewSession', () => {
+    it('writes a session.new audit row with userId, tenantId, sessionHash and device', async () => {
+      // FCM #15 — new session events must record device and IP so users can
+      // identify unexpected sign-ins in the security activity log.
+      const user = makeSafeUser({ id: 'user-1', tenantId: 'acme' });
+      const sessionInfo: SessionInfo = {
+        sessionHash: 'sha256-abc',
+        device: 'Chrome on macOS',
+        ip: '203.0.113.5',
+      };
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await hooks.onNewSession(user, sessionInfo, ctx);
+
+      expect(auditLogCreate).toHaveBeenCalledTimes(1);
+      expect(auditLogCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            event: 'session.new',
+            payload: expect.objectContaining({
+              userId: 'user-1',
+              tenantId: 'acme',
+              sessionHash: 'sha256-abc',
+              device: 'Chrome on macOS',
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('stores sessionHash — never the raw token — in the audit payload', async () => {
+      // Security: only the hash is stored; the raw refresh token must never
+      // appear in the AuditLog payload or it could be replayed.
+      const user = makeSafeUser({ id: 'user-2', tenantId: 'acme' });
+      const sessionInfo: SessionInfo = {
+        sessionHash: 'sha256-xyz',
+        device: 'Firefox on Windows',
+        ip: '10.0.0.1',
+      };
+      const ctx = makeContext({ userId: 'user-2', tenantId: 'acme' });
+
+      await hooks.onNewSession(user, sessionInfo, ctx);
+
+      // noUncheckedIndexedAccess: mock.calls[0] is typed as an empty tuple because
+      // the mock signature is () => Promise<void>. Cast through unknown to access
+      // the actual runtime argument (the Prisma create input).
+      const rawCall = (
+        auditLogCreate.mock.calls as unknown as Array<
+          [{ data: { payload: Record<string, unknown> } }]
+        >
+      )[0];
+      const data = rawCall?.[0]?.data;
+      expect(data?.payload).not.toHaveProperty('token');
+      expect(data?.payload).not.toHaveProperty('refreshToken');
+      expect(data?.payload).toHaveProperty('sessionHash', 'sha256-xyz');
+    });
+
+    it('swallows AuditLog write failures so the session creation flow is never blocked', async () => {
+      auditLogCreate.mockRejectedValue(new Error('DB error'));
+      const user = makeSafeUser();
+      const sessionInfo: SessionInfo = { sessionHash: 'x', device: 'y', ip: '1.2.3.4' };
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await expect(hooks.onNewSession(user, sessionInfo, ctx)).resolves.toBeUndefined();
+    });
+  });
+
+  // ─── onSessionEvicted ─────────────────────────────────────────────────────
+
+  describe('onSessionEvicted', () => {
+    it('writes a session.evicted audit row with userId and evictedSessionHash', async () => {
+      // FCM #14 — FIFO eviction must be audited so security teams can detect
+      // unexpected evictions that may signal an account takeover attempt.
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await hooks.onSessionEvicted('user-1', 'sha256-evicted', ctx);
+
+      expect(auditLogCreate).toHaveBeenCalledTimes(1);
+      expect(auditLogCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            event: 'session.evicted',
+            payload: expect.objectContaining({
+              userId: 'user-1',
+              evictedSessionHash: 'sha256-evicted',
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('stores evictedSessionHash — never the raw token — in the audit payload', async () => {
+      // Security: only the hash is persisted; the raw refresh token must never
+      // be stored where it could be replayed.
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await hooks.onSessionEvicted('user-1', 'sha256-evicted', ctx);
+
+      // noUncheckedIndexedAccess: cast through unknown to read the actual runtime argument.
+      const rawCall = (
+        auditLogCreate.mock.calls as unknown as Array<
+          [{ data: { payload: Record<string, unknown> } }]
+        >
+      )[0];
+      const data = rawCall?.[0]?.data;
+      expect(data?.payload).not.toHaveProperty('token');
+      expect(data?.payload).toHaveProperty('evictedSessionHash', 'sha256-evicted');
+    });
+
+    it('swallows AuditLog write failures so the session eviction flow is never blocked', async () => {
+      auditLogCreate.mockRejectedValue(new Error('DB error'));
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await expect(hooks.onSessionEvicted('user-1', 'hash', ctx)).resolves.toBeUndefined();
+    });
+  });
+
+  // ─── onEmailVerified (afterEmailVerified) ─────────────────────────────────
+
+  describe('afterEmailVerified', () => {
+    it('writes an email.verified audit row with userId and tenantId', async () => {
+      // FCM #5 — email verification completion must be audited so the timeline
+      // of account activation can be reconstructed from the log.
+      const user = makeSafeUser({ id: 'user-1', tenantId: 'acme' });
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await hooks.afterEmailVerified(user, ctx);
+
+      expect(auditLogCreate).toHaveBeenCalledTimes(1);
+      expect(auditLogCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            event: 'email.verified',
+            payload: expect.objectContaining({ userId: 'user-1', tenantId: 'acme' }),
+          }),
+        }),
+      );
+    });
+
+    it('swallows AuditLog write failures so the email verification flow is never blocked', async () => {
+      auditLogCreate.mockRejectedValue(new Error('DB error'));
+      const user = makeSafeUser();
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await expect(hooks.afterEmailVerified(user, ctx)).resolves.toBeUndefined();
+    });
+  });
+
+  // ─── onPasswordResetCompleted (afterPasswordReset) ────────────────────────
+
+  describe('afterPasswordReset', () => {
+    it('writes a password.reset.completed audit row with userId and tenantId', async () => {
+      // FCM #6/#7 — every password reset completion must be audited; an unexpected
+      // reset row in the log is an indicator of account compromise.
+      const user = makeSafeUser({ id: 'user-1', tenantId: 'acme' });
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await hooks.afterPasswordReset(user, ctx);
+
+      expect(auditLogCreate).toHaveBeenCalledTimes(1);
+      expect(auditLogCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            event: 'password.reset.completed',
+            payload: expect.objectContaining({ userId: 'user-1', tenantId: 'acme' }),
+          }),
+        }),
+      );
+    });
+
+    it('swallows AuditLog write failures so the password reset flow is never blocked', async () => {
+      // The password has already been changed before this hook runs — a failed audit
+      // must not prevent the user from receiving the success response.
+      auditLogCreate.mockRejectedValue(new Error('DB error'));
+      const user = makeSafeUser();
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await expect(hooks.afterPasswordReset(user, ctx)).resolves.toBeUndefined();
+    });
+  });
+
+  // ─── afterRegister ─────────────────────────────────────────────────────────
+
+  describe('afterRegister', () => {
+    it('writes a user.registered audit row with userId, tenantId, and role', async () => {
+      // FCM #30 — successful registration must be audited so the tenant onboarding
+      // timeline can be reconstructed from the log.
+      const user = makeSafeUser({ id: 'user-new', tenantId: 'acme', role: 'MEMBER' });
+      const ctx = makeContext({ userId: 'user-new', tenantId: 'acme' });
+
+      await hooks.afterRegister(user, ctx);
+
+      expect(auditLogCreate).toHaveBeenCalledTimes(1);
+      expect(auditLogCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            event: 'user.registered',
+            payload: expect.objectContaining({
+              userId: 'user-new',
+              tenantId: 'acme',
+              role: 'MEMBER',
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('swallows AuditLog write failures so the registration flow is never blocked', async () => {
+      auditLogCreate.mockRejectedValue(new Error('DB error'));
+      const user = makeSafeUser();
+      const ctx = makeContext({ userId: 'user-new', tenantId: 'acme' });
+
+      await expect(hooks.afterRegister(user, ctx)).resolves.toBeUndefined();
+    });
   });
 
   // ─── onOAuthLogin ──────────────────────────────────────────────────────────
@@ -183,6 +606,31 @@ describe('AppAuthHooks', () => {
       const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
 
       await expect(hooks.afterInvitationAccepted(user, ctx)).resolves.toBeUndefined();
+    });
+
+    it('uses String(err) when the AuditLog throws a non-Error value (non-Error throw path)', async () => {
+      // Covers the `String(err)` branch of `err instanceof Error ? err.message : String(err)`.
+      // Some throw sites produce plain strings rather than Error instances.
+      auditLogCreate.mockRejectedValue('plain string rejection');
+      const user = makeSafeUser();
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await expect(hooks.afterInvitationAccepted(user, ctx)).resolves.toBeUndefined();
+    });
+
+    it('stores null for tenantId when ctx.tenantId is not provided (nullish coalescing branch)', async () => {
+      // Covers the right side of `ctx.tenantId ?? null` — when tenantId is absent
+      // the AuditLog row must store null rather than undefined.
+      const user = makeSafeUser();
+      const ctx = makeContext({ userId: 'user-1' }); // no tenantId
+
+      await hooks.afterInvitationAccepted(user, ctx);
+
+      expect(auditLogCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ tenantId: null }),
+        }),
+      );
     });
 
     it('sets actorUserId from context.userId when available', async () => {

@@ -48,7 +48,7 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
         />
         <button
           type="button"
-          aria-label={isVisible ? 'Hide password' : 'Show password'}
+          aria-label={isVisible ? 'Conceal' : 'Reveal'}
           aria-pressed={isVisible}
           onClick={() => setIsVisible((v) => !v)}
           className={cn(

@@ -14,9 +14,11 @@
  * @see docs/DEVELOPMENT_PLAN.md §Phase 7 P7-6
  */
 
-import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
+import { BYMAX_AUTH_REDIS_CLIENT } from '@bymax-one/nest-auth';
 import type { SafeAuthUser } from '@bymax-one/nest-auth';
+import type { Redis } from 'ioredis';
 
 import { PrismaUserRepository } from '../auth/prisma-user.repository.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -56,6 +58,7 @@ export class UsersService {
     private readonly userRepository: PrismaUserRepository,
     private readonly prisma: PrismaService,
     private readonly notificationsGateway: NotificationsGateway,
+    @Inject(BYMAX_AUTH_REDIS_CLIENT) private readonly authRedis: Redis,
   ) {}
 
   /**
@@ -103,6 +106,13 @@ export class UsersService {
       where: { id: targetUserId, tenantId: adminTenantId },
       data: { status: dto.status },
     });
+
+    // Invalidate the UserStatusGuard cache so the new status is enforced on the
+    // very next authenticated request rather than after the 60s TTL expires.
+    // Without this, a suspended user could continue calling protected routes
+    // for up to 60s. The library's AuthRedisService prefixes all keys with
+    // the configured namespace (`nest-auth-example:`) — see auth.config.ts.
+    await this.authRedis.del(`nest-auth-example:us:${targetUserId}`);
 
     // Write audit log — non-blocking: a write failure must not abort the status update.
     try {

@@ -42,7 +42,7 @@ async function loginAs(browser: Browser, email: string, password: string) {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
 
-  await page.goto('/auth/login');
+  await page.goto(`/auth/login?tenantId=${TENANT_SLUG}`);
   await page.getByLabel(/email/i).fill(email);
   await page.getByLabel(/password/i).fill(password);
   await page.getByRole('button', { name: /sign in/i }).click();

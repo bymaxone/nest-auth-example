@@ -44,8 +44,9 @@ const APP_VERSION: string = pkg.version;
  * not assume a fixed number of levels between the entry point and the package root.
  *
  * @returns Semver string (e.g. `'1.0.0'`) or `'unknown'` on any resolution error.
+ * @internal Exported for unit testing only — not part of the public module API.
  */
-function resolveLibraryVersion(): string {
+export function resolveLibraryVersion(): string {
   try {
     const require = createRequire(import.meta.url);
     let dir = dirname(require.resolve('@bymax-one/nest-auth'));

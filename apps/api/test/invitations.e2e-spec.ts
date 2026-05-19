@@ -1,3 +1,4 @@
+import { WsAdapter } from '@nestjs/platform-ws';
 /**
  * @file invitations.e2e-spec.ts
  * @description Phase 8 e2e spec for the full user-invitation flow:
@@ -19,14 +20,14 @@
 // These must be set before the Zod schema parses process.env.
 process.env['NODE_ENV'] = 'test';
 process.env['DATABASE_URL'] = 'postgresql://postgres:postgres@localhost:55432/example_app_test';
-process.env['REDIS_URL'] = 'redis://localhost:56379';
+process.env['REDIS_URL'] = 'redis://127.0.0.1:56379';
 process.env['SMTP_HOST'] = 'localhost';
 process.env['SMTP_PORT'] = '51025';
 process.env['EMAIL_PROVIDER'] = 'mailpit';
 process.env['WEB_ORIGIN'] = 'http://localhost:3000';
 process.env['API_PORT'] = '4003';
 process.env['PASSWORD_RESET_METHOD'] = 'token';
-process.env['LOG_LEVEL'] = 'silent';
+process.env['LOG_LEVEL'] = 'warn';
 // JWT_SECRET and MFA_ENCRYPTION_KEY use deterministic test-only values.
 // These are intentionally committed — they are meaningless outside of the
 // ephemeral test stack and must never be reused in any other environment.
@@ -114,6 +115,7 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
       }),
     );
     app.useGlobalFilters(new AuthExceptionFilter());
+    app.useWebSocketAdapter(new WsAdapter(app));
     await app.init();
   });
 
@@ -137,7 +139,7 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email: adminEmail, password: adminPassword, name: 'Admin User' });
+      .send({ email: adminEmail, password: adminPassword, name: 'Admin User', tenantId: 'acme' });
 
     // Extract OTP from Mailpit and verify the admin's email.
     const verifyHtml = await waitForEmail(adminEmail);
@@ -147,7 +149,7 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
       .post('/api/auth/verify-email')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email: adminEmail, otp });
+      .send({ email: adminEmail, otp, tenantId: 'acme' });
 
     // Promote to ADMIN — registration enforces MEMBER as the default role.
     await prisma.user.updateMany({
@@ -161,7 +163,7 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email: adminEmail, password: adminPassword });
+      .send({ email: adminEmail, password: adminPassword, tenantId: 'acme' });
     expect(loginRes.status).toBe(200);
 
     // Clear Mailpit so the admin's OTP email does not interfere with the
@@ -180,14 +182,14 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
 
     const inviteeEmail = uniqueEmail('invitee');
 
-    // 1. Admin creates the invitation — expect 201 Created.
+    // 1. Admin creates the invitation — expect 204 No Content.
     const createRes = await adminAgent
       .post('/api/auth/invitations')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
       .send({ email: inviteeEmail, role: 'MEMBER' });
 
-    expect(createRes.status).toBe(201);
+    expect(createRes.status).toBe(204);
 
     // 2. Wait for the invitation email and extract the accept token from the URL.
     //    The template embeds the token as `?token=<hex>` in both the CTA href and
@@ -205,7 +207,7 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
       .set('X-Tenant-Id', 'acme')
       .send({ token, name: 'Invited User', password: 'P@ssw0rd12345' });
 
-    expect(acceptRes.status).toBe(200);
+    expect(acceptRes.status).toBe(201);
 
     // 4. Assert the new user row was persisted with the expected attributes.
     //    emailVerified must be true — invitation acceptance skips the OTP step.
@@ -238,9 +240,9 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
   });
 
   it('rejects invitation creation from a non-admin (MEMBER) user with 403', async () => {
-    // Scenario: only ADMIN or OWNER may create invitations. A MEMBER who attempts
-    // to POST /api/auth/invitations must receive a 403. This guards against
-    // privilege-escalation via invitation (FCM #18).
+    // Scenario: the library enforces role hierarchy — a MEMBER cannot invite a role
+    // above their own. Attempting POST /api/auth/invitations with role='ADMIN' as a
+    // MEMBER triggers the INSUFFICIENT_ROLE check and must return 403 (FCM #18).
     const memberEmail = uniqueEmail('member');
     const memberPassword = 'P@ssw0rd12345';
     const httpServer = app.getHttpServer();
@@ -251,7 +253,12 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email: memberEmail, password: memberPassword, name: 'Member User' });
+      .send({
+        email: memberEmail,
+        password: memberPassword,
+        name: 'Member User',
+        tenantId: 'acme',
+      });
 
     // Mailpit now holds both the admin's OTP (cleared by beforeEach) and this
     // member's OTP. waitForEmail filters by recipient so they do not conflict.
@@ -262,7 +269,7 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
       .post('/api/auth/verify-email')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email: memberEmail, otp: memberOtp });
+      .send({ email: memberEmail, otp: memberOtp, tenantId: 'acme' });
 
     // Login as MEMBER and keep cookies.
     const memberAgent = supertest.agent(httpServer);
@@ -270,15 +277,16 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email: memberEmail, password: memberPassword });
+      .send({ email: memberEmail, password: memberPassword, tenantId: 'acme' });
     expect(memberLoginRes.status).toBe(200);
 
-    // MEMBER attempts to create an invitation — must be rejected.
+    // MEMBER tries to invite with role='ADMIN' — above their own level → 403.
+    // hasRole('MEMBER', 'ADMIN', hierarchy) = false → INSUFFICIENT_ROLE thrown by service.
     const createRes = await memberAgent
       .post('/api/auth/invitations')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email: uniqueEmail('target'), role: 'MEMBER' });
+      .send({ email: uniqueEmail('target'), role: 'ADMIN' });
 
     expect(createRes.status).toBe(403);
   });

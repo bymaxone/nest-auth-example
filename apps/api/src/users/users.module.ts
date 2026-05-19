@@ -16,6 +16,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module.js';
 import { PrismaUserRepository } from '../auth/prisma-user.repository.js';
 import { NotificationsModule } from '../notifications/notifications.module.js';
+import { AuthModule } from '../auth/auth.module.js';
 import { UsersController } from './users.controller.js';
 import { UsersService } from './users.service.js';
 
@@ -29,7 +30,10 @@ import { UsersService } from './users.service.js';
  * @public
  */
 @Module({
-  imports: [PrismaModule, NotificationsModule],
+  // AuthModule re-exports BymaxAuthModule so AuthRedisService is in scope here
+  // — UsersService injects it to invalidate the UserStatusGuard cache key
+  // (`us:{userId}`) immediately after a status update.
+  imports: [PrismaModule, NotificationsModule, AuthModule],
   controllers: [UsersController],
   providers: [UsersService, PrismaUserRepository],
 })

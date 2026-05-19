@@ -13,7 +13,7 @@
 
 import { Body, Controller, Get, Headers, Ip, Param, Patch } from '@nestjs/common';
 import { CurrentUser, Roles } from '@bymax-one/nest-auth';
-import type { AuthUser, SafeAuthUser } from '@bymax-one/nest-auth';
+import type { DashboardJwtPayload, SafeAuthUser } from '@bymax-one/nest-auth';
 
 import { UsersService } from './users.service.js';
 import type { TenantUserRecord } from './users.service.js';
@@ -44,7 +44,7 @@ export class UsersController {
    * @returns Array of safe user records (no credential fields).
    */
   @Get()
-  listByTenant(@CurrentUser() user: AuthUser): Promise<TenantUserRecord[]> {
+  listByTenant(@CurrentUser() user: DashboardJwtPayload): Promise<TenantUserRecord[]> {
     return this.usersService.listByTenant(user.tenantId);
   }
 
@@ -70,7 +70,7 @@ export class UsersController {
   updateStatus(
     @Param('id') id: string,
     @Body() dto: UpdateStatusDto,
-    @CurrentUser() admin: AuthUser,
+    @CurrentUser() admin: DashboardJwtPayload,
     @Ip() ip: string,
     @Headers('user-agent') userAgent: string,
   ): Promise<SafeAuthUser> {
@@ -78,7 +78,7 @@ export class UsersController {
       id,
       dto,
       admin.tenantId,
-      admin.id,
+      admin.sub,
       ip ?? '',
       userAgent ?? '',
     );

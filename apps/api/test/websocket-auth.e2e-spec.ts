@@ -35,7 +35,7 @@
 // Set test env vars BEFORE importing AppModule so ConfigService sees them.
 process.env['NODE_ENV'] = 'test';
 process.env['DATABASE_URL'] = 'postgresql://postgres:postgres@localhost:55432/example_app_test';
-process.env['REDIS_URL'] = 'redis://localhost:56379';
+process.env['REDIS_URL'] = 'redis://127.0.0.1:56379';
 process.env['SMTP_HOST'] = 'localhost';
 process.env['SMTP_PORT'] = '51025';
 process.env['EMAIL_PROVIDER'] = 'mailpit';
@@ -43,18 +43,19 @@ process.env['WEB_ORIGIN'] = 'http://localhost:3000';
 // Use a distinct port so this suite can run in parallel with other e2e specs.
 process.env['API_PORT'] = '4005';
 process.env['PASSWORD_RESET_METHOD'] = 'token';
-process.env['LOG_LEVEL'] = 'silent';
+process.env['LOG_LEVEL'] = 'warn';
 // Deterministic test-only secrets — meaningless outside the ephemeral test stack.
 process.env['JWT_SECRET'] =
   'test-only-jwt-secret-must-be-at-least-64-characters-for-schema-validation-ok';
 process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0=';
 
 import { execSync } from 'node:child_process';
+import { randomBytes, scrypt as nodeScrypt } from 'node:crypto';
+import { promisify } from 'node:util';
 import type { INestApplication } from '@nestjs/common';
 import { ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { WsAdapter } from '@nestjs/platform-ws';
-import bcryptjs from 'bcryptjs';
 import cookieParser from 'cookie-parser';
 import * as supertest from 'supertest';
 import type { Agent } from 'supertest';
@@ -64,6 +65,26 @@ import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { createWsClient } from './helpers/ws.js';
+
+// scrypt matches the library's PasswordService format: scrypt:{salt_hex}:{derived_hex}
+// Parameters mirror the library defaults (costFactor=32768, blockSize=8, parallelization=1).
+const _scrypt = promisify(nodeScrypt) as (
+  password: string | Buffer,
+  salt: string | Buffer,
+  keylen: number,
+  options: { N: number; r: number; p: number; maxmem: number },
+) => Promise<Buffer>;
+
+async function hashPasswordForTest(plain: string): Promise<string> {
+  const salt = randomBytes(16);
+  const derived = await _scrypt(plain, salt, 64, {
+    N: 32768,
+    r: 8,
+    p: 1,
+    maxmem: 64 * 1024 * 1024,
+  });
+  return `scrypt:${salt.toString('hex')}:${derived.toString('hex')}`;
+}
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -126,7 +147,7 @@ describe('WebSocket auth — WsJwtGuard protection and push delivery (FCM #24)',
   /** Raw access_token JWT for the member user — used as Authorization: Bearer. */
   let memberToken: string;
 
-  /** Bcrypt hashes computed once in beforeAll and reused in every beforeEach. */
+  /** Scrypt hashes computed once in beforeAll and reused in every beforeEach. */
   let adminPasswordHash: string;
   let memberPasswordHash: string;
 
@@ -138,11 +159,11 @@ describe('WebSocket auth — WsJwtGuard protection and push delivery (FCM #24)',
       stdio: 'pipe',
     });
 
-    // Pre-compute bcrypt hashes once — cost factor 10 is ~100 ms each.
-    // Reusing across beforeEach avoids ~200 ms of per-test overhead.
+    // Pre-compute scrypt hashes once — matches the library's PasswordService format.
+    // Reusing across beforeEach avoids per-test scrypt overhead.
     [adminPasswordHash, memberPasswordHash] = await Promise.all([
-      bcryptjs.hash(ADMIN_PASSWORD, 10),
-      bcryptjs.hash(MEMBER_PASSWORD, 10),
+      hashPasswordForTest(ADMIN_PASSWORD),
+      hashPasswordForTest(MEMBER_PASSWORD),
     ]);
 
     const moduleRef = await Test.createTestingModule({
@@ -212,7 +233,7 @@ describe('WebSocket auth — WsJwtGuard protection and push delivery (FCM #24)',
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', TENANT_ID)
-      .send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
+      .send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD, tenantId: TENANT_ID });
 
     // If admin login fails the WS tests below are invalid — abort the suite.
     expect(adminLogin.status).toBe(200);
@@ -263,7 +284,7 @@ describe('WebSocket auth — WsJwtGuard protection and push delivery (FCM #24)',
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', TENANT_ID)
-      .send({ email: MEMBER_EMAIL, password: MEMBER_PASSWORD });
+      .send({ email: MEMBER_EMAIL, password: MEMBER_PASSWORD, tenantId: TENANT_ID });
 
     expect(memberLogin.status).toBe(200);
 
@@ -275,7 +296,7 @@ describe('WebSocket auth — WsJwtGuard protection and push delivery (FCM #24)',
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', TENANT_ID)
-      .send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
+      .send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD, tenantId: TENANT_ID });
 
     expect(adminLogin.status).toBe(200);
     // Rebuild the admin agent with fresh cookies.
@@ -296,6 +317,11 @@ describe('WebSocket auth — WsJwtGuard protection and push delivery (FCM #24)',
     // Wait for the connection to be established.
     await client.opened;
 
+    // Register the message listener BEFORE issuing the notify — otherwise the
+    // push can race ahead of `socket.once('message')` and be dropped. The
+    // suspend test below uses the same defensive ordering for `nextClose`.
+    const messagePromise = client.nextMessage(5000);
+
     // Admin triggers the notification push.
     const notifyRes = await adminAgent
       .post(`/api/debug/notify/${memberId}`)
@@ -306,8 +332,8 @@ describe('WebSocket auth — WsJwtGuard protection and push delivery (FCM #24)',
     expect(notifyRes.status).toBe(200);
     expect(notifyRes.body).toMatchObject({ delivered: 1 });
 
-    // Assert the member's socket received the expected event within 2 s.
-    const message = await client.nextMessage(2000);
+    // Assert the member's socket received the expected event within the window.
+    const message = await messagePromise;
 
     expect(message).toMatchObject({
       event: 'notification:new',
