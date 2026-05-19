@@ -1,50 +1,78 @@
-# Getting Started
+# Getting started
 
-> **Note:** This document is a stub created in Phase 9. The full quickstart guide
-> (Phase 18) will expand this into a complete 5-minute walkthrough covering all
-> prerequisites, clone steps, Docker setup, migration, and first login.
+From a clean clone to **logged in as `admin.acme@example.com`** in about five minutes. Every command below matches the scripts in the repo; if anything fails, jump to [common snags](#common-snags).
 
 ---
 
 ## Prerequisites
 
-- Node.js ≥ 24 (`.nvmrc` pins the version — `nvm use` is sufficient)
-- pnpm ≥ 10.8 (`npm install -g pnpm@latest`)
-- Docker Compose v2 (`docker compose version`)
-- The sibling `nest-auth` library checkout at `../nest-auth` (see [OVERVIEW.md §7](OVERVIEW.md))
+- **Node.js ≥ 24** — `.nvmrc` pins the version, so `nvm use` is enough.
+- **pnpm ≥ 10.8** — `npm install -g pnpm@latest`.
+- **Docker Compose v2** — verify with `docker compose version`.
+- **A sibling checkout of the library** at `../nest-auth` — this example consumes `@bymax-one/nest-auth` via a local link until it ships to npm (see [OVERVIEW §7](./OVERVIEW.md)).
+
+Expected layout on disk:
+
+```
+~/projects/
+├── nest-auth/             # the library (built before linking)
+└── nest-auth-example/     # this repository
+```
 
 ---
 
 ## Quick start
 
 ```bash
-# 1. Link the library (sibling checkout must be built first)
+# 1. Link the library (builds ../nest-auth and registers a global pnpm link)
 bash scripts/link-library.sh
 
 # 2. Install workspace dependencies
 pnpm install
 
-# 3. Start infrastructure (Postgres, Redis, Mailpit)
+# 3. Start infrastructure (Postgres, Redis, Mailpit) and wait for health
 pnpm infra:up
 
-# 4. Run migrations + seed
-pnpm --filter @nest-auth-example/api prisma:migrate dev
+# 4. Create your env file, then generate the two secrets it needs
+cp .env.example .env
+#   JWT_SECRET=$(openssl rand -hex 64)         AUTH_JWT_SECRET_FOR_PROXY = same value
+#   MFA_ENCRYPTION_KEY=$(openssl rand -base64 32)
+
+# 5. Apply migrations and seed demo data
+pnpm --filter @nest-auth-example/api prisma:migrate
 pnpm --filter @nest-auth-example/api prisma:seed
 
-# 5. Start the API and web app
+# 6. Start the API and web app together
 pnpm dev
 ```
 
-The API is available at `http://localhost:4000/api/health`.
-The web app is available at `http://localhost:3000`.
-Mailpit UI (captured dev emails) is at `http://localhost:8025`.
+When `pnpm dev` is up:
+
+- Web app → **http://localhost:3000**
+- API health → **http://localhost:4000/api/health** (should report `postgres`, `redis`, and `library` all `ok`)
+- Mailpit (captured dev emails) → **http://localhost:8025**
+
+> Need every variable explained? See [environment](./ENVIRONMENT.md). Want the big picture first? See [architecture](./ARCHITECTURE.md).
 
 ---
 
-## Seeded accounts
+## First login
 
-> **WARNING: DEV ONLY.** These credentials are publicly documented and must never be
-> used in any staging or production environment.
+1. Open **http://localhost:3000/auth/login?tenantId=acme** (the `tenantId` query lets the page resolve the `acme` slug to its tenant id).
+2. Sign in with **`admin.acme@example.com`** / **`Passw0rd!Passw0rd`**.
+3. You land on the dashboard — session active, identity verified.
+
+![Logged in to the dashboard](./assets/getting-started/login-success.png)
+
+Trigger an email (e.g. **forgot password**, or register a new user) and watch it arrive in Mailpit at **http://localhost:8025** — nothing is sent externally in development.
+
+![Mailpit inbox capturing transactional emails](./assets/getting-started/mailpit.png)
+
+---
+
+## Seeded credentials
+
+> **DEV ONLY.** These are publicly documented — never use them in staging or production.
 
 ### Tenant users (password: `Passw0rd!Passw0rd`)
 
@@ -59,65 +87,62 @@ Mailpit UI (captured dev emails) is at `http://localhost:8025`.
 | `member.globex@example.com` | MEMBER | globex |
 | `viewer.globex@example.com` | VIEWER | globex |
 
-All tenant users have `emailVerified: true` and `status: ACTIVE`.
+All are `emailVerified: true` and `status: ACTIVE`. Two extra e2e users (`admin@example.dev`, `member@example.dev`) also exist in `acme`.
 
-The `X-Tenant-Id` header must be the tenant's **database ID** (a cuid), not the slug.
-Run `pnpm --filter @nest-auth-example/api prisma:seed` to see the IDs printed in the
-credentials banner, or call `GET /api/platform/tenants` with a platform admin token.
-
-### Platform admin (FCM #22 — Phase 9)
-
-> **WARNING: DEV ONLY.** The platform admin context bypasses tenant scoping.
-
-| Field    | Value                                            |
-| -------- | ------------------------------------------------ |
-| Email    | `platform@example.dev`                           |
-| Password | `PlatformPassw0rd!`                              |
-| Role     | `SUPER_ADMIN`                                    |
-| Login    | `POST /api/auth/platform/login` (no X-Tenant-Id) |
-
-A second platform user (`platform@example.com`, password `Passw0rd!Passw0rd`) is
-also seeded as a generic `SUPER_ADMIN` for historical compatibility.
-
----
-
-## Environment variables
-
-Copy `.env.example` to `apps/api/.env` and fill in the required values.
-A full variable reference will be documented in `ENVIRONMENT.md` (Phase 18).
-
-| Variable             | Example value                                             | Notes                |
-| -------------------- | --------------------------------------------------------- | -------------------- |
-| `DATABASE_URL`       | `postgres://postgres:postgres@localhost:5432/example_app` | From Docker Compose  |
-| `REDIS_URL`          | `redis://localhost:6379`                                  | From Docker Compose  |
-| `JWT_SECRET`         | _(run `openssl rand -hex 64`)_                            | Must be ≥ 64 chars   |
-| `MFA_ENCRYPTION_KEY` | _(run `openssl rand -base64 32`)_                         | 32-byte base64       |
-| `EMAIL_PROVIDER`     | `mailpit`                                                 | Use `resend` in prod |
-| `SMTP_HOST`          | `localhost`                                               | Mailpit SMTP         |
-| `SMTP_PORT`          | `1025`                                                    | Mailpit SMTP         |
-| `WEB_ORIGIN`         | `http://localhost:3000`                                   | CORS allowed origin  |
-
----
-
-## Running tests
+The `X-Tenant-Id` header must be the tenant's **database id** (a cuid), not the slug. The seed prints the ids in a banner; or query them:
 
 ```bash
-# Start the test stack (different ports from dev — safe to run alongside)
-pnpm infra:test:up
+docker exec nest-auth-example-postgres-1 psql -U postgres -d example_app \
+  -c 'SELECT slug, id FROM "Tenant";'
+```
 
-# Unit tests
-pnpm --filter @nest-auth-example/api test
+### Platform admin
 
-# E2e tests (supertest, requires test stack)
-pnpm --filter @nest-auth-example/api test:e2e
+> **DEV ONLY.** The platform context bypasses tenant scoping.
+
+| Field    | Value                                |
+| -------- | ------------------------------------ |
+| Login    | http://localhost:3000/platform/login |
+| Email    | `platform@example.dev`               |
+| Password | `PlatformPassw0rd!`                  |
+| Role     | `SUPER_ADMIN`                        |
+
+---
+
+## Common snags
+
+A few first-run issues and where to fix them — full list in [troubleshooting](./TROUBLESHOOTING.md):
+
+1. **`JWT_SECRET must be at least 64 characters`** — regenerate with `openssl rand -hex 64` and set the same value as `AUTH_JWT_SECRET_FOR_PROXY`. See [troubleshooting → JWT_SECRET](./TROUBLESHOOTING.md#jwt_secret-must-be-at-least-64-characters).
+2. **`Cannot find module '@bymax-one/nest-auth'`** — re-run `bash scripts/link-library.sh` to rebuild and relink the sibling library. See [troubleshooting → library link](./TROUBLESHOOTING.md#cannot-find-module-bymax-onenest-auth).
+3. **Emails never arrive / `ECONNREFUSED :1025`** — the infra isn't up; run `pnpm infra:up` and confirm `docker ps`. See [troubleshooting → Mailpit](./TROUBLESHOOTING.md#econnrefused-1270011025-mailpit--emails-not-sending).
+
+---
+
+## Running the test suites
+
+```bash
+pnpm infra:test:up                                   # ephemeral test stack (separate ports)
+pnpm --filter @nest-auth-example/api test            # unit
+pnpm --filter @nest-auth-example/api test:e2e        # supertest e2e (needs the test stack)
+pnpm --filter @nest-auth-example/web test:e2e        # Playwright
 ```
 
 ---
 
-## Stopping infrastructure
+## Stopping the stack
 
 ```bash
-pnpm infra:down     # stops containers
-# Or with volume cleanup:
-docker compose down -v
+pnpm infra:down       # stop containers (keep data)
+pnpm infra:nuke       # stop AND delete volumes (fresh start)
 ```
+
+---
+
+## Where to go next
+
+- [Features](./FEATURES.md) — a walkthrough of every demonstrated capability.
+- [Architecture](./ARCHITECTURE.md) — how the two apps and the library fit together.
+- [Environment](./ENVIRONMENT.md) — every configuration variable.
+- [Database](./DATABASE.md) · [Redis](./REDIS.md) · [Email](./EMAIL.md) — the stores and transports.
+- [Deployment](./DEPLOYMENT.md) — taking it to production.

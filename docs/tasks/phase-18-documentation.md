@@ -2,7 +2,7 @@
 
 > **Source:** [`../DEVELOPMENT_PLAN.md`](../DEVELOPMENT_PLAN.md#phase-18--documentation-docs) §Phase 18
 > **Total tasks:** 11
-> **Progress:** 🔴 0 / 11 done (0%)
+> **Progress:** 🟢 11 / 11 done (100%)
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🔵 In Review · 🟢 Done · ⚪ Blocked
 
@@ -10,23 +10,23 @@
 
 | ID     | Task                                                     | Status | Priority | Size | Depends on |
 | ------ | -------------------------------------------------------- | ------ | -------- | ---- | ---------- |
-| P18-1  | `docs/GETTING_STARTED.md` — 5-minute quickstart          | 🔴     | High     | S    | Phase 17   |
-| P18-2  | `docs/FEATURES.md` — one section per FCM row             | 🔴     | High     | M    | Phase 17   |
-| P18-3  | `docs/ARCHITECTURE.md` — module boundaries & subpath map | 🔴     | High     | S    | Phase 17   |
-| P18-4  | `docs/ENVIRONMENT.md` — env-var reference                | 🔴     | High     | S    | Phase 17   |
-| P18-5  | `docs/DATABASE.md` — Prisma schema walkthrough           | 🔴     | Medium   | S    | Phase 17   |
-| P18-6  | `docs/REDIS.md` — key namespaces + TTLs                  | 🔴     | Medium   | S    | Phase 17   |
-| P18-7  | `docs/EMAIL.md` — Mailpit → Resend swap                  | 🔴     | Medium   | S    | Phase 17   |
-| P18-8  | `docs/DEPLOYMENT.md` — production checklist              | 🔴     | High     | S    | Phase 17   |
-| P18-9  | `docs/TROUBLESHOOTING.md` — errors → fixes               | 🔴     | Medium   | S    | Phase 17   |
-| P18-10 | `docs/RELEASES.md` — library ↔ example version table     | 🔴     | Medium   | S    | Phase 17   |
-| P18-11 | OVERVIEW §6 status column sweep                          | 🔴     | High     | S    | P18-2      |
+| P18-1  | `docs/GETTING_STARTED.md` — 5-minute quickstart          | 🟢     | High     | S    | Phase 17   |
+| P18-2  | `docs/FEATURES.md` — one section per FCM row             | 🟢     | High     | M    | Phase 17   |
+| P18-3  | `docs/ARCHITECTURE.md` — module boundaries & subpath map | 🟢     | High     | S    | Phase 17   |
+| P18-4  | `docs/ENVIRONMENT.md` — env-var reference                | 🟢     | High     | S    | Phase 17   |
+| P18-5  | `docs/DATABASE.md` — Prisma schema walkthrough           | 🟢     | Medium   | S    | Phase 17   |
+| P18-6  | `docs/REDIS.md` — key namespaces + TTLs                  | 🟢     | Medium   | S    | Phase 17   |
+| P18-7  | `docs/EMAIL.md` — Mailpit → Resend swap                  | 🟢     | Medium   | S    | Phase 17   |
+| P18-8  | `docs/DEPLOYMENT.md` — production checklist              | 🟢     | High     | S    | Phase 17   |
+| P18-9  | `docs/TROUBLESHOOTING.md` — errors → fixes               | 🟢     | Medium   | S    | Phase 17   |
+| P18-10 | `docs/RELEASES.md` — library ↔ example version table     | 🟢     | Medium   | S    | Phase 17   |
+| P18-11 | OVERVIEW §6 status column sweep                          | 🟢     | High     | S    | P18-2      |
 
 ---
 
 ## P18-1 — `docs/GETTING_STARTED.md` — 5-minute quickstart
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S
 - **Depends on:** `Phase 17`
@@ -37,12 +37,12 @@ Write the guided quickstart promised by `docs/OVERVIEW.md` §5. A reviewer on a 
 
 ### Acceptance Criteria
 
-- [ ] `docs/GETTING_STARTED.md` exists.
-- [ ] Covers prerequisites (Node 24, pnpm 10, Docker Desktop v2, a sibling checkout of `../nest-auth`).
-- [ ] Step-by-step: clone, `scripts/link-library.sh`, `pnpm install`, `pnpm infra:up`, `pnpm --filter api prisma:migrate dev`, `pnpm --filter api prisma:seed`, `pnpm dev`.
-- [ ] Lists seeded credentials (admin + member) and Mailpit URL `http://localhost:8025`.
-- [ ] Cross-links: `ENVIRONMENT.md`, `TROUBLESHOOTING.md`, `ARCHITECTURE.md`.
-- [ ] Screenshots under `docs/assets/getting-started/` for login success + Mailpit inbox.
+- [x] `docs/GETTING_STARTED.md` exists.
+- [x] Covers prerequisites (Node 24, pnpm 10, Docker Desktop v2, a sibling checkout of `../nest-auth`).
+- [x] Step-by-step: clone, `scripts/link-library.sh`, `pnpm install`, `pnpm infra:up`, `pnpm --filter api prisma:migrate dev`, `pnpm --filter api prisma:seed`, `pnpm dev`.
+- [x] Lists seeded credentials (admin + member) and Mailpit URL `http://localhost:8025`.
+- [x] Cross-links: `ENVIRONMENT.md`, `TROUBLESHOOTING.md`, `ARCHITECTURE.md`.
+- [x] Screenshots under `docs/assets/getting-started/` for login success + Mailpit inbox.
 
 ### Files to create / modify
 
@@ -99,7 +99,7 @@ Write the guided quickstart promised by `docs/OVERVIEW.md` §5. A reviewer on a 
 
 ## P18-2 — `docs/FEATURES.md` — one section per FCM row
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** M
 - **Depends on:** `Phase 17`
@@ -110,12 +110,12 @@ Expand the Phase 8 stub into a full feature tour. One `##` section per Feature C
 
 ### Acceptance Criteria
 
-- [ ] `docs/FEATURES.md` has exactly 32 `##`-level feature sections, indexed at the top.
-- [ ] Each section: 1-2 sentence intro, **Library API** subsection with file:line links, **How to reproduce** subsection (UI clicks or `curl`), and an optional **Screenshot**.
-- [ ] Every file:line link points to a real file under `apps/api/` or `apps/web/`.
-- [ ] Screenshots committed under `docs/assets/features/` where they clarify the flow.
-- [ ] Cross-links out to `ARCHITECTURE.md`, `EMAIL.md`, `DATABASE.md`, `REDIS.md` where relevant.
-- [ ] Any intentionally-not-demonstrated export (per Phase 20) is called out with a GitHub issue link.
+- [x] `docs/FEATURES.md` has exactly 32 `##`-level feature sections, indexed at the top.
+- [x] Each section: 1-2 sentence intro, **Library API** subsection with file:line links, **How to reproduce** subsection (UI clicks or `curl`), and an optional **Screenshot**.
+- [x] Every file:line link points to a real file under `apps/api/` or `apps/web/`.
+- [x] Screenshots committed under `docs/assets/features/` where they clarify the flow.
+- [x] Cross-links out to `ARCHITECTURE.md`, `EMAIL.md`, `DATABASE.md`, `REDIS.md` where relevant.
+- [x] Any intentionally-not-demonstrated export (per Phase 20) is called out with a GitHub issue link.
 
 ### Files to create / modify
 
@@ -172,7 +172,7 @@ Expand the Phase 8 stub into a full feature tour. One `##` section per Feature C
 
 ## P18-3 — `docs/ARCHITECTURE.md` — module boundaries & subpath map
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S
 - **Depends on:** `Phase 17`
@@ -183,11 +183,11 @@ Deeper dive into the diagram in `OVERVIEW.md` §3. Documents which `@bymax-one/n
 
 ### Acceptance Criteria
 
-- [ ] `docs/ARCHITECTURE.md` exists.
-- [ ] Section: subpath-of-library mapping table (`/server`, `/shared`, `/client`, `/react`, `/nextjs`) with host consumers.
-- [ ] Request/response lifecycle diagram (Mermaid) for login → cookies → proxy → refresh.
-- [ ] Module boundaries list for `apps/api` and `apps/web`.
-- [ ] Cross-links to `FEATURES.md`, `ENVIRONMENT.md`, `REDIS.md`, `DATABASE.md`.
+- [x] `docs/ARCHITECTURE.md` exists.
+- [x] Section: subpath-of-library mapping table (`/server`, `/shared`, `/client`, `/react`, `/nextjs`) with host consumers.
+- [x] Request/response lifecycle diagram (Mermaid) for login → cookies → proxy → refresh.
+- [x] Module boundaries list for `apps/api` and `apps/web`.
+- [x] Cross-links to `FEATURES.md`, `ENVIRONMENT.md`, `REDIS.md`, `DATABASE.md`.
 
 ### Files to create / modify
 
@@ -242,7 +242,7 @@ Deeper dive into the diagram in `OVERVIEW.md` §3. Documents which `@bymax-one/n
 
 ## P18-4 — `docs/ENVIRONMENT.md` — env-var reference
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S
 - **Depends on:** `Phase 17`
@@ -253,12 +253,12 @@ Full reference for every environment variable used across api + web, mirroring A
 
 ### Acceptance Criteria
 
-- [ ] `docs/ENVIRONMENT.md` exists.
-- [ ] Tables match Appendix A exactly (shared / `apps/api` / `apps/web` groups).
-- [ ] Each row has: name, required, example, notes, validation (zod rule).
-- [ ] Generation commands listed for `JWT_SECRET` (`openssl rand -hex 64`) and `MFA_ENCRYPTION_KEY` (`openssl rand -base64 32`).
-- [ ] Cross-links to `GETTING_STARTED.md`, `DEPLOYMENT.md`, `TROUBLESHOOTING.md`.
-- [ ] Note on how to keep this doc in sync with `env.schema.ts` + `lib/env.ts`.
+- [x] `docs/ENVIRONMENT.md` exists.
+- [x] Tables match Appendix A exactly (shared / `apps/api` / `apps/web` groups).
+- [x] Each row has: name, required, example, notes, validation (zod rule).
+- [x] Generation commands listed for `JWT_SECRET` (`openssl rand -hex 64`) and `MFA_ENCRYPTION_KEY` (`openssl rand -base64 32`).
+- [x] Cross-links to `GETTING_STARTED.md`, `DEPLOYMENT.md`, `TROUBLESHOOTING.md`.
+- [x] Note on how to keep this doc in sync with `env.schema.ts` + `lib/env.ts`.
 
 ### Files to create / modify
 
@@ -313,7 +313,7 @@ Full reference for every environment variable used across api + web, mirroring A
 
 ## P18-5 — `docs/DATABASE.md` — Prisma schema walkthrough
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** Medium
 - **Size:** S
 - **Depends on:** `Phase 17`
@@ -324,12 +324,12 @@ Walk through `prisma/schema.prisma` table by table, explaining why each field ex
 
 ### Acceptance Criteria
 
-- [ ] `docs/DATABASE.md` exists.
-- [ ] Sections: `users`, `platform_users`, `tenants`, `invitations`, `audit_logs`, `projects`.
-- [ ] Each section lists fields, nullability, and the library mapping (`passwordHash`, `mfaSecret`, `mfaRecoveryCodes` explicitly noted as "store exactly as library returns").
-- [ ] Migration strategy section: `prisma migrate dev` (local) vs `prisma migrate deploy` (CI/prod).
-- [ ] Seed strategy and demo data overview.
-- [ ] Cross-links to `FEATURES.md` and the library's repository interfaces in Appendix B.
+- [x] `docs/DATABASE.md` exists.
+- [x] Sections: `users`, `platform_users`, `tenants`, `invitations`, `audit_logs`, `projects`.
+- [x] Each section lists fields, nullability, and the library mapping (`passwordHash`, `mfaSecret`, `mfaRecoveryCodes` explicitly noted as "store exactly as library returns").
+- [x] Migration strategy section: `prisma migrate dev` (local) vs `prisma migrate deploy` (CI/prod).
+- [x] Seed strategy and demo data overview.
+- [x] Cross-links to `FEATURES.md` and the library's repository interfaces in Appendix B.
 
 ### Files to create / modify
 
@@ -384,7 +384,7 @@ Walk through `prisma/schema.prisma` table by table, explaining why each field ex
 
 ## P18-6 — `docs/REDIS.md` — key namespaces + TTLs
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** Medium
 - **Size:** S
 - **Depends on:** `Phase 17`
@@ -395,12 +395,12 @@ Document every Redis key produced by the library + this app, with prefix `nest-a
 
 ### Acceptance Criteria
 
-- [ ] `docs/REDIS.md` exists.
-- [ ] Table expands `OVERVIEW.md` §11 with a new TTL column.
-- [ ] Explains the `nest-auth-example` namespace choice.
-- [ ] Notes persistence requirements (appendonly on in prod).
-- [ ] Cross-links to `DEPLOYMENT.md` (persistence) and `FEATURES.md` #14/#16.
-- [ ] One `redis-cli` inspection snippet per key pattern.
+- [x] `docs/REDIS.md` exists.
+- [x] Table expands `OVERVIEW.md` §11 with a new TTL column.
+- [x] Explains the `nest-auth-example` namespace choice.
+- [x] Notes persistence requirements (appendonly on in prod).
+- [x] Cross-links to `DEPLOYMENT.md` (persistence) and `FEATURES.md` #14/#16.
+- [x] One `redis-cli` inspection snippet per key pattern.
 
 ### Files to create / modify
 
@@ -452,7 +452,7 @@ Document every Redis key produced by the library + this app, with prefix `nest-a
 
 ## P18-7 — `docs/EMAIL.md` — Mailpit → Resend swap
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** Medium
 - **Size:** S
 - **Depends on:** `Phase 17`
@@ -463,12 +463,12 @@ How to switch `EMAIL_PROVIDER` from `mailpit` to `resend` (or any custom `IEmail
 
 ### Acceptance Criteria
 
-- [ ] `docs/EMAIL.md` exists.
-- [ ] Covers `EMAIL_PROVIDER` switching (env + DI binding path).
-- [ ] Lists every transactional email produced (`IEmailProvider` methods mapped to FCM rows #5/#6/#7/#15/#21).
-- [ ] Shows how to subclass `MailpitEmailProvider` or `ResendEmailProvider` to override templates.
-- [ ] Notes DNS records for production (SPF, DKIM, DMARC) with cross-link to `DEPLOYMENT.md`.
-- [ ] Locale handling: where strings live, how to add a new locale.
+- [x] `docs/EMAIL.md` exists.
+- [x] Covers `EMAIL_PROVIDER` switching (env + DI binding path).
+- [x] Lists every transactional email produced (`IEmailProvider` methods mapped to FCM rows #5/#6/#7/#15/#21).
+- [x] Shows how to subclass `MailpitEmailProvider` or `ResendEmailProvider` to override templates.
+- [x] Notes DNS records for production (SPF, DKIM, DMARC) with cross-link to `DEPLOYMENT.md`.
+- [x] Locale handling: where strings live, how to add a new locale.
 
 ### Files to create / modify
 
@@ -521,7 +521,7 @@ How to switch `EMAIL_PROVIDER` from `mailpit` to `resend` (or any custom `IEmail
 
 ## P18-8 — `docs/DEPLOYMENT.md` — production checklist
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S
 - **Depends on:** `Phase 17`
@@ -532,10 +532,10 @@ Production checklist. Expands `OVERVIEW.md` §14 with concrete instructions for 
 
 ### Acceptance Criteria
 
-- [ ] `docs/DEPLOYMENT.md` exists.
-- [ ] Sections: topology, cookies, HTTPS, JWT rotation (`jwt.previousSecrets`), Redis persistence, email DNS, logging/SIEM, health checks, rollout strategy.
-- [ ] Checklist at the bottom (copy-pasteable into a release PR template).
-- [ ] Cross-links to `ENVIRONMENT.md`, `EMAIL.md`, `REDIS.md`, `TROUBLESHOOTING.md`.
+- [x] `docs/DEPLOYMENT.md` exists.
+- [x] Sections: topology, cookies, HTTPS, JWT rotation (`jwt.previousSecrets`), Redis persistence, email DNS, logging/SIEM, health checks, rollout strategy.
+- [x] Checklist at the bottom (copy-pasteable into a release PR template).
+- [x] Cross-links to `ENVIRONMENT.md`, `EMAIL.md`, `REDIS.md`, `TROUBLESHOOTING.md`.
 
 ### Files to create / modify
 
@@ -590,7 +590,7 @@ Production checklist. Expands `OVERVIEW.md` §14 with concrete instructions for 
 
 ## P18-9 — `docs/TROUBLESHOOTING.md` — errors → fixes
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** Medium
 - **Size:** S
 - **Depends on:** `Phase 17`
@@ -601,10 +601,10 @@ Common errors and fixes, keyed by the error message or symptom a new developer i
 
 ### Acceptance Criteria
 
-- [ ] `docs/TROUBLESHOOTING.md` exists.
-- [ ] One `###` per common error: symptom, cause, fix, related doc link.
-- [ ] Covers at minimum: `JWT_SECRET must be at least 32 characters`, CORS preflight rejection, cookies missing on `localhost`, Mailpit connection refused, library link stale after rebuild.
-- [ ] Cross-links to `GETTING_STARTED.md`, `ENVIRONMENT.md`, `DEPLOYMENT.md`.
+- [x] `docs/TROUBLESHOOTING.md` exists.
+- [x] One `###` per common error: symptom, cause, fix, related doc link.
+- [x] Covers at minimum: `JWT_SECRET must be at least 32 characters`, CORS preflight rejection, cookies missing on `localhost`, Mailpit connection refused, library link stale after rebuild.
+- [x] Cross-links to `GETTING_STARTED.md`, `ENVIRONMENT.md`, `DEPLOYMENT.md`.
 
 ### Files to create / modify
 
@@ -656,7 +656,7 @@ Common errors and fixes, keyed by the error message or symptom a new developer i
 
 ## P18-10 — `docs/RELEASES.md` — library ↔ example version table
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** Medium
 - **Size:** S
 - **Depends on:** `Phase 17`
@@ -667,11 +667,11 @@ Release tracker: library version ↔ example commit/tag ↔ notes. Seeded with t
 
 ### Acceptance Criteria
 
-- [ ] `docs/RELEASES.md` exists.
-- [ ] Table columns: example tag, library version, date, notes, upgrade link.
-- [ ] Seeded with the Phase-20 row `v1.0.0 · @bymax-one/nest-auth@1.0.0 · YYYY-MM-DD · Initial reference app`.
-- [ ] Section explaining the auto-update via `release.yml` (Phase 19).
-- [ ] Cross-links to `CHANGELOG.md`, `DEPLOYMENT.md`, library repo.
+- [x] `docs/RELEASES.md` exists.
+- [x] Table columns: example tag, library version, date, notes, upgrade link.
+- [x] Seeded with the Phase-20 row `v1.0.0 · @bymax-one/nest-auth@1.0.0 · YYYY-MM-DD · Initial reference app`.
+- [x] Section explaining the auto-update via `release.yml` (Phase 19).
+- [x] Cross-links to `CHANGELOG.md`, `DEPLOYMENT.md`, library repo.
 
 ### Files to create / modify
 
@@ -721,7 +721,7 @@ Release tracker: library version ↔ example commit/tag ↔ notes. Seeded with t
 
 ## P18-11 — OVERVIEW §6 status column sweep
 
-- **Status:** 🔴 Not Started
+- **Status:** 🟢 Done
 - **Priority:** High
 - **Size:** S
 - **Depends on:** `P18-2`
@@ -732,11 +732,11 @@ Walk the Feature Coverage Matrix in `docs/OVERVIEW.md` §6 row by row. For each 
 
 ### Acceptance Criteria
 
-- [ ] Every row in `OVERVIEW.md` §6 has its "Demonstrated in" cell verified against the actual repo.
-- [ ] For every verified row, a ✅ is appended either to the "Demonstrated in" cell or to a new "Status" column (pick one consistently).
-- [ ] Broken file references are fixed in the same commit.
-- [ ] Any row that cannot be verified is marked ⚠️ and linked to a GitHub issue.
-- [ ] Cross-check against `FEATURES.md` (P18-2) — every row there = a ✅ here.
+- [x] Every row in `OVERVIEW.md` §6 has its "Demonstrated in" cell verified against the actual repo.
+- [x] For every verified row, a ✅ is appended either to the "Demonstrated in" cell or to a new "Status" column (pick one consistently).
+- [x] Broken file references are fixed in the same commit.
+- [x] Any row that cannot be verified is marked ⚠️ and linked to a GitHub issue.
+- [x] Cross-check against `FEATURES.md` (P18-2) — every row there = a ✅ here.
 
 ### Files to create / modify
 
@@ -787,3 +787,15 @@ Walk the Feature Coverage Matrix in `docs/OVERVIEW.md` §6 row by row. For each 
 ---
 
 ## Completion log
+
+- P18-1 ✅ 2026-05-19 — GETTING_STARTED.md: verified 5-min quickstart, real seed creds, login + Mailpit screenshots, cross-links
+- P18-2 ✅ 2026-05-19 — FEATURES.md: 32 sections with verified file:line anchors, reproduce steps, 7 screenshots
+- P18-3 ✅ 2026-05-19 — ARCHITECTURE.md: subpath map, Mermaid login/refresh diagrams, platform-vs-dashboard, error propagation
+- P18-4 ✅ 2026-05-19 — ENVIRONMENT.md: full reference reconciled with env.schema.ts + lib/env.ts; documented drift from Appendix A
+- P18-5 ✅ 2026-05-19 — DATABASE.md: Mermaid ER + per-table walkthrough verified against schema.prisma; library-owned fields, migrations, seeds
+- P18-6 ✅ 2026-05-19 — REDIS.md: complete key map (incl. prt/os/rv) with TTLs sourced from auth.config.ts and live-scan verified
+- P18-7 ✅ 2026-05-19 — EMAIL.md: provider switching/DI binding, 7 IEmailProvider methods, templates, locales, DNS
+- P18-8 ✅ 2026-05-19 — DEPLOYMENT.md: cookies, HTTPS/HSTS, JWT rotation, Redis persistence, email DNS, SIEM, 17-item checklist
+- P18-9 ✅ 2026-05-19 — TROUBLESHOOTING.md: symptom->fix entries grouped by setup/config/runtime/tests/db
+- P18-10 ✅ 2026-05-19 — RELEASES.md: tracker seeded v1.0.0 <-> @bymax-one/nest-auth@1.0.0, release.yml note, branch policy
+- P18-11 ✅ 2026-05-19 — OVERVIEW §6 swept: Status column added (32 checks), stale app/(auth)/ paths fixed

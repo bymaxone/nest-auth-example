@@ -5,12 +5,14 @@
       "name": "api",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@nest-auth-example/api", "dev"],
+      "autoPort": false,
       "port": 4000
     },
     {
       "name": "web",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@nest-auth-example/web", "dev"],
+      "autoPort": false,
       "port": 3000
     }
   ]

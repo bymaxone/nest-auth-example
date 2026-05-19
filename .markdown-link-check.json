@@ -1,0 +1,4 @@
+{
+  "ignorePatterns": [{ "pattern": "^https?://" }, { "pattern": "^mailto:" }],
+  "comment": "External/example URLs (the project repo, library repo, localhost demo links, third-party docs) are not network-checked; this config validates only the relative file links between docs and into the source tree."
+}
