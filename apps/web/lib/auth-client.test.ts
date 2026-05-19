@@ -99,6 +99,8 @@ import {
   listPlatformTenants,
   listPlatformUsers,
   platformUpdateUserStatus,
+  resolveTenantForLogin,
+  TenantNotFoundError,
 } from './auth-client.js';
 import type { SessionInfo, TenantUserInfo, PlatformUserInfo, MfaSetupInfo } from './auth-client.js';
 
@@ -1120,5 +1122,92 @@ describe('platformApiFetch — 204 and error handling', () => {
 
     const result = await listPlatformTenants();
     expect(result).toBeUndefined();
+  });
+});
+
+describe('resolveTenantForLogin', () => {
+  it('returns the CUID from the resolve endpoint when the slug is valid', async () => {
+    /*
+     * Scenario: the login page passes `?tenantId=acme` and the API resolves it
+     * to a CUID. The helper returns that CUID so the caller can write it to
+     * the `tenant_id` cookie for X-Tenant-Id injection.
+     * Protects: happy-path slug → CUID translation (line 219, 227-229).
+     */
+    const mockFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(makeJsonResponse({ id: 'cuid-acme' }));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await resolveTenantForLogin('acme');
+
+    expect(result).toBe('cuid-acme');
+    expect(mockFetch).toHaveBeenCalledWith('/api/tenants/resolve?slug=acme');
+  });
+
+  it('throws TenantNotFoundError carrying the slug when the API returns 404', async () => {
+    /*
+     * Scenario: a workspace slug that no longer exists. The error surface lets
+     * the login/forgot-password pages render a clear "Workspace X not found"
+     * banner instead of falling through to a misleading invalid-credentials toast.
+     * Protects: 404 → TenantNotFoundError branch (line 224-225).
+     */
+    const mockFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
+    vi.stubGlobal('fetch', mockFetch);
+
+    // Single invocation — chaining two `await expect(...).rejects` would call
+    // resolveTenantForLogin twice but `mockResolvedValueOnce` only primes one
+    // call. Capture the thrown value once and assert both properties on it.
+    const thrown = await resolveTenantForLogin('missing').catch((err: unknown) => err);
+    expect(thrown).toBeInstanceOf(TenantNotFoundError);
+    expect((thrown as TenantNotFoundError).slug).toBe('missing');
+  });
+
+  it('falls back to the input value on network errors (fetch rejection)', async () => {
+    /*
+     * Scenario: the API is unreachable (no network, DNS failure, etc.). The
+     * helper returns the raw slug so the subsequent login attempt fails with
+     * the API's own error rather than blocking the user on resolve infra.
+     * Protects: fetch-throws catch branch (line 220-222).
+     */
+    const mockFetch = vi.fn<typeof fetch>().mockRejectedValueOnce(new TypeError('network down'));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await resolveTenantForLogin('acme');
+
+    expect(result).toBe('acme');
+  });
+
+  it('falls back to the input value on non-2xx, non-404 responses (e.g. 500)', async () => {
+    /*
+     * Scenario: an internal-server-error from the resolve endpoint. The helper
+     * does not throw — it returns the raw input so the caller can attempt the
+     * login and surface whatever error the actual auth endpoint reports.
+     * Protects: status !== 404 && !response.ok branch (line 231 fallthrough).
+     */
+    const mockFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response('boom', { status: 500 }));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await resolveTenantForLogin('acme');
+
+    expect(result).toBe('acme');
+  });
+
+  it('falls back to the input value when the 200 body lacks a string id', async () => {
+    /*
+     * Scenario: defensive guard — if the resolve endpoint ever returns a 200
+     * with a non-string `id` (schema drift), the helper falls back to the raw
+     * input rather than coercing a non-string into the tenant cookie.
+     * Protects: typeof data.id check (line 229 false branch).
+     */
+    const mockFetch = vi.fn<typeof fetch>().mockResolvedValueOnce(makeJsonResponse({ id: 42 }));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await resolveTenantForLogin('acme');
+
+    expect(result).toBe('acme');
   });
 });

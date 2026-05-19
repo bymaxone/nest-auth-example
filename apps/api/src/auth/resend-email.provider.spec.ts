@@ -145,6 +145,21 @@ describe('ResendEmailProvider', () => {
     expect(html).toContain(encodeURIComponent('tenant-cuid-1'));
   });
 
+  it('sendPasswordResetToken — falls back to tenantId="default" when the user row is not found', async () => {
+    // Anti-enumeration: forgotPassword on a non-existent email still calls into
+    // the provider. The provider must compose a URL with a "default" tenant
+    // placeholder rather than crashing on a null lookup result.
+    const prisma = makePrismaService();
+    (
+      prisma.user.findFirst as jest.Mock<() => Promise<{ tenantId: string } | null>>
+    ).mockResolvedValueOnce(null);
+    provider = new ResendEmailProvider(makeConfigService() as never, prisma as never);
+
+    await provider.sendPasswordResetToken('ghost@example.test', 'tk');
+
+    expect(lastSentHtml()).toContain(`tenantId=${encodeURIComponent('default')}`);
+  });
+
   // ─── sendPasswordResetOtp ────────────────────────────────────────────────
 
   it('sendPasswordResetOtp — calls emails.send with the correct subject and embeds the OTP in the HTML body', async () => {

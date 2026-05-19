@@ -137,6 +137,22 @@ describe('MailpitEmailProvider', () => {
     expect(html).toContain(encodeURIComponent('tenant-cuid-1'));
   });
 
+  it('sendPasswordResetToken — falls back to tenantId="default" when the user row is not found', async () => {
+    // Anti-enumeration: forgotPassword on a non-existent email still calls into
+    // the provider so timing/side-effects look identical to the happy path.
+    // The provider must not crash on a null user — it composes the URL with a
+    // "default" tenant placeholder that the reset page rejects safely.
+    const prisma = makePrismaService();
+    (
+      prisma.user.findFirst as jest.Mock<() => Promise<{ tenantId: string } | null>>
+    ).mockResolvedValueOnce(null);
+    provider = new MailpitEmailProvider(makeConfigService() as never, prisma as never);
+
+    await provider.sendPasswordResetToken('ghost@example.test', 'tk');
+
+    expect(lastSentHtml()).toContain(`tenantId=${encodeURIComponent('default')}`);
+  });
+
   // ─── sendPasswordResetOtp ────────────────────────────────────────────────
 
   it('sendPasswordResetOtp — calls sendMail with the correct subject and embeds the OTP in the HTML body', async () => {

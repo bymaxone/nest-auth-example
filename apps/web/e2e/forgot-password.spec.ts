@@ -11,7 +11,10 @@
 import { test, expect } from '@playwright/test';
 import { waitForEmail, clearMailpit, extractResetUrl } from './fixtures/mailpit.js';
 
-const MEMBER_EMAIL = process.env['E2E_MEMBER_EMAIL'] ?? 'member@example.dev';
+// Use viewer.acme — a seeded ACTIVE user no other spec authenticates as. The
+// canonical `member@example.dev` is the login-happy spec's subject; resetting
+// its password here would break that spec's login attempt later in the run.
+const MEMBER_EMAIL = process.env['E2E_FORGOT_PASSWORD_EMAIL'] ?? 'viewer.acme@example.com';
 const TENANT_ID = process.env['E2E_TENANT_ID'] ?? 'acme';
 
 test.describe('Forgot password flow', () => {
@@ -51,7 +54,9 @@ test.describe('Forgot password flow', () => {
     if (await confirmField.isVisible({ timeout: 500 }).catch(() => false)) {
       await confirmField.fill(newPassword);
     }
-    await page.getByRole('button', { name: /reset|save|submit/i }).click();
+    // Reset-password page button reads "Set new password" — the original
+    // /reset|save|submit/ regex did not match, leaving the form unsubmitted.
+    await page.getByRole('button', { name: /set new password|reset|save|submit/i }).click();
 
     // 6. Expect redirect to login or a success message.
     await expect(

@@ -29,6 +29,8 @@
     "lint": "eslint \"src/**/*.ts\"",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest",
     "test:cov": "NODE_OPTIONS=--experimental-vm-modules jest --coverage",
+    "test:e2e:db": "DATABASE_URL=postgresql://postgres:postgres@localhost:55432/example_app_test prisma migrate deploy",
+    "pretest:e2e": "pnpm test:e2e:db",
     "test:e2e": "NODE_OPTIONS=--experimental-vm-modules jest --config test/jest-e2e.json",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",

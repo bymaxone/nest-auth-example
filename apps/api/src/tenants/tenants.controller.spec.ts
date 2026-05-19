@@ -62,17 +62,19 @@ describe('TenantsController', () => {
   let controller: TenantsController;
   let listForUser: jest.Mock<() => Promise<Tenant[]>>;
   let create: jest.Mock<() => Promise<Tenant>>;
+  let resolveBySlug: jest.Mock<() => Promise<{ id: string }>>;
 
   beforeEach(async () => {
     listForUser = jest.fn<() => Promise<Tenant[]>>();
     create = jest.fn<() => Promise<Tenant>>();
+    resolveBySlug = jest.fn<() => Promise<{ id: string }>>();
 
     const moduleRef = await Test.createTestingModule({
       controllers: [TenantsController],
       providers: [
         {
           provide: TenantsService,
-          useValue: { listForUser, create },
+          useValue: { listForUser, create, resolveBySlug },
         },
         Reflector,
       ],
@@ -127,6 +129,22 @@ describe('TenantsController', () => {
 
       expect(roles).toBeDefined();
       expect(roles).toContain('OWNER');
+    });
+  });
+
+  // ─── resolveBySlug ────────────────────────────────────────────────────────
+
+  describe('resolveBySlug', () => {
+    it('delegates to service.resolveBySlug and returns the CUID payload', async () => {
+      // The endpoint is intentionally @Public() so the unauthenticated login
+      // page can resolve `?tenantId=<slug>` to the CUID required by the
+      // X-Tenant-Id header before any credentials are submitted.
+      resolveBySlug.mockResolvedValue({ id: 'cuid-acme' });
+
+      const result = await controller.resolveBySlug('acme');
+
+      expect(result).toEqual({ id: 'cuid-acme' });
+      expect(resolveBySlug).toHaveBeenCalledWith('acme');
     });
   });
 });

@@ -30,10 +30,12 @@ async function loginAndGoToAcmeUsers(page: Page): Promise<void> {
   await page.getByRole('button', { name: /sign in/i }).click();
   await expect(page).toHaveURL('/platform/tenants', { timeout: 10_000 });
 
-  /* Navigate to Acme Corp users via the "View users" button. */
+  /* Navigate to Acme Corp users via the "View users" button.
+     Row order in the table is insertion-order (Globex was seeded first), so
+     `.first()` would land on the Globex row — scope to the Acme row instead. */
   await expect(page.getByText('Acme Corp')).toBeVisible({ timeout: 8_000 });
-  const viewButtons = page.getByRole('button', { name: /view users/i });
-  await viewButtons.first().click();
+  const acmeRow = page.locator('tr').filter({ hasText: 'Acme Corp' });
+  await acmeRow.getByRole('button', { name: /view users/i }).click();
   await expect(page).toHaveURL(/\/platform\/users\?tenantId=/, { timeout: 5_000 });
 
   /* Wait for the user table to render. */

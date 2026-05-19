@@ -43,8 +43,10 @@ test.describe('Platform tenants page', () => {
   test('displays slug badges', async ({ page }) => {
     await loginAsPlatformAdmin(page);
 
-    await expect(page.getByText('acme')).toBeVisible({ timeout: 8_000 });
-    await expect(page.getByText('globex')).toBeVisible();
+    // `exact: true` is required because the substring "acme" appears in both
+    // the slug badge and the tenant-name cell ("Acme Corp"); same for "globex".
+    await expect(page.getByText('acme', { exact: true })).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByText('globex', { exact: true })).toBeVisible();
   });
 
   /**

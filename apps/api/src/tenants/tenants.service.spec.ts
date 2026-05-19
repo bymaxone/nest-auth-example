@@ -13,7 +13,7 @@
  * @see apps/api/src/tenants/tenants.service.ts
  */
 
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { jest } from '@jest/globals';
 import { Test } from '@nestjs/testing';
 import { Prisma, type Tenant } from '@prisma/client';
@@ -43,6 +43,7 @@ describe('TenantsService', () => {
   let service: TenantsService;
   let tenantFindMany: jest.Mock<() => Promise<Tenant[]>>;
   let tenantCreate: jest.Mock<() => Promise<Tenant>>;
+  let tenantFindUnique: jest.Mock<() => Promise<{ id: string } | null>>;
 
   afterEach(() => {
     jest.resetAllMocks();
@@ -159,6 +160,50 @@ describe('TenantsService', () => {
       tenantCreate.mockRejectedValue(otherError);
 
       await expect(service.create(dto)).rejects.toThrow(Prisma.PrismaClientKnownRequestError);
+    });
+  });
+
+  // ─── resolveBySlug ─────────────────────────────────────────────────────────
+
+  describe('resolveBySlug', () => {
+    beforeEach(async () => {
+      tenantFindUnique = jest.fn<() => Promise<{ id: string } | null>>();
+
+      const moduleRef = await Test.createTestingModule({
+        providers: [
+          TenantsService,
+          {
+            provide: PrismaService,
+            useValue: { tenant: { findUnique: tenantFindUnique } },
+          },
+        ],
+      }).compile();
+      service = moduleRef.get(TenantsService);
+    });
+
+    it('returns the tenant CUID when the slug matches an existing tenant', async () => {
+      // resolveBySlug powers the public /api/tenants/resolve endpoint that the
+      // login page calls to convert a URL slug into the CUID required by the
+      // X-Tenant-Id header — the only output is the CUID, never name/domain.
+      tenantFindUnique.mockResolvedValue({ id: 'cuid-acme' });
+
+      const result = await service.resolveBySlug('acme');
+
+      expect(result).toEqual({ id: 'cuid-acme' });
+      expect(tenantFindUnique).toHaveBeenCalledWith({
+        where: { slug: 'acme' },
+        select: { id: true },
+      });
+    });
+
+    it('throws NotFoundException with the slug in the message when no tenant matches', async () => {
+      // The login page surfaces this 404 via TenantNotFoundError so the user
+      // sees "Workspace '<slug>' was not found" instead of a misleading
+      // invalid-credentials toast — the message must include the slug.
+      tenantFindUnique.mockResolvedValue(null);
+
+      await expect(service.resolveBySlug('missing')).rejects.toThrow(NotFoundException);
+      await expect(service.resolveBySlug('missing')).rejects.toThrow('Tenant not found: missing');
     });
   });
 });

@@ -114,8 +114,12 @@ test.describe('Tenant switcher', () => {
       const count = await options.count();
       expect(count).toBeGreaterThan(0);
     } else {
-      // Single-tenant user: switcher correctly absent.
-      await expect(page.getByRole('heading')).toBeVisible({ timeout: 5_000 });
+      // Single-tenant user: switcher correctly absent. The dashboard heading
+      // confirms the page rendered fully — `name: 'Dashboard'` is needed because
+      // strict mode rejects ambiguous matches (Dashboard h1 + Auth coverage h2).
+      await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({
+        timeout: 5_000,
+      });
     }
   });
 });

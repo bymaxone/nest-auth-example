@@ -37,20 +37,35 @@ test.describe('Invitation flow', () => {
     await page.getByRole('button', { name: /sign in/i }).click();
     await page.waitForURL('/dashboard', { timeout: 15_000 });
 
-    // 2. Navigate to the invitations page and send an invite.
-    await page.goto('/dashboard/team');
+    // 2. Navigate to the invitations page. The InviteForm is mounted inline
+    //    (no modal/open-button), so we fill the email field directly. The
+    //    Team page (/dashboard/team) is a read-only members list and has no
+    //    invite affordance.
+    await page.goto('/dashboard/invitations');
     const inviteeEmail = `invitee-${Date.now().toString()}@example.test`;
-    await page.getByRole('button', { name: /invite|add member/i }).click();
     await page.getByLabel(/email/i).fill(inviteeEmail);
     // Select a role if a role selector is visible.
     const roleSelect = page.getByRole('combobox', { name: /role/i });
     if (await roleSelect.isVisible({ timeout: 500 }).catch(() => false)) {
       await roleSelect.selectOption('MEMBER');
     }
-    await page
-      .getByRole('button', { name: /send|invite/i })
-      .last()
-      .click();
+    // Surface real API failures (validation, 4xx) at the click site instead of
+    // letting them masquerade as the downstream "no email arrived" timeout.
+    // 204 No Content is the documented success status — read .text() only on
+    // failure (204 responses have no body and triggering .text() on them raises
+    // "No data found for resource with given identifier" from Chrome DevTools).
+    const inviteResponsePromise = page.waitForResponse(
+      (r) => r.url().includes('/api/auth/invitations') && r.request().method() === 'POST',
+      { timeout: 10_000 },
+    );
+    await page.getByRole('button', { name: /send invite/i }).click();
+    const inviteResponse = await inviteResponsePromise;
+    const status = inviteResponse.status();
+    if (status >= 300) {
+      throw new Error(
+        `POST /api/auth/invitations failed: ${status} ${await inviteResponse.text()}`,
+      );
+    }
 
     // 3. Wait for the invitation email in Mailpit.
     const html = await waitForEmail(inviteeEmail, 10_000);

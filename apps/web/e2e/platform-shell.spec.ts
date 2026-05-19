@@ -34,7 +34,10 @@ test.describe('Platform shell', () => {
   test('shows PLATFORM ADMIN header after login', async ({ page }) => {
     await loginAsPlatformAdmin(page);
 
-    await expect(page.getByText('PLATFORM ADMIN')).toBeVisible();
+    // The brand label "PLATFORM ADMIN" appears in three places (topbar chip,
+    // sidebar greeting, sidebar footer label); `.first()` pins this assertion
+    // to the topbar chip — the canonical surface for "platform mode" identity.
+    await expect(page.getByText('PLATFORM ADMIN').first()).toBeVisible();
   });
 
   /**

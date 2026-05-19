@@ -135,6 +135,9 @@ async function main(): Promise<void> {
           passwordHash,
           status: UserStatus.ACTIVE,
           emailVerified: true,
+          mfaEnabled: false,
+          mfaSecret: null,
+          mfaRecoveryCodes: [],
         },
         create: {
           tenantId: tenant.id,
@@ -165,6 +168,9 @@ async function main(): Promise<void> {
         passwordHash: e2eMemberHash,
         status: UserStatus.ACTIVE,
         emailVerified: true,
+        mfaEnabled: false,
+        mfaSecret: null,
+        mfaRecoveryCodes: [],
       },
       create: {
         tenantId: acmeTenant.id,
@@ -183,6 +189,9 @@ async function main(): Promise<void> {
         passwordHash: e2eAdminHash,
         status: UserStatus.ACTIVE,
         emailVerified: true,
+        mfaEnabled: false,
+        mfaSecret: null,
+        mfaRecoveryCodes: [],
       },
       create: {
         tenantId: acmeTenant.id,

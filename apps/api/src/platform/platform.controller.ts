@@ -23,18 +23,7 @@
  * @see docs/DEVELOPMENT_PLAN.md §Phase 9 P9-2
  */
 
-import {
-  Body,
-  Controller,
-  Get,
-  Headers,
-  Ip,
-  Param,
-  ParseUUIDPipe,
-  Patch,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Get, Headers, Ip, Param, Patch, Query, UseGuards } from '@nestjs/common';
 import {
   CurrentUser,
   JwtPlatformGuard,
@@ -122,7 +111,10 @@ export class PlatformController {
   @Patch('users/:id/status')
   @PlatformRoles('SUPER_ADMIN')
   updateUserStatus(
-    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    // Prisma's User.id is a CUID (`@default(cuid())`), not a UUID v4. Validation
+    // is left to the persistence layer, which throws NotFoundException when no
+    // row matches the supplied id — no shape coercion is needed at the boundary.
+    @Param('id') id: string,
     @Body() dto: UpdateUserStatusDto,
     @CurrentUser() platformUser: AuthPlatformUser,
     @Ip() ip: string,

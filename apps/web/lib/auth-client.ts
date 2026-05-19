@@ -250,12 +250,16 @@ export async function resolveTenantForLogin(slugOrId: string): Promise<string> {
  * @throws `AuthClientError` on non-2xx responses.
  */
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(init.headers as Record<string, string> | undefined),
-  };
-
-  const response = await tenantAwareFetch(path, { ...init, headers });
+  // Do NOT set Content-Type here. `createAuthFetch` inside `innerAuthFetch`
+  // already injects `Content-Type: application/json` via its frozen
+  // DEFAULT_HEADERS, and its `mergeHeaders` helper iterates `Headers` objects
+  // with lowercased names. Adding our own capitalized `Content-Type` here
+  // produces both `Content-Type` and `content-type` keys in the final plain
+  // object, which `fetch` then serializes as a duplicate header line
+  // (`Content-Type: application/json, application/json`). The Nest API's
+  // `express.json()` parser rejects that as not a JSON content-type and the
+  // request body silently arrives empty.
+  const response = await tenantAwareFetch(path, init);
 
   if (response.status === 204) return undefined as T;
 

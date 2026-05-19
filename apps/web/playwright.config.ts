@@ -45,6 +45,16 @@ const apiJwtSecret = readEnvKey(path.join(__dirname, '../api/.env'), 'JWT_SECRET
 export default defineConfig({
   testDir: './e2e',
 
+  /**
+   * Runs once before the suite — applies migrations and seeds the dev DB so
+   * the 11 specs that authenticate with seeded credentials (admin.acme,
+   * platform@example.dev, etc.) work whether the DB is empty (CI / fresh
+   * `infra:nuke`) or already populated (incremental dev runs).
+   *
+   * Idempotent — safe to re-run on every invocation; cost ~1s when up-to-date.
+   */
+  globalSetup: './e2e/global-setup.ts',
+
   /** Run all tests in each file sequentially to avoid race conditions on shared DB state. */
   fullyParallel: false,
 
@@ -71,27 +81,41 @@ export default defineConfig({
   ],
 
   /**
-   * Starts the Next.js webpack dev server before any test file runs.
+   * Starts both the Nest API (:4000) and the Next.js webpack dev server (:3000)
+   * before any test file runs. Both are required: Playwright drives the web UI,
+   * and the web proxies every `/api/*` call to the Nest API.
    *
-   * `reuseExistingServer: true` lets developers pre-start the server manually
-   * for faster iteration — Playwright will connect to it instead of spawning a
-   * new one. Set to `false` on CI to guarantee a clean server process.
+   * `reuseExistingServer: true` lets developers pre-start either server manually
+   * for faster iteration — Playwright connects to whichever is already healthy
+   * instead of spawning a duplicate. Set to `false` on CI to guarantee a clean
+   * process pair per run.
    */
-  webServer: {
-    command: 'pnpm dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env['CI'],
-    timeout: 120_000,
-    env: {
-      // Required by lib/env.ts — schema validation rejects startup without these.
-      INTERNAL_API_URL: process.env['INTERNAL_API_URL'] ?? 'http://localhost:4000',
-      // Read from apps/api/.env so this always matches the running API without
-      // duplicating the secret. Falls back to the env var if the file is absent
-      // (e.g. CI, where secrets are injected via env).
-      AUTH_JWT_SECRET_FOR_PROXY: process.env['AUTH_JWT_SECRET_FOR_PROXY'] ?? apiJwtSecret ?? '',
-      NEXT_PUBLIC_API_URL: process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3000/api',
-      NEXT_PUBLIC_WS_URL: process.env['NEXT_PUBLIC_WS_URL'] ?? 'ws://localhost:3000',
-      NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED: process.env['NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED'] ?? 'false',
+  webServer: [
+    {
+      command: 'pnpm --filter @nest-auth-example/api dev',
+      url: 'http://localhost:4000/api/health',
+      reuseExistingServer: !process.env['CI'],
+      timeout: 120_000,
+      stdout: 'ignore',
+      stderr: 'pipe',
     },
-  },
+    {
+      command: 'pnpm dev',
+      url: 'http://localhost:3000',
+      reuseExistingServer: !process.env['CI'],
+      timeout: 120_000,
+      env: {
+        // Required by lib/env.ts — schema validation rejects startup without these.
+        INTERNAL_API_URL: process.env['INTERNAL_API_URL'] ?? 'http://localhost:4000',
+        // Read from apps/api/.env so this always matches the running API without
+        // duplicating the secret. Falls back to the env var if the file is absent
+        // (e.g. CI, where secrets are injected via env).
+        AUTH_JWT_SECRET_FOR_PROXY: process.env['AUTH_JWT_SECRET_FOR_PROXY'] ?? apiJwtSecret ?? '',
+        NEXT_PUBLIC_API_URL: process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3000/api',
+        NEXT_PUBLIC_WS_URL: process.env['NEXT_PUBLIC_WS_URL'] ?? 'ws://localhost:3000',
+        NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED:
+          process.env['NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED'] ?? 'false',
+      },
+    },
+  ],
 });

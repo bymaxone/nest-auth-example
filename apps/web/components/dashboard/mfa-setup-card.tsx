@@ -155,6 +155,7 @@ export function MfaSetupCard({ onEnabled }: MfaSetupCardProps) {
               <Input
                 readOnly
                 value={secret}
+                data-testid="mfa-secret"
                 className="cursor-text font-mono text-xs"
                 onClick={(e) => (e.target as HTMLInputElement).select()}
               />

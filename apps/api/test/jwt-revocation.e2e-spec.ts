@@ -168,6 +168,12 @@ describe('JWT revocation — logout and revoke-all invalidate active sessions', 
     // are killed we need TWO supertest agents: session 1 calls revoke-all,
     // session 2 then tries to refresh and must be rejected. Covers FCM row #4
     // (session revocation) and protects the library contract for `revokeAllExceptCurrent`.
+    //
+    // Per-test timeout bumped to 60 s — this test runs three register-+-verify
+    // (Mailpit roundtrip) + login + revoke flows in series, and Mailpit's
+    // response time under cumulative load from earlier specs in the full e2e
+    // run regularly pushes the total past the 30 s default. Isolated runs take
+    // ~2 s, so this is purely a "slow Mailpit at the tail of the suite" margin.
     const email = uniqueEmail('revoke-all');
     const password = 'P@ssw0rd12345';
 
@@ -206,7 +212,7 @@ describe('JWT revocation — logout and revoke-all invalidate active sessions', 
     // its 15-minute TTL but the refresh path is the load-bearing check.
     const refreshRes = await session2Agent.post('/api/auth/refresh').set('X-Tenant-Id', 'acme');
     expect(refreshRes.status).toBe(401);
-  });
+  }, 60_000);
 
   // ─── Stale token after logout ─────────────────────────────────────────────
 
@@ -233,5 +239,5 @@ describe('JWT revocation — logout and revoke-all invalidate active sessions', 
     // The server must reject the request because the JTI is blocklisted in Redis.
     const meAfter = await sessionAgent.get('/api/auth/me').set('X-Tenant-Id', 'acme');
     expect(meAfter.status).toBe(401);
-  });
+  }, 60_000);
 });
