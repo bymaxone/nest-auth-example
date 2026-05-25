@@ -11,11 +11,12 @@
  * @see docs/guidelines/nest-auth-guidelines.md
  */
 
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { CurrentUser } from '@bymax-one/nest-auth';
 import type { DashboardJwtPayload } from '@bymax-one/nest-auth';
 
 import { AccountService } from './account.service.js';
+import type { WorkspaceInfo } from './account.service.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
 
 /**
@@ -45,5 +46,23 @@ export class AccountController {
     @CurrentUser() user: DashboardJwtPayload,
   ): Promise<void> {
     return this.accountService.changePassword(user.sub, user.tenantId, dto);
+  }
+
+  /**
+   * Lists every workspace (tenant) the current user's email has an active
+   * account in. Powers the workspace switcher in the dashboard topbar.
+   *
+   * The library binds one JWT to one tenant; "switching" therefore means
+   * signing out and signing back in to the destination tenant. The frontend
+   * uses this list to render the dropdown and to drive the re-auth redirect.
+   *
+   * GET /api/account/workspaces
+   *
+   * @param user - Authenticated user injected by `@CurrentUser()`.
+   * @returns Workspaces sorted with the current one first, then alphabetically.
+   */
+  @Get('workspaces')
+  listWorkspaces(@CurrentUser() user: DashboardJwtPayload): Promise<WorkspaceInfo[]> {
+    return this.accountService.listWorkspaces(user.sub, user.tenantId);
   }
 }

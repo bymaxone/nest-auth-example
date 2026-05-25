@@ -58,13 +58,24 @@ async function makeHash(plain: string): Promise<string> {
 
 // ─── Suite ────────────────────────────────────────────────────────────────────
 
+/** Row shape returned by `prisma.user.findMany` for `listWorkspaces` tests. */
+interface WorkspaceRow {
+  tenantId: string;
+  role: string;
+  tenant: { id: string; slug: string; name: string };
+}
+
 describe('AccountService', () => {
   let service: AccountService;
-  let userFindUnique: jest.Mock<() => Promise<{ id: string; passwordHash: string | null } | null>>;
+  let userFindUnique: jest.Mock<
+    () => Promise<{ id: string; passwordHash: string | null } | { email: string } | null>
+  >;
+  let userFindMany: jest.Mock<() => Promise<WorkspaceRow[]>>;
   let userUpdate: jest.Mock<() => Promise<unknown>>;
 
   beforeEach(async () => {
-    userFindUnique = jest.fn<() => Promise<{ id: string; passwordHash: string | null } | null>>();
+    userFindUnique = jest.fn();
+    userFindMany = jest.fn();
     userUpdate = jest.fn<() => Promise<unknown>>();
 
     const moduleRef: TestingModule = await Test.createTestingModule({
@@ -73,7 +84,7 @@ describe('AccountService', () => {
         {
           provide: PrismaService,
           useValue: {
-            user: { findUnique: userFindUnique, update: userUpdate },
+            user: { findUnique: userFindUnique, findMany: userFindMany, update: userUpdate },
           },
         },
       ],
@@ -244,6 +255,95 @@ describe('AccountService', () => {
       await expect(service.changePassword('user-1', 'acme', dto)).rejects.toThrow(
         UnauthorizedException,
       );
+    });
+  });
+
+  // ─── listWorkspaces ────────────────────────────────────────────────────────
+
+  describe('listWorkspaces', () => {
+    it('returns an empty array when the caller cannot be resolved', async () => {
+      // If findUnique returns null (user deleted between JWT issue and call),
+      // the service must return an empty list rather than throw — the UI then
+      // hides the switcher gracefully.
+      userFindUnique.mockResolvedValue(null);
+
+      const result = await service.listWorkspaces('ghost-user', 'tenant-acme');
+
+      expect(result).toEqual([]);
+      expect(userFindMany).not.toHaveBeenCalled();
+    });
+
+    it('returns a single entry marked as current when the email exists in only one tenant', async () => {
+      // Default seed case: a fresh user belongs to a single tenant. The list has
+      // one row, isCurrent=true, so the dropdown shows the active workspace badge.
+      userFindUnique.mockResolvedValue({ email: 'solo@example.dev' });
+      userFindMany.mockResolvedValue([
+        {
+          tenantId: 'tenant-acme',
+          role: 'ADMIN',
+          tenant: { id: 'tenant-acme', slug: 'acme', name: 'Acme Corp' },
+        },
+      ]);
+
+      const result = await service.listWorkspaces('user-1', 'tenant-acme');
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual({
+        tenantId: 'tenant-acme',
+        tenantSlug: 'acme',
+        tenantName: 'Acme Corp',
+        role: 'ADMIN',
+        isCurrent: true,
+      });
+    });
+
+    it('returns multiple entries when the email exists in several tenants, current first then alphabetical', async () => {
+      // Multi-workspace user: same email belongs to acme and globex. The current
+      // workspace must be first, the rest sorted alphabetically by tenant name.
+      userFindUnique.mockResolvedValue({ email: 'admin@example.dev' });
+      // Intentionally return rows in an order that does NOT match the expected
+      // sort order so the test exercises the sort, not the input ordering.
+      userFindMany.mockResolvedValue([
+        {
+          tenantId: 'tenant-globex',
+          role: 'ADMIN',
+          tenant: { id: 'tenant-globex', slug: 'globex', name: 'Globex Inc' },
+        },
+        {
+          tenantId: 'tenant-acme',
+          role: 'ADMIN',
+          tenant: { id: 'tenant-acme', slug: 'acme', name: 'Acme Corp' },
+        },
+      ]);
+
+      const result = await service.listWorkspaces('user-1', 'tenant-acme');
+
+      // Current (acme) first regardless of input order.
+      expect(result.map((w) => w.tenantSlug)).toEqual(['acme', 'globex']);
+      expect(result[0]?.isCurrent).toBe(true);
+      expect(result[1]?.isCurrent).toBe(false);
+    });
+
+    it('scopes the lookup by the email of the JWT-resolved user, only ACTIVE accounts', async () => {
+      // Tenant isolation + status check happens via the findMany WHERE clause —
+      // verify the service requests exactly the right shape so the DB query
+      // never leaks inactive or unrelated rows.
+      userFindUnique.mockResolvedValue({ email: 'admin@example.dev' });
+      userFindMany.mockResolvedValue([]);
+
+      await service.listWorkspaces('user-1', 'tenant-acme');
+
+      expect(userFindMany).toHaveBeenCalledTimes(1);
+      // Cast through unknown: the mock's recorded args have a runtime shape but
+      // its TS signature is the no-arg `() => Promise<...>` declared above.
+      const calls = userFindMany.mock.calls as unknown as Array<
+        [{ where: { email: string; status: string } }]
+      >;
+      const args = calls[0]?.[0];
+      expect(args).toBeDefined();
+      expect(args?.where.email).toBe('admin@example.dev');
+      // Status guard must request ACTIVE rows only.
+      expect(String(args?.where.status)).toBe('ACTIVE');
     });
   });
 });

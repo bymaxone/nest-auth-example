@@ -34,16 +34,18 @@ function makeUser(overrides: { sub?: string; tenantId?: string } = {}) {
 describe('AccountController', () => {
   let controller: AccountController;
   let changePassword: jest.Mock<() => Promise<void>>;
+  let listWorkspaces: jest.Mock<() => Promise<unknown[]>>;
 
   beforeEach(async () => {
     changePassword = jest.fn<() => Promise<void>>();
+    listWorkspaces = jest.fn<() => Promise<unknown[]>>();
 
     const moduleRef = await Test.createTestingModule({
       controllers: [AccountController],
       providers: [
         {
           provide: AccountService,
-          useValue: { changePassword },
+          useValue: { changePassword, listWorkspaces },
         },
       ],
     }).compile();
@@ -83,6 +85,31 @@ describe('AccountController', () => {
       const user = makeUser();
 
       await expect(controller.changePassword(dto, user as never)).resolves.toBeUndefined();
+    });
+  });
+
+  // ─── listWorkspaces ───────────────────────────────────────────────────────
+
+  describe('listWorkspaces', () => {
+    it('forwards user.sub and user.tenantId from the JWT to the service', async () => {
+      // The controller must read the identity claims from the validated JWT —
+      // never trust client-supplied input — and pass them straight through.
+      const expected = [
+        {
+          tenantId: 't-acme',
+          tenantSlug: 'acme',
+          tenantName: 'Acme Corp',
+          role: 'ADMIN',
+          isCurrent: true,
+        },
+      ];
+      listWorkspaces.mockResolvedValue(expected);
+      const user = makeUser({ sub: 'user-42', tenantId: 'tenant-99' });
+
+      const result = await controller.listWorkspaces(user as never);
+
+      expect(listWorkspaces).toHaveBeenCalledWith('user-42', 'tenant-99');
+      expect(result).toBe(expected);
     });
   });
 });

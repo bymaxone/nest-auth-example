@@ -323,6 +323,27 @@ export interface TenantInfo {
   slug: string;
 }
 
+/**
+ * Workspace as returned by `GET /api/account/workspaces` — one entry per tenant
+ * where the signed-in user's email has an active account.
+ *
+ * The library uses a one-JWT-per-tenant model, so each workspace is backed by
+ * a separate `User` row sharing the same email. Switching workspaces in the UI
+ * means signing out and signing back in to the destination tenant.
+ */
+export interface WorkspaceInfo {
+  /** Tenant CUID — used as the `X-Tenant-Id` header value after re-auth. */
+  tenantId: string;
+  /** URL-safe slug — used as the `?tenantId=` query param on the login page. */
+  tenantSlug: string;
+  /** Human-readable tenant name — what the user sees in the dropdown. */
+  tenantName: string;
+  /** Role granted to the user in this workspace (purely informational). */
+  role: string;
+  /** True when this workspace matches the current JWT's tenant context. */
+  isCurrent: boolean;
+}
+
 // ── Project types ─────────────────────────────────────────────────────────────
 
 /**
@@ -453,6 +474,15 @@ export const revokeAllSessions = (): Promise<void> =>
  * @returns Array of `TenantInfo` objects.
  */
 export const listTenants = (): Promise<TenantInfo[]> => apiFetch<TenantInfo[]>('/tenants/me');
+
+/**
+ * Lists every workspace (tenant) the authenticated user's email has an active
+ * account in — the data source for the dashboard's workspace switcher.
+ *
+ * @returns Array of `WorkspaceInfo` with the current workspace first.
+ */
+export const listWorkspaces = (): Promise<WorkspaceInfo[]> =>
+  apiFetch<WorkspaceInfo[]>('/account/workspaces');
 
 // ── User helpers ──────────────────────────────────────────────────────────────
 

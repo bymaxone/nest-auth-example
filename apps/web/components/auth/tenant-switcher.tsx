@@ -1,19 +1,22 @@
 /**
- * @fileoverview Tenant switcher dropdown for the dashboard topbar.
+ * @fileoverview Workspace switcher dropdown for the dashboard topbar.
  *
- * Fetches the list of tenants the signed-in user belongs to from
- * `GET /api/tenants/me`. On selection, writes the chosen tenant ID into the
- * `tenant_id` client cookie (1-year expiry, `SameSite=Lax`, `Secure` in
- * production) so `tenantAwareFetch` in `lib/auth-client.ts` can forward it as
- * `X-Tenant-Id` on every subsequent request. Calls `router.refresh()` so
- * Server Components re-render with the new tenant scope.
+ * Fetches every workspace the signed-in user's email has access to from
+ * `GET /api/account/workspaces`. Because `@bymax-one/nest-auth` binds one JWT
+ * to one tenant by design, switching workspaces is not a live context swap —
+ * it is a Slack-style re-authentication:
  *
- * The cookie is NOT HttpOnly — it must be readable by client code.
- * Security note: `tenantId` is not a secret; the server enforces tenant
- * isolation via the JWT `tenantId` claim and `UserStatusGuard`, not by
- * treating the header value as trusted input alone.
+ *   1. The dropdown lists each workspace (with the current one marked).
+ *   2. Selecting a different workspace POSTs `/api/auth/logout` (the library's
+ *      `createLogoutHandler` clears every auth cookie).
+ *   3. The page then navigates to `/auth/login?tenantId=<slug>` where the user
+ *      authenticates against the destination tenant's distinct `User` row.
  *
- * Covers FCM row #20 (multi-tenant isolation via `X-Tenant-Id`).
+ * Each workspace has its own user row, its own password hash, and its own MFA
+ * setup — exactly mirroring how products like Slack handle multi-workspace
+ * identity sharing without sacrificing tenant isolation.
+ *
+ * Covers FCM row #20 (multi-tenant workspace switching).
  *
  * @layer components/auth
  */
@@ -33,74 +36,45 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import { listTenants } from '@/lib/auth-client';
-import type { TenantInfo } from '@/lib/auth-client';
-
-/** Name of the client cookie used to store the active tenant ID. */
-const TENANT_COOKIE = 'tenant_id';
-
-/** Cookie max-age: 1 year in seconds. */
-const ONE_YEAR_SECONDS = 31_536_000;
+import { listWorkspaces } from '@/lib/auth-client';
+import type { WorkspaceInfo } from '@/lib/auth-client';
 
 /**
- * Writes `tenant_id` to `document.cookie` with the appropriate security flags.
+ * Drives the workspace re-authentication flow:
+ *  - clears the current dashboard session via the library's logout endpoint
+ *  - then navigates to the login page of the destination tenant
  *
- * `SameSite=Lax` prevents cross-site leakage while still allowing top-level
- * navigation. `Secure` is added when the page is served over HTTPS.
- *
- * @param tenantId - The tenant ID to persist.
+ * @param tenantSlug - URL-safe slug of the destination workspace.
  */
-function writeTenantCookie(tenantId: string): void {
-  const secure = location.protocol === 'https:' ? '; Secure' : '';
-  document.cookie = `${TENANT_COOKIE}=${tenantId}; Path=/; Max-Age=${ONE_YEAR_SECONDS}; SameSite=Lax${secure}`;
+async function signOutAndGoToLogin(tenantSlug: string): Promise<void> {
+  await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+  // Full-page navigation so any in-memory React state (caches, AuthProvider
+  // session) is discarded before the user lands on the destination login.
+  window.location.assign(`/auth/login?tenantId=${encodeURIComponent(tenantSlug)}`);
 }
 
 /**
- * Reads the current `tenant_id` from `document.cookie`.
+ * Dropdown that lists every workspace the user can sign into and triggers a
+ * logout-then-login redirect when a non-current workspace is selected.
  *
- * @returns The stored tenant ID, or `undefined` when the cookie is absent.
- */
-function readTenantCookie(): string | undefined {
-  const prefix = `${TENANT_COOKIE}=`;
-  for (const part of document.cookie.split('; ')) {
-    if (part.startsWith(prefix)) {
-      return part.slice(prefix.length);
-    }
-  }
-  return undefined;
-}
-
-/**
- * Dropdown that lists the user's tenants and persists the selected one in a
- * client cookie so the API client can forward it as `X-Tenant-Id`.
- *
- * Renders nothing until the tenant list has loaded. On fetch failure a toast
- * is shown and the component remains invisible (not blocking the topbar).
+ * Renders nothing while the workspace list is loading. On fetch failure a
+ * toast is shown and the component stays invisible so it never blocks the
+ * topbar layout.
  */
 export function TenantSwitcher() {
   const router = useRouter();
-  const [tenants, setTenants] = useState<TenantInfo[]>([]);
-  const [activeTenantId, setActiveTenantId] = useState<string | undefined>(undefined);
+  const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSwitching, setIsSwitching] = useState(false);
 
   useEffect(() => {
-    /** Loads tenant list and initialises the active tenant cookie. */
+    /** Loads the workspace list for the signed-in user. */
     const load = async () => {
       try {
-        const list = await listTenants();
-        setTenants(list);
-
-        const storedId = readTenantCookie();
-        // Use stored cookie if it matches a real tenant, otherwise default to first.
-        const valid = list.find((t) => t.id === storedId) ?? list[0];
-        if (valid) {
-          setActiveTenantId(valid.id);
-          if (storedId !== valid.id) {
-            writeTenantCookie(valid.id);
-          }
-        }
+        const list = await listWorkspaces();
+        setWorkspaces(list);
       } catch {
-        toast.error('Could not load tenant list.');
+        toast.error('Could not load workspaces.');
       } finally {
         setIsLoading(false);
       }
@@ -109,21 +83,27 @@ export function TenantSwitcher() {
   }, []);
 
   /**
-   * Persists the selected tenant and refreshes the Server Component tree so
-   * pages re-render with the new `X-Tenant-Id` scope.
+   * Handles selection of a workspace.
    *
-   * @param tenantId - The newly selected tenant ID.
+   * Selecting the current workspace is a no-op (closes the dropdown). Selecting
+   * any other workspace triggers the logout-and-redirect flow so the user can
+   * re-authenticate into that tenant's distinct account.
+   *
+   * @param workspace - The chosen workspace.
    */
-  const handleSelect = (tenantId: string) => {
-    if (tenantId === activeTenantId) return;
-    writeTenantCookie(tenantId);
-    setActiveTenantId(tenantId);
-    router.refresh();
+  const handleSelect = (workspace: WorkspaceInfo) => {
+    if (workspace.isCurrent || isSwitching) return;
+    setIsSwitching(true);
+    void signOutAndGoToLogin(workspace.tenantSlug).catch(() => {
+      toast.error('Could not switch workspace. Please try again.');
+      setIsSwitching(false);
+      router.refresh();
+    });
   };
 
-  const activeTenant = tenants.find((t) => t.id === activeTenantId);
+  const activeWorkspace = workspaces.find((w) => w.isCurrent) ?? workspaces[0];
 
-  if (isLoading || tenants.length === 0) return null;
+  if (isLoading || workspaces.length === 0 || activeWorkspace === undefined) return null;
 
   return (
     <DropdownMenu>
@@ -132,38 +112,42 @@ export function TenantSwitcher() {
           variant="ghost"
           size="sm"
           className="hidden h-8 items-center gap-1.5 border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.04)] px-2.5 text-xs font-medium text-[rgba(255,255,255,0.7)] hover:bg-[rgba(255,255,255,0.08)] hover:text-white lg:flex"
-          aria-label="Switch tenant"
+          aria-label="Switch workspace"
+          disabled={isSwitching}
         >
           <Building2 className="h-3.5 w-3.5 shrink-0 text-[#ff6224]" />
-          <span className="max-w-[120px] truncate">{activeTenant?.name ?? 'Select tenant'}</span>
+          <span className="max-w-[120px] truncate">{activeWorkspace.tenantName}</span>
           <ChevronDown className="h-3 w-3 opacity-50" />
         </Button>
       </DropdownMenuTrigger>
 
       <DropdownMenuContent
         align="end"
-        className="w-48 border-[rgba(255,255,255,0.08)] bg-[rgba(18,18,18,0.98)] backdrop-blur-md"
+        className="w-56 border-[rgba(255,255,255,0.08)] bg-[rgba(18,18,18,0.98)] backdrop-blur-md"
       >
         <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-[rgba(255,255,255,0.35)]">
           Workspaces
         </DropdownMenuLabel>
         <DropdownMenuSeparator className="bg-[rgba(255,255,255,0.06)]" />
 
-        {tenants.map((tenant) => (
+        {workspaces.map((workspace) => (
           <DropdownMenuItem
-            key={tenant.id}
-            onClick={() => handleSelect(tenant.id)}
+            key={workspace.tenantId}
+            onClick={() => handleSelect(workspace)}
             className={
-              tenant.id === activeTenantId
-                ? 'cursor-pointer text-[#ff6224] focus:bg-[rgba(255,98,36,0.1)] focus:text-[#ff6224]'
+              workspace.isCurrent
+                ? 'cursor-default text-[#ff6224] focus:bg-[rgba(255,98,36,0.1)] focus:text-[#ff6224]'
                 : 'cursor-pointer text-[rgba(255,255,255,0.7)] focus:bg-[rgba(255,255,255,0.05)] focus:text-white'
             }
           >
             <Building2 className="mr-2 h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">{tenant.name}</span>
-            {tenant.id === activeTenantId && (
-              <span className="ml-auto text-[10px] text-[#ff6224]">✓</span>
-            )}
+            <div className="flex flex-1 flex-col">
+              <span className="truncate text-sm leading-tight">{workspace.tenantName}</span>
+              <span className="truncate text-[10px] uppercase tracking-wider text-[rgba(255,255,255,0.35)]">
+                {workspace.role.toLowerCase()}
+              </span>
+            </div>
+            {workspace.isCurrent && <span className="ml-auto text-[10px] text-[#ff6224]">✓</span>}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

@@ -41,7 +41,7 @@ If the library is **what** to use, this repository is **how** to use it.
 
 - **🎯 Live demo of every library feature** — registration, login, JWT refresh rotation, MFA (TOTP + recovery codes), Google OAuth, sessions with FIFO eviction, password reset (token & OTP modes), email verification, invitations, RBAC, multi-tenant isolation, platform admin context, brute-force lockout, WebSocket auth — all wired and runnable in under five minutes.
 - **🧱 Copy-paste friendly** — module organization, repository implementations (Prisma), email providers (Mailpit / Resend), proxy & route handlers (Next.js App Router), React hook usage. The folder names are deliberately generic so you can lift them directly into your codebase.
-- **🧪 Production-grade test harness** — 75 unit/integration suites (751 tests) + 21 API e2e suites (65 tests) + 21 Playwright specs (20 + 1 documented skip). Used by the library's maintainers to gate releases.
+- **🧪 Production-grade test harness** — 75 unit/integration suites (753 tests) + 21 API e2e suites (65 tests) + 21 Playwright specs (21 passing, no skips). Used by the library's maintainers to gate releases.
 - **🔄 Always tracking latest** — `main` is pinned to the latest `@bymax-one/nest-auth` minor; when the library ships a new release, this repo is updated alongside.
 
 ```bash
@@ -73,7 +73,7 @@ pnpm install && pnpm infra:up && pnpm dev
 
 - ✅ **Tenant isolation** — every row carries `tenantId`; `X-Tenant-Id` header resolved server-side; slug→CUID resolver for the UI
 - ✅ **Hierarchical roles** — `OWNER > ADMIN > MEMBER > VIEWER`, enforced via `@Roles()` decorator + `RolesGuard`
-- ✅ **Tenant switcher** — users belonging to multiple tenants pick one via dropdown
+- ✅ **Workspace switcher** — Slack-style: same email in multiple tenants? Pick a workspace from the dropdown and the app logs you out and redirects you to the destination tenant's login — one JWT per tenant, never a live context swap
 - ✅ **User invitations** — admin invites by email + role; recipient flow consumes the token and sets a password
 - ✅ **Account status enforcement** — `UserStatusGuard` blocks `suspended` users; admin UI toggles the flag
 
@@ -215,13 +215,13 @@ Every `@bymax-one/nest-auth` capability is exercised. Each row links to the spec
 
 ### 🏢 Multi-tenant & RBAC
 
-| Library feature                     | Demonstrated in                                | Tested by                                                                                      |
-| ----------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Tenant isolation via `X-Tenant-Id`  | `tenantAwareFetch` + every API call            | `apps/api/test/tenant-isolation.e2e-spec.ts`                                                   |
-| Tenant switcher (multi-tenant user) | `<TenantSwitcher>` in topbar                   | `apps/web/e2e/tenant-switcher.spec.ts`                                                         |
-| RBAC with `@Roles()` + hierarchy    | `apps/api/src/projects/projects.controller.ts` | `apps/api/test/rbac.e2e-spec.ts`                                                               |
-| User invitations                    | `dashboard/invitations` → `accept-invitation`  | `apps/api/test/invitations.e2e-spec.ts` · `apps/web/e2e/invitations.spec.ts`                   |
-| Account status enforcement          | Admin suspend/unsuspend in platform UI         | `apps/api/test/status-enforcement.e2e-spec.ts` · `apps/web/e2e/platform-users-suspend.spec.ts` |
+| Library feature                          | Demonstrated in                                    | Tested by                                                                                         |
+| ---------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Tenant isolation via `X-Tenant-Id`       | `tenantAwareFetch` + every API call                | `apps/api/test/tenant-isolation.e2e-spec.ts`                                                      |
+| Workspace switcher (Slack-style re-auth) | `<TenantSwitcher>` + `GET /api/account/workspaces` | `apps/web/e2e/tenant-switcher.spec.ts` (logs out then redirects to `/auth/login?tenantId=<slug>`) |
+| RBAC with `@Roles()` + hierarchy         | `apps/api/src/projects/projects.controller.ts`     | `apps/api/test/rbac.e2e-spec.ts`                                                                  |
+| User invitations                         | `dashboard/invitations` → `accept-invitation`      | `apps/api/test/invitations.e2e-spec.ts` · `apps/web/e2e/invitations.spec.ts`                      |
+| Account status enforcement               | Admin suspend/unsuspend in platform UI             | `apps/api/test/status-enforcement.e2e-spec.ts` · `apps/web/e2e/platform-users-suspend.spec.ts`    |
 
 ### 🔁 Sessions & throttling
 
@@ -472,13 +472,13 @@ nest-auth-example/
 
 This repo is held to a similar bar as the library itself — every demonstrated flow has a regression-locking test, and CI runs the full matrix on every PR.
 
-| Suite                                           | Test count                   | What it covers                                                                    |
-| ----------------------------------------------- | ---------------------------- | --------------------------------------------------------------------------------- |
-| `pnpm --filter @nest-auth-example/api test`     | **315** in 28 suites         | Unit + integration — repositories, hooks, services, guards composition            |
-| `pnpm --filter @nest-auth-example/web test`     | **436** in 47 suites         | Vitest — auth client, error mapping, components, layout primitives                |
-| `pnpm --filter @nest-auth-example/api test:e2e` | **65** in 21 suites          | supertest e2e — every auth flow against real Postgres + Redis (test stack)        |
-| `pnpm --filter @nest-auth-example/web test:e2e` | **20** (+ 1 documented skip) | Playwright — login, MFA, invitation, password reset, platform admin, WS isolation |
-| **Total**                                       | **836 tests**                | Plus the `_probe` package that fails typecheck if any lib subpath export changes  |
+| Suite                                           | Test count           | What it covers                                                                                      |
+| ----------------------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------- |
+| `pnpm --filter @nest-auth-example/api test`     | **320** in 28 suites | Unit + integration — repositories, hooks, services, guards composition                              |
+| `pnpm --filter @nest-auth-example/web test`     | **433** in 47 suites | Vitest — auth client, error mapping, components, layout primitives                                  |
+| `pnpm --filter @nest-auth-example/api test:e2e` | **65** in 21 suites  | supertest e2e — every auth flow against real Postgres + Redis (test stack)                          |
+| `pnpm --filter @nest-auth-example/web test:e2e` | **21** (no skips)    | Playwright — login, MFA, invitation, password reset, platform admin, workspace switch, WS isolation |
+| **Total**                                       | **839 tests**        | Plus the `_probe` package that fails typecheck if any lib subpath export changes                    |
 
 ### Verification gates (run before every PR)
 
@@ -486,7 +486,7 @@ This repo is held to a similar bar as the library itself — every demonstrated 
 pnpm typecheck      # tsc --noEmit across all workspaces  → 0 errors
 pnpm lint           # ESLint flat config                   → 0 errors, no suppressions
 pnpm format:check   # Prettier                             → clean
-pnpm test           # unit + integration                   → 315 + 436 passing
+pnpm test           # unit + integration                   → 320 + 433 passing
 ```
 
 ### End-to-end gates

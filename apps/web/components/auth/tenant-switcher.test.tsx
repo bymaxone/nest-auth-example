@@ -2,20 +2,23 @@
  * @fileoverview Unit tests for the `TenantSwitcher` component.
  *
  * Verifies:
- * - Component returns null while loading.
- * - Component returns null when tenant list is empty.
- * - Renders the trigger button with the active tenant name once loaded.
- * - Calling `handleSelect` with a different tenant writes the cookie and refreshes.
+ * - Renders nothing while loading or with an empty workspace list.
+ * - Renders the trigger button with the current workspace name.
+ * - Error toast on fetch failure.
+ * - Selecting the current workspace is a no-op.
+ * - Selecting a different workspace POSTs /api/auth/logout and navigates to
+ *   /auth/login?tenantId=<slug> (Slack-style re-auth).
+ * - The active workspace is marked with a checkmark in the dropdown.
  *
- * `next/navigation`, `sonner`, and `@/lib/auth-client` are mocked so no real
- * API calls occur.
+ * `next/navigation`, `sonner`, `@/lib/auth-client`, `fetch`, and
+ * `window.location.assign` are mocked so no real API or navigation occurs.
  *
  * @module components/auth/tenant-switcher.test
  */
 
 // @vitest-environment jsdom
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
@@ -33,64 +36,108 @@ vi.mock('sonner', () => ({
 }));
 
 vi.mock('@/lib/auth-client', () => ({
-  listTenants: vi.fn(),
+  listWorkspaces: vi.fn(),
 }));
 
 // ── Typed imports after mocks ─────────────────────────────────────────────────
 
-import { listTenants } from '@/lib/auth-client';
+import { listWorkspaces } from '@/lib/auth-client';
 import { toast } from 'sonner';
 import { TenantSwitcher } from './tenant-switcher.js';
 
+/**
+ * Shorthand to build a workspace entry — keeps each test focused on the field
+ * that drives the behavior under test.
+ */
+function workspace(
+  id: string,
+  name: string,
+  slug: string,
+  isCurrent: boolean,
+  role = 'ADMIN',
+): {
+  tenantId: string;
+  tenantName: string;
+  tenantSlug: string;
+  isCurrent: boolean;
+  role: string;
+} {
+  return { tenantId: id, tenantName: name, tenantSlug: slug, isCurrent, role };
+}
+
+/** Captures every `fetch` call dispatched by the component under test. */
+let fetchMock: ReturnType<typeof vi.fn>;
+/** Captures every `window.location.assign` call. */
+let assignMock: ReturnType<typeof vi.fn>;
+/** Saved original `window.location` for restoration in afterEach. */
+let savedLocation: Location;
+
 beforeEach(() => {
   vi.clearAllMocks();
-  // Reset the stable router mock.
   mockRouter.push.mockReset();
   mockRouter.refresh.mockReset();
   mockRouter.replace.mockReset();
-  // Clear document.cookie before each test to avoid cross-test contamination.
-  document.cookie.split(';').forEach((c) => {
-    document.cookie = c
-      .replace(/^ +/, '')
-      .replace(/=.*/, '=;expires=' + new Date().toUTCString() + ';path=/');
+
+  // Stub global fetch so /api/auth/logout never touches the network.
+  fetchMock = vi.fn().mockResolvedValue({ ok: true });
+  vi.stubGlobal('fetch', fetchMock);
+
+  // Replace window.location with a writable stub so we can spy on assign().
+  savedLocation = window.location;
+  assignMock = vi.fn();
+  Object.defineProperty(window, 'location', {
+    value: { ...savedLocation, assign: assignMock },
+    writable: true,
+    configurable: true,
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  Object.defineProperty(window, 'location', {
+    value: savedLocation,
+    writable: true,
+    configurable: true,
   });
 });
 
 describe('TenantSwitcher states', () => {
-  it('renders null while the tenant list is still loading', () => {
+  it('renders null while the workspace list is still loading', () => {
     /*
-     * Scenario: before `listTenants` resolves the component should return null
-     * so the topbar does not flash an empty dropdown during fetch.
+     * Scenario: before `listWorkspaces` resolves, the component must return null
+     * so the topbar does not flash a stub dropdown during fetch.
      * Protects: isLoading guard — no partial render while fetching.
      */
     // Never resolve so we stay in the loading state.
-    vi.mocked(listTenants).mockReturnValue(new Promise(() => undefined));
+    vi.mocked(listWorkspaces).mockReturnValue(new Promise(() => undefined));
     const { container } = render(<TenantSwitcher />);
     expect(container.firstChild).toBeNull();
   });
 
-  it('renders null when the tenant list is empty', async () => {
+  it('renders null when the workspace list is empty', async () => {
     /*
-     * Scenario: if the user has no tenants the component must render nothing
-     * rather than showing an empty dropdown trigger.
-     * Protects: `tenants.length === 0` guard in the render return.
+     * Scenario: when the user has no workspaces at all (shouldn't happen in
+     * practice, but the endpoint returns an empty array for safety), the
+     * component must render nothing rather than showing an empty trigger.
+     * Protects: `workspaces.length === 0` guard before render.
      */
-    vi.mocked(listTenants).mockResolvedValue([]);
+    vi.mocked(listWorkspaces).mockResolvedValue([]);
     const { container } = render(<TenantSwitcher />);
     await waitFor(() => {
       expect(container.firstChild).toBeNull();
     });
   });
 
-  it('renders the trigger button with the first tenant name once loaded', async () => {
+  it('renders the trigger button labeled with the current workspace name', async () => {
     /*
-     * Scenario: when the API returns a tenant list the button label must show
-     * the active tenant name so the user knows which workspace is selected.
-     * Protects: active tenant label renders correctly after fetch resolves.
+     * Scenario: with a workspace list returned from the API, the trigger button
+     * displays the active workspace's name so the user knows where they're
+     * signed in.
+     * Protects: trigger renders the active workspace label.
      */
-    vi.mocked(listTenants).mockResolvedValue([
-      { id: 'tid-1', name: 'Acme Corp', slug: 'acme' },
-      { id: 'tid-2', name: 'Beta Ltd', slug: 'beta' },
+    vi.mocked(listWorkspaces).mockResolvedValue([
+      workspace('tid-1', 'Acme Corp', 'acme', true),
+      workspace('tid-2', 'Globex Inc', 'globex', false),
     ]);
     render(<TenantSwitcher />);
     await waitFor(() => {
@@ -98,131 +145,69 @@ describe('TenantSwitcher states', () => {
     });
   });
 
-  it('shows an error toast when listTenants rejects', async () => {
+  it('shows an error toast when listWorkspaces rejects', async () => {
     /*
-     * Scenario: if the API call fails the component must fire a toast.error
-     * and remain invisible (not crash).
+     * Scenario: when the API call fails, a toast.error is fired and the
+     * component stays invisible — no crash, no partial UI.
      * Protects: catch block in the load() effect.
      */
-    vi.mocked(listTenants).mockRejectedValue(new Error('Network failure'));
+    vi.mocked(listWorkspaces).mockRejectedValue(new Error('Network failure'));
     render(<TenantSwitcher />);
     await waitFor(() => {
-      expect(vi.mocked(toast).error).toHaveBeenCalledWith('Could not load tenant list.');
+      expect(vi.mocked(toast).error).toHaveBeenCalledWith('Could not load workspaces.');
     });
   });
 
-  it('reads the stored tenant_id cookie and pre-selects the matching tenant', async () => {
+  it('does not redirect when the current workspace is selected', async () => {
     /*
-     * Scenario: when a `tenant_id` cookie is already set and matches a tenant in
-     * the list, readTenantCookie must return that ID and the component uses it
-     * without re-writing the cookie.
-     * Protects: line 67 — `return part.slice(prefix.length)` in readTenantCookie
-     * (the branch where a matching cookie is found).
+     * Scenario: clicking the already-active workspace must be a no-op — no
+     * logout, no navigation.
+     * Protects: `if (workspace.isCurrent || isSwitching) return` guard.
      */
-    // Pre-set the cookie to the second tenant.
-    document.cookie = 'tenant_id=tid-2; Path=/';
-
-    vi.mocked(listTenants).mockResolvedValue([
-      { id: 'tid-1', name: 'Acme Corp', slug: 'acme' },
-      { id: 'tid-2', name: 'Beta Ltd', slug: 'beta' },
+    vi.mocked(listWorkspaces).mockResolvedValue([
+      workspace('tid-1', 'Acme Corp', 'acme', true),
+      workspace('tid-2', 'Globex Inc', 'globex', false),
     ]);
-    render(<TenantSwitcher />);
-    await waitFor(() => {
-      // Beta Ltd should be the active tenant (matching the cookie).
-      expect(screen.getByText('Beta Ltd')).toBeDefined();
-    });
-  });
-
-  it('does not call router.refresh when the same tenant is selected again', async () => {
-    /*
-     * Scenario: clicking the already-active tenant must be a no-op — no cookie
-     * update and no router.refresh() call.
-     * Protects: lines 118-121 — `if (tenantId === activeTenantId) return` guard.
-     */
-    vi.mocked(listTenants).mockResolvedValue([{ id: 'tid-1', name: 'Acme Corp', slug: 'acme' }]);
     render(<TenantSwitcher />);
     await waitFor(() => {
       expect(screen.getByText('Acme Corp')).toBeDefined();
     });
 
     // Open the dropdown via Radix-compatible pointer events.
-    const trigger = screen.getByRole('button', { name: /switch tenant/i });
+    const trigger = screen.getByRole('button', { name: /switch workspace/i });
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, bubbles: true });
     fireEvent.mouseDown(trigger, { bubbles: true });
     fireEvent.click(trigger, { bubbles: true });
 
-    // Allow Radix to render the portal content.
     await waitFor(() => {
       const menuItems = document.body.querySelectorAll('[role="menuitem"]');
       if (menuItems.length > 0) {
-        // Click the first item (Acme Corp = active tenant).
+        // First item is the current workspace ("Acme Corp").
         fireEvent.click(menuItems[0]!);
       }
-      // Whether or not the portal opened, refresh must NOT have been called.
-      expect(mockRouter.refresh).not.toHaveBeenCalled();
+      // No matter what, the no-op guard prevents the logout fetch + navigation.
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(assignMock).not.toHaveBeenCalled();
     });
   });
 
-  it('writes the cookie and calls router.refresh when a different tenant is selected', async () => {
+  it('logs out and redirects to the destination login when a non-current workspace is selected', async () => {
     /*
-     * Scenario: clicking a tenant that is not the current active one must update
-     * the cookie and call router.refresh() to re-render server components.
-     * Protects: lines 119-121 — writeTenantCookie + setActiveTenantId + router.refresh().
+     * Scenario: selecting a different workspace must POST /api/auth/logout to
+     * clear the current session and then assign window.location to
+     * /auth/login?tenantId=<slug> for the destination tenant.
+     * Protects: the Slack-style re-auth flow inside `signOutAndGoToLogin`.
      */
-    vi.mocked(listTenants).mockResolvedValue([
-      { id: 'tid-1', name: 'Acme Corp', slug: 'acme' },
-      { id: 'tid-2', name: 'Beta Ltd', slug: 'beta' },
+    vi.mocked(listWorkspaces).mockResolvedValue([
+      workspace('tid-1', 'Acme Corp', 'acme', true),
+      workspace('tid-2', 'Globex Inc', 'globex', false),
     ]);
     render(<TenantSwitcher />);
     await waitFor(() => {
       expect(screen.getByText('Acme Corp')).toBeDefined();
     });
 
-    // Open the dropdown via Radix-compatible pointer events.
-    const trigger = screen.getByRole('button', { name: /switch tenant/i });
-    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, bubbles: true });
-    fireEvent.mouseDown(trigger, { bubbles: true });
-    fireEvent.click(trigger, { bubbles: true });
-
-    // Allow Radix to render the portal content.
-    await waitFor(() => {
-      const menuItems = document.body.querySelectorAll('[role="menuitem"]');
-      if (menuItems.length >= 2) {
-        // Click the second item (Beta Ltd = different tenant).
-        fireEvent.click(menuItems[1]!);
-        // After clicking a different tenant, router.refresh must be called.
-        expect(mockRouter.refresh).toHaveBeenCalled();
-      }
-      // If the menu didn't open in this JSDOM environment, the test still passes
-      // by verifying no unexpected errors occurred.
-    });
-  });
-
-  it('adds Secure flag to cookie when location.protocol is https', async () => {
-    /*
-     * Scenario: when the page is served over HTTPS `writeTenantCookie` must set
-     * the `Secure` flag so the cookie cannot be transmitted over plain HTTP.
-     * Protects: line 54 — `location.protocol === 'https:' ? '; Secure' : ''` truthy branch.
-     */
-    // Stub location to simulate an HTTPS environment.
-    const originalLocation = window.location;
-    Object.defineProperty(window, 'location', {
-      value: { ...window.location, protocol: 'https:' },
-      writable: true,
-      configurable: true,
-    });
-
-    vi.mocked(listTenants).mockResolvedValue([
-      { id: 'tid-1', name: 'Acme Corp', slug: 'acme' },
-      { id: 'tid-2', name: 'Beta Ltd', slug: 'beta' },
-    ]);
-    render(<TenantSwitcher />);
-    await waitFor(() => {
-      expect(screen.getByText('Acme Corp')).toBeDefined();
-    });
-
-    // Open dropdown and click second tenant to trigger writeTenantCookie with Secure.
-    const trigger = screen.getByRole('button', { name: /switch tenant/i });
+    const trigger = screen.getByRole('button', { name: /switch workspace/i });
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, bubbles: true });
     fireEvent.mouseDown(trigger, { bubbles: true });
     fireEvent.click(trigger, { bubbles: true });
@@ -230,60 +215,41 @@ describe('TenantSwitcher states', () => {
     await waitFor(() => {
       const menuItems = document.body.querySelectorAll('[role="menuitem"]');
       if (menuItems.length >= 2) {
+        // Second item is the non-current workspace ("Globex Inc").
         fireEvent.click(menuItems[1]!);
-        // After selecting a different tenant with HTTPS, refresh must be called.
-        expect(mockRouter.refresh).toHaveBeenCalled();
       }
     });
 
-    // Restore original location.
-    Object.defineProperty(window, 'location', {
-      value: originalLocation,
-      writable: true,
-      configurable: true,
-    });
-  });
-
-  it('renders "Select tenant" fallback when the active tenant has no name', async () => {
-    /*
-     * Scenario: when the active tenant has an undefined or null name the
-     * `activeTenant?.name ?? 'Select tenant'` null-coalescing branch fires and
-     * the button shows the fallback label.
-     * Protects: line 138 — `?? 'Select tenant'` null-coalescing false branch.
-     */
-    vi.mocked(listTenants).mockResolvedValue([
-      // Tenant with undefined name triggers the ?? 'Select tenant' fallback.
-      { id: 'tid-1', name: undefined as unknown as string, slug: 'slug-1' },
-    ]);
-    render(<TenantSwitcher />);
+    // The component awaits the logout fetch before navigating — wait for both.
     await waitFor(() => {
-      expect(screen.getByText('Select tenant')).toBeDefined();
+      expect(fetchMock).toHaveBeenCalledWith('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      expect(assignMock).toHaveBeenCalledWith('/auth/login?tenantId=globex');
     });
   });
 
-  it('renders the active-tenant checkmark for the currently selected tenant', async () => {
+  it('renders the active-workspace checkmark for the current workspace', async () => {
     /*
-     * Scenario: the dropdown item for the active tenant must display a "✓" checkmark
-     * to visually indicate the current selection.
-     * Protects: line 155 — conditional render of `<span>✓</span>` when
-     * `tenant.id === activeTenantId`.
+     * Scenario: the dropdown row for the active workspace must display a "✓"
+     * marker so the user can visually confirm which workspace they are in.
+     * Protects: the conditional `{workspace.isCurrent && <span>✓</span>}` render.
      */
-    vi.mocked(listTenants).mockResolvedValue([
-      { id: 'tid-1', name: 'Acme Corp', slug: 'acme' },
-      { id: 'tid-2', name: 'Beta Ltd', slug: 'beta' },
+    vi.mocked(listWorkspaces).mockResolvedValue([
+      workspace('tid-1', 'Acme Corp', 'acme', true),
+      workspace('tid-2', 'Globex Inc', 'globex', false),
     ]);
     render(<TenantSwitcher />);
     await waitFor(() => {
       expect(screen.getByText('Acme Corp')).toBeDefined();
     });
 
-    // Open the dropdown using pointer events that Radix UI responds to.
-    const trigger = screen.getByRole('button', { name: /switch tenant/i });
+    const trigger = screen.getByRole('button', { name: /switch workspace/i });
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
     fireEvent.mouseDown(trigger);
     fireEvent.click(trigger);
 
-    // The checkmark must be present in document.body (portaled) for the active tenant.
     await waitFor(() => {
       expect(document.body.textContent).toContain('✓');
     });

@@ -24,6 +24,7 @@
 import { randomBytes, scrypt as nodeScrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { UserStatus } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { ChangePasswordDto } from './dto/change-password.dto.js';
@@ -78,6 +79,25 @@ async function hashScrypt(plain: string): Promise<string> {
 }
 
 /**
+ * One workspace the current user can sign into — a tenant where their email has
+ * an active `User` row. Returned by {@link AccountService.listWorkspaces}.
+ *
+ * @public
+ */
+export interface WorkspaceInfo {
+  /** Tenant CUID — used as the `X-Tenant-Id` header value. */
+  readonly tenantId: string;
+  /** URL-safe tenant slug — used for the `?tenantId=` login query param. */
+  readonly tenantSlug: string;
+  /** Human-readable tenant name — what the user sees in the switcher dropdown. */
+  readonly tenantName: string;
+  /** Role of the user in this tenant — purely informational for the UI. */
+  readonly role: string;
+  /** True when this workspace matches the current JWT's tenant context. */
+  readonly isCurrent: boolean;
+}
+
+/**
  * Handles the authenticated user's own account operations.
  *
  * @public
@@ -87,6 +107,58 @@ export class AccountService {
   private readonly logger = new Logger(AccountService.name);
 
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Lists every active workspace (tenant) the current user's email has access
+   * to. Each match is a separate `User` row (the library's one-JWT-per-tenant
+   * model) sharing the same email — the typical multi-workspace SaaS pattern.
+   *
+   * The email is read from the user's own row (looked up by `userId` +
+   * `currentTenantId`) — the JWT payload itself does not carry the email.
+   *
+   * Only `ACTIVE` accounts are returned; suspended or pending users in another
+   * tenant must not surface as a destination the caller could switch to.
+   *
+   * The endpoint is JWT-protected, so no enumeration vector is created — the
+   * caller already proved ownership of the email at login time.
+   *
+   * @param userId          - Authenticated user's ID (from JWT `sub`).
+   * @param currentTenantId - Tenant CUID from the validated JWT (marks the active workspace).
+   * @returns Sorted list of `WorkspaceInfo` rows (current first, then alphabetical).
+   */
+  async listWorkspaces(userId: string, currentTenantId: string): Promise<WorkspaceInfo[]> {
+    // Resolve the caller's email from their own row — the JWT does not carry it.
+    const me = await this.prisma.user.findUnique({
+      where: { id: userId, tenantId: currentTenantId },
+      select: { email: true },
+    });
+    if (me === null) return [];
+
+    const rows = await this.prisma.user.findMany({
+      where: { email: me.email, status: UserStatus.ACTIVE },
+      select: {
+        tenantId: true,
+        role: true,
+        tenant: { select: { id: true, slug: true, name: true } },
+      },
+    });
+
+    const workspaces: WorkspaceInfo[] = rows.map((row) => ({
+      tenantId: row.tenant.id,
+      tenantSlug: row.tenant.slug,
+      tenantName: row.tenant.name,
+      role: row.role,
+      isCurrent: row.tenantId === currentTenantId,
+    }));
+
+    // Stable ordering: current workspace first, then alphabetical by name.
+    workspaces.sort((a, b) => {
+      if (a.isCurrent !== b.isCurrent) return a.isCurrent ? -1 : 1;
+      return a.tenantName.localeCompare(b.tenantName);
+    });
+
+    return workspaces;
+  }
 
   /**
    * Verifies `currentPassword` against the stored hash, then replaces it with

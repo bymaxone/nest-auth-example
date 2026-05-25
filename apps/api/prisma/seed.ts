@@ -153,12 +153,18 @@ async function main(): Promise<void> {
     }
   }
 
-  // Create e2e-specific users in the acme tenant with the credential defaults used
-  // in the Playwright spec files (E2E_MEMBER_EMAIL, E2E_ADMIN_EMAIL env vars).
-  // These are separate from the role-based `*.acme@example.com` users so both
-  // naming conventions coexist without conflict.
+  // Create e2e-specific users with the credential defaults used in the Playwright
+  // spec files (E2E_MEMBER_EMAIL, E2E_ADMIN_EMAIL env vars).
+  //
+  // The admin account exists in BOTH tenants (separate User rows, same email) so
+  // the tenant switcher in apps/web demonstrates the Slack-style workspace
+  // selection pattern: clicking another workspace logs out and redirects the
+  // user to the login page for that tenant. With the library's one-JWT-per-tenant
+  // model, switching the live JWT context is intentionally impossible — each
+  // workspace has its own User row, its own password, and its own MFA setup.
   const acmeTenant = tenants.find((t) => t.slug === 'acme');
-  if (acmeTenant) {
+  const globexTenant = tenants.find((t) => t.slug === 'globex');
+  if (acmeTenant && globexTenant) {
     const e2eMemberHash = await hashPassword(E2E_MEMBER_PASSWORD);
     const e2eAdminHash = await hashPassword(E2E_ADMIN_PASSWORD);
 
@@ -183,6 +189,7 @@ async function main(): Promise<void> {
       },
     });
 
+    // admin@example.dev in acme — primary E2E admin account.
     await prisma.user.upsert({
       where: { tenantId_email: { tenantId: acmeTenant.id, email: 'admin@example.dev' } },
       update: {
@@ -196,7 +203,30 @@ async function main(): Promise<void> {
       create: {
         tenantId: acmeTenant.id,
         email: 'admin@example.dev',
-        name: 'E2E Admin',
+        name: 'E2E Admin (Acme)',
+        passwordHash: e2eAdminHash,
+        role: Role.ADMIN,
+        status: UserStatus.ACTIVE,
+        emailVerified: true,
+      },
+    });
+
+    // admin@example.dev in globex — distinct account with the same email so the
+    // workspace switcher in the dashboard can show two workspaces.
+    await prisma.user.upsert({
+      where: { tenantId_email: { tenantId: globexTenant.id, email: 'admin@example.dev' } },
+      update: {
+        passwordHash: e2eAdminHash,
+        status: UserStatus.ACTIVE,
+        emailVerified: true,
+        mfaEnabled: false,
+        mfaSecret: null,
+        mfaRecoveryCodes: [],
+      },
+      create: {
+        tenantId: globexTenant.id,
+        email: 'admin@example.dev',
+        name: 'E2E Admin (Globex)',
         passwordHash: e2eAdminHash,
         role: Role.ADMIN,
         status: UserStatus.ACTIVE,
