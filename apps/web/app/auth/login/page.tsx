@@ -24,7 +24,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
@@ -40,12 +40,11 @@ import { mapAuthClientError, resolveTenantForLogin, TenantNotFoundError } from '
 import { translateAuthError } from '@/lib/auth-errors';
 
 /**
- * Login page — authenticates with email + password and navigates on success.
- *
- * On MFA challenge the temp token is stored in `sessionStorage` and the user
- * is redirected to `/auth/mfa-challenge` to complete the second factor.
+ * Inner form — extracted so the default export can wrap it in `<Suspense>`,
+ * required because `useSearchParams()` triggers a CSR bailout during static
+ * generation in Next 16.
  */
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tenantSlug = searchParams.get('tenantId') ?? 'default';
@@ -247,5 +246,19 @@ export default function LoginPage() {
         </Link>
       </p>
     </div>
+  );
+}
+
+/**
+ * Login page — authenticates with email + password and navigates on success.
+ *
+ * On MFA challenge the temp token is stored in `sessionStorage` and the user
+ * is redirected to `/auth/mfa-challenge` to complete the second factor.
+ */
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
   );
 }

@@ -9,40 +9,30 @@ From a clean clone to **logged in as `admin.acme@example.com`** in about five mi
 - **Node.js ≥ 24** — `.nvmrc` pins the version, so `nvm use` is enough.
 - **pnpm ≥ 10.8** — `npm install -g pnpm@latest`.
 - **Docker Compose v2** — verify with `docker compose version`.
-- **A sibling checkout of the library** at `../nest-auth` — this example consumes `@bymax-one/nest-auth` via a local link until it ships to npm (see [OVERVIEW §7](./OVERVIEW.md)).
 
-Expected layout on disk:
-
-```
-~/projects/
-├── nest-auth/             # the library (built before linking)
-└── nest-auth-example/     # this repository
-```
+That's it. `@bymax-one/nest-auth` is consumed from npm — no sibling checkout required. (Working on the library and the example at the same time? See [OVERVIEW §7](./OVERVIEW.md#7-library-consumption) for the `pnpm link` workflow.)
 
 ---
 
 ## Quick start
 
 ```bash
-# 1. Link the library (builds ../nest-auth and registers a global pnpm link)
-bash scripts/link-library.sh
-
-# 2. Install workspace dependencies
+# 1. Install workspace dependencies (pulls @bymax-one/nest-auth from npm)
 pnpm install
 
-# 3. Start infrastructure (Postgres, Redis, Mailpit) and wait for health
+# 2. Start infrastructure (Postgres, Redis, Mailpit) and wait for health
 pnpm infra:up
 
-# 4. Create your env file, then generate the two secrets it needs
-cp .env.example .env
+# 3. Create the API env file, then generate the two secrets it needs
+cp .env.example apps/api/.env
 #   JWT_SECRET=$(openssl rand -hex 64)         AUTH_JWT_SECRET_FOR_PROXY = same value
 #   MFA_ENCRYPTION_KEY=$(openssl rand -base64 32)
 
-# 5. Apply migrations and seed demo data
+# 4. Apply migrations and seed demo data
 pnpm --filter @nest-auth-example/api prisma:migrate
 pnpm --filter @nest-auth-example/api prisma:seed
 
-# 6. Start the API and web app together
+# 5. Start the API and web app together
 pnpm dev
 ```
 
@@ -114,7 +104,7 @@ docker exec nest-auth-example-postgres-1 psql -U postgres -d example_app \
 A few first-run issues and where to fix them — full list in [troubleshooting](./TROUBLESHOOTING.md):
 
 1. **`JWT_SECRET must be at least 64 characters`** — regenerate with `openssl rand -hex 64` and set the same value as `AUTH_JWT_SECRET_FOR_PROXY`. See [troubleshooting → JWT_SECRET](./TROUBLESHOOTING.md#jwt_secret-must-be-at-least-64-characters).
-2. **`Cannot find module '@bymax-one/nest-auth'`** — re-run `bash scripts/link-library.sh` to rebuild and relink the sibling library. See [troubleshooting → library link](./TROUBLESHOOTING.md#cannot-find-module-bymax-onenest-auth).
+2. **`Cannot find module '@bymax-one/nest-auth'`** — your install is stale or the lockfile is out of sync. Run `pnpm install` from the repo root. See [troubleshooting → library resolution](./TROUBLESHOOTING.md#cannot-find-module-bymax-onenest-auth).
 3. **Emails never arrive / `ECONNREFUSED :1025`** — the infra isn't up; run `pnpm infra:up` and confirm `docker ps`. See [troubleshooting → Mailpit](./TROUBLESHOOTING.md#econnrefused-1270011025-mailpit--emails-not-sending).
 
 ---

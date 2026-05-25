@@ -126,27 +126,27 @@ Full context: [docs/OVERVIEW.md](docs/OVERVIEW.md). Coverage matrix: [docs/OVERV
 
 Versions pinned in `package.json` at root and in each app. Full inventory below; version rationale in the linked guidelines.
 
-| Area               | Tech                                                                         |
-| ------------------ | ---------------------------------------------------------------------------- |
-| Monorepo           | pnpm `^10.8`, Node `>=24`                                                    |
-| Language           | TypeScript **6.0** strict                                                    |
-| Backend framework  | NestJS **11.1** on Express **5**                                             |
-| ORM                | Prisma **7.7** + PostgreSQL **18**                                           |
-| Cache / sessions   | `ioredis` **5.10** + Redis **7**                                             |
-| Logging            | `nestjs-pino` **4.6** + Pino **10.3** + `pino-http` **11**                   |
-| Validation         | `class-validator` **0.15** + `class-transformer` **0.5**, Zod **4.3**        |
-| Email              | `nodemailer` **8.0** (Mailpit dev), Resend SDK (prod)                        |
-| Backend testing    | Jest **30**, supertest **7.2**                                               |
-| Frontend framework | Next.js **16.2** (App Router)                                                |
-| React              | **19.2**                                                                     |
-| Styling            | Tailwind **4.2** + `@tailwindcss/postcss`, shadcn/ui, Radix UI, lucide-react |
-| Forms              | React Hook Form **7.72** + `@hookform/resolvers` **5.2**                     |
-| Toasts             | sonner **2.0**                                                               |
-| Frontend testing   | Vitest **4.1**, `@testing-library/react` **16.3**, Playwright **1.59**       |
-| Auth library       | `@bymax-one/nest-auth` `^1.0.0` (linked from sibling checkout during dev)    |
-| Lint / format      | ESLint **10** flat + `typescript-eslint` **8.58**, Prettier **3.8**          |
-| Hooks              | Husky **9.1** + lint-staged **16.4**                                         |
-| Infra              | Docker Compose v2 (Postgres, Redis, Mailpit)                                 |
+| Area               | Tech                                                                                             |
+| ------------------ | ------------------------------------------------------------------------------------------------ |
+| Monorepo           | pnpm `^10.8`, Node `>=24`                                                                        |
+| Language           | TypeScript **6.0** strict                                                                        |
+| Backend framework  | NestJS **11.1** on Express **5**                                                                 |
+| ORM                | Prisma **7.7** + PostgreSQL **18**                                                               |
+| Cache / sessions   | `ioredis` **5.10** + Redis **7**                                                                 |
+| Logging            | `nestjs-pino` **4.6** + Pino **10.3** + `pino-http` **11**                                       |
+| Validation         | `class-validator` **0.15** + `class-transformer` **0.5**, Zod **4.3**                            |
+| Email              | `nodemailer` **8.0** (Mailpit dev), Resend SDK (prod)                                            |
+| Backend testing    | Jest **30**, supertest **7.2**                                                                   |
+| Frontend framework | Next.js **16.2** (App Router)                                                                    |
+| React              | **19.2**                                                                                         |
+| Styling            | Tailwind **4.2** + `@tailwindcss/postcss`, shadcn/ui, Radix UI, lucide-react                     |
+| Forms              | React Hook Form **7.72** + `@hookform/resolvers` **5.2**                                         |
+| Toasts             | sonner **2.0**                                                                                   |
+| Frontend testing   | Vitest **4.1**, `@testing-library/react` **16.3**, Playwright **1.59**                           |
+| Auth library       | `@bymax-one/nest-auth` `^1.0.2` — consumed from npm (use `pnpm link` ad hoc for sibling lib dev) |
+| Lint / format      | ESLint **10** flat + `typescript-eslint` **8.58**, Prettier **3.8**                              |
+| Hooks              | Husky **9.1** + lint-staged **16.4**                                                             |
+| Infra              | Docker Compose v2 (Postgres, Redis, Mailpit)                                                     |
 
 ---
 

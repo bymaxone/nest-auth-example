@@ -12,14 +12,11 @@
  * - INTERNAL_API_URL is read directly from process.env here (not from lib/env.ts)
  *   because next.config runs before module-level env parsing in some contexts
  *   (e.g. `next build` cold-start). Next.js' built-in .env loading is sufficient.
- * - Both `dev` and `build` scripts pass `--webpack` because Turbopack (the
- *   default in Next.js 16) cannot resolve subpath exports from symlinked
- *   workspace packages (`@bymax-one/nest-auth/client`, `/shared`, `/react`,
- *   `/nextjs`). Turbopack follows the symlink to the library's real path and
- *   loses the project's node_modules context when resolving transitive
- *   self-referencing imports, resulting in "Module not found" even with
- *   `turbopack.resolveAlias` or `transpilePackages`. Webpack handles symlinked
- *   packages with subpath exports correctly out of the box.
+ * - Turbopack (the Next.js 16 default bundler) resolves the `@bymax-one/nest-auth`
+ *   subpath exports (`/client`, `/shared`, `/react`, `/nextjs`) correctly now
+ *   that the library is consumed from npm rather than a `link:../nest-auth`
+ *   workspace. Earlier revisions of this file mandated `--webpack` to work
+ *   around a Turbopack symlink-resolution issue — that is no longer needed.
  *
  * @module next.config
  */

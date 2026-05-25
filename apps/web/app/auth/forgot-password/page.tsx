@@ -18,7 +18,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
@@ -34,10 +34,10 @@ import { mapAuthClientError, resolveTenantForLogin, TenantNotFoundError } from '
 import { translateAuthError } from '@/lib/auth-errors';
 
 /**
- * Forgot password page — submits the reset request and shows a generic
- * confirmation regardless of whether the email is registered.
+ * Inner form — wrapped in `<Suspense>` by the default export so the page can be
+ * statically prerendered despite `useSearchParams()` triggering a CSR bailout.
  */
-export default function ForgotPasswordPage() {
+function ForgotPasswordForm() {
   const searchParams = useSearchParams();
   const tenantSlug = searchParams.get('tenantId') ?? 'default';
   const { forgotPassword } = useAuth();
@@ -168,5 +168,17 @@ export default function ForgotPasswordPage() {
         </Link>
       </p>
     </div>
+  );
+}
+
+/**
+ * Forgot password page — submits the reset request and shows a generic
+ * confirmation regardless of whether the email is registered.
+ */
+export default function ForgotPasswordPage() {
+  return (
+    <Suspense fallback={null}>
+      <ForgotPasswordForm />
+    </Suspense>
   );
 }

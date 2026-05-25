@@ -22,8 +22,8 @@
     "node": ">=24"
   },
   "scripts": {
-    "dev": "next dev --webpack",
-    "build": "next build --webpack",
+    "dev": "next dev",
+    "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "lint": "eslint app lib components proxy.ts",
@@ -33,7 +33,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@bymax-one/nest-auth": "link:../../nest-auth",
+    "@bymax-one/nest-auth": "^1.0.2",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-avatar": "^1.1.11",
     "@radix-ui/react-dialog": "^1.1.15",

@@ -8,19 +8,19 @@ Common first-run errors mapped to fixes. **Search this page by the exact error m
 
 ### `Cannot find module '@bymax-one/nest-auth'`
 
-- **Symptom.** The API or web build fails to resolve the library, or imports from `@bymax-one/nest-auth/server` etc. are red.
-- **Cause.** The local `pnpm link` to the sibling `../nest-auth` checkout is missing or stale (the library was not built, or was rebuilt without the example noticing).
+- **Symptom.** The API or web build fails to resolve the library, or imports from `@bymax-one/nest-auth/shared` etc. are red.
+- **Cause.** The workspace dependencies are not installed, or the pnpm store is stale after switching branches.
 - **Fix.**
-  1. Ensure the library is checked out next to this repo at `../nest-auth`.
-  2. Run `scripts/link-library.sh` from the repo root — it builds the library and re-establishes the global link.
-  3. Reinstall if needed: `pnpm install`.
-- **See also.** [Getting started](./GETTING_STARTED.md#prerequisites).
+  1. From the repo root, run `pnpm install`. The lockfile pins `@bymax-one/nest-auth@^1.0.2` from npm — no sibling checkout is required.
+  2. If errors persist, delete `node_modules/` and the cached store reference, then re-install: `rm -rf node_modules apps/*/node_modules packages/*/node_modules && pnpm install`.
+  3. If you are intentionally testing local changes to the library via `pnpm link`, confirm the link target is built (`pnpm build` inside the library) and that `node_modules/@bymax-one/nest-auth` points at the linked dist.
+- **See also.** [OVERVIEW §7 — Library consumption](./OVERVIEW.md#7-library-consumption).
 
 ### Web build fails to resolve library subpath exports
 
-- **Symptom.** `next dev` errors resolving `@bymax-one/nest-auth/react` (or `/nextjs`, `/client`) subpaths.
-- **Cause.** Turbopack cannot resolve the library's subpath `exports` map.
-- **Fix.** Run the web app with webpack — this is already wired (`next dev --webpack` / `next build --webpack` in [`apps/web/package.json`](../apps/web/package.json)). Do not switch the dev/build scripts to Turbopack.
+- **Symptom.** `next dev` or `next build` errors resolving `@bymax-one/nest-auth/react` (or `/nextjs`, `/client`, `/shared`) subpaths.
+- **Cause.** Older versions of this repo had this issue only under Turbopack with the `link:../nest-auth` workspace setup. With the library installed from npm (current state), both Turbopack and webpack resolve every subpath correctly.
+- **Fix.** Make sure your `pnpm install` is fresh (see entry above). If you still see the error, ensure the resolved `@bymax-one/nest-auth` version in `pnpm-lock.yaml` is `1.0.2` or newer.
 
 ---
 

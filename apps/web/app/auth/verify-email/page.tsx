@@ -14,7 +14,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useForm, Controller } from 'react-hook-form';
@@ -28,12 +28,11 @@ import { translateAuthError } from '@/lib/auth-errors';
 import { useCooldown } from '@/hooks/use-cooldown';
 
 /**
- * Verify email page — accepts a 6-digit OTP from the verification email.
- *
- * Redirects to `/auth/login?verified=1` on success. If `?email=` or `?tenantId=`
- * are absent from the URL the user is shown an inline error to re-open the link.
+ * Inner form — extracted so the default export can wrap it in `<Suspense>`,
+ * required because `useSearchParams()` triggers a CSR bailout during static
+ * generation in Next 16.
  */
-export default function VerifyEmailPage() {
+function VerifyEmailForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -179,5 +178,19 @@ export default function VerifyEmailPage() {
         </Link>
       </div>
     </div>
+  );
+}
+
+/**
+ * Verify email page — accepts a 6-digit OTP from the verification email.
+ *
+ * Redirects to `/auth/login?verified=1` on success. If `?email=` or `?tenantId=`
+ * are absent from the URL the user is shown an inline error to re-open the link.
+ */
+export default function VerifyEmailPage() {
+  return (
+    <Suspense fallback={null}>
+      <VerifyEmailForm />
+    </Suspense>
   );
 }

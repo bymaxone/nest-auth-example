@@ -20,7 +20,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useForm, Controller } from 'react-hook-form';
@@ -247,12 +247,11 @@ function OtpModeForm({ email, tenantId }: { email: string; tenantId: string }) {
 }
 
 /**
- * Reset password page — branches on `?mode=token` or `?mode=otp`.
- *
- * Unknown or missing mode renders an inline fallback with a link to request a
- * new reset so the user is never silently stuck on a broken URL.
+ * Inner page body — extracted so the default export can wrap it in `<Suspense>`,
+ * required because `useSearchParams()` triggers a CSR bailout during static
+ * generation in Next 16.
  */
-export default function ResetPasswordPage() {
+function ResetPasswordContent() {
   const searchParams = useSearchParams();
 
   const mode = searchParams.get('mode');
@@ -308,5 +307,19 @@ export default function ResetPasswordPage() {
         </Link>
       </p>
     </div>
+  );
+}
+
+/**
+ * Reset password page — branches on `?mode=token` or `?mode=otp`.
+ *
+ * Unknown or missing mode renders an inline fallback with a link to request a
+ * new reset so the user is never silently stuck on a broken URL.
+ */
+export default function ResetPasswordPage() {
+  return (
+    <Suspense fallback={null}>
+      <ResetPasswordContent />
+    </Suspense>
   );
 }

@@ -22,7 +22,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
@@ -44,10 +44,12 @@ const INVITATION_FATAL_CODES = new Set([
 ]);
 
 /**
- * Accept invitation page — collects the recipient's display name and password
- * to complete account creation for an invited user.
+ * Inner form component — kept separate from the default export so the page can
+ * wrap it in a `<Suspense>` boundary. `useSearchParams()` triggers a CSR bailout
+ * during static generation; without the boundary, `next build` fails the
+ * prerender step (https://nextjs.org/docs/messages/missing-suspense-with-csr-bailout).
  */
-export default function AcceptInvitationPage() {
+function AcceptInvitationForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get('token') ?? '';
@@ -242,5 +244,18 @@ export default function AcceptInvitationPage() {
         </Link>
       </p>
     </div>
+  );
+}
+
+/**
+ * Accept invitation page — collects the recipient's display name and password
+ * to complete account creation for an invited user. Wraps the form in a
+ * `<Suspense>` boundary so the page is statically prerenderable in Next 16.
+ */
+export default function AcceptInvitationPage() {
+  return (
+    <Suspense fallback={null}>
+      <AcceptInvitationForm />
+    </Suspense>
   );
 }

@@ -264,44 +264,51 @@ Every row maps to a feature exposed by `@bymax-one/nest-auth`. Each one is exerc
 
 ---
 
-## 7. Library Linking (Local Development)
+## 7. Library Consumption
 
-This project is the **first known consumer** of `@bymax-one/nest-auth`. Until the package is published to npm, it is consumed via [`pnpm link`](https://pnpm.io/cli/link) from the sibling checkout.
+`@bymax-one/nest-auth` is consumed from npm as a normal version-pinned dependency. No sibling checkout, no `pnpm link`, no workspace tricks are required to run the example.
 
-Expected layout on disk:
+Each `package.json` declares the same semver range so the example always installs a single, reproducible copy of the library:
 
-```
-~/projects/
-├── nest-auth/             # the library — built before linking
-└── nest-auth-example/     # this repository
-```
-
-### One-time setup
-
-```bash
-# 1. Build the library
-cd ../nest-auth
-pnpm install
-pnpm build
-
-# 2. Register it as a global link
-pnpm link --global
-
-# 3. Consume it from this project
-cd ../nest-auth-example
-pnpm install
-pnpm link --global @bymax-one/nest-auth
+```jsonc
+// package.json (root, apps/api, apps/web, packages/_probe)
+{
+  "dependencies": {
+    "@bymax-one/nest-auth": "^1.0.2",
+  },
+}
 ```
 
 ### Day-to-day workflow
 
-When iterating on the library itself, run `pnpm build --watch` (or `pnpm dev`) inside `nest-auth/` so the linked `dist/` is always fresh. The example app picks up changes on the next request (NestJS hot-reload via `nest start --watch`; Next.js Fast Refresh for the web side).
+Most contributors only edit this repository — `pnpm install` resolves the library from npm exactly like any other dependency. There is nothing else to do.
 
-### When the package is published
+### Iterating on the library and the example side-by-side
 
-Once `@bymax-one/nest-auth` ships to the npm registry, `pnpm link` is replaced by a normal version-pinned dependency in `apps/api/package.json` and `apps/web/package.json`. The linking instructions remain in this repository for contributors who want to develop both side by side.
+When you are actively changing both the library and this example, use `pnpm link` ad hoc — never commit the link to source. The recommended flow is:
 
-A `scripts/link-library.sh` helper automates the linking dance. See `docs/GETTING_STARTED.md` for details.
+```bash
+# in the library checkout
+cd ../nest-auth
+pnpm install
+pnpm build
+pnpm link --global
+
+# in this repository
+cd ../nest-auth-example
+pnpm link --global @bymax-one/nest-auth
+```
+
+Run `pnpm build --watch` (or `pnpm dev`) inside `../nest-auth` so the linked `dist/` is always fresh. NestJS picks up changes via `nest start --watch`; Next.js via Fast Refresh.
+
+When you are done, revert to the npm version with:
+
+```bash
+pnpm unlink --global @bymax-one/nest-auth
+pnpm install   # restores the published 1.x version from npm
+```
+
+The `main` branch always declares the published semver range — do not push commits that change it to `link:` form.
 
 ---
 
@@ -423,10 +430,10 @@ Production checklist (full version in `docs/DEPLOYMENT.md`):
 
 Each major version of `@bymax-one/nest-auth` gets a long-lived branch in this repository:
 
-| Branch | Tracks library version | Notes                                |
-| ------ | ---------------------- | ------------------------------------ |
-| `main` | `^1.0.0`               | Current stable                       |
-| `next` | `^2.0.0` (when out)    | Pre-release; expect breaking changes |
+| Branch | Tracks library version | Notes                                 |
+| ------ | ---------------------- | ------------------------------------- |
+| `main` | `^1.0.2`               | Current stable — consumes npm package |
+| `next` | `^2.0.0` (when out)    | Pre-release; expect breaking changes  |
 
 Every commit on `main` is tagged with the exact library version it was tested against in `docs/RELEASES.md`.
 
@@ -450,6 +457,6 @@ See `CONTRIBUTING.md` (to be added) for the full process.
 
 ## 18. Status
 
-> **Document version:** 1.0 — initial draft.
-> **Library version targeted:** `@bymax-one/nest-auth@1.0.0`.
-> **Project status:** scaffolding in progress. Track open work in [GitHub Issues](https://github.com/bymaxone/nest-auth-example/issues).
+> **Document version:** 1.1 — refreshed after the library shipped to npm (May 2026).
+> **Library version targeted:** `@bymax-one/nest-auth@^1.0.2`.
+> **Project status:** feature-complete. All 18 phases of the development plan have shipped (see [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md)). Track open work in [GitHub Issues](https://github.com/bymaxone/nest-auth-example/issues).
