@@ -14,8 +14,8 @@
  * Clicking it uses a full-page navigation (`<a>`) so the browser follows the library's
  * 302 redirect — a client-side `fetch` would not work for OAuth redirects.
  *
- * Reads `tenantId` from the `?tenantId=` search param; defaults to `'default'` for
- * single-tenant / development use. Before login, resolves the slug to a CUID via
+ * Reads `tenantId` from the `?tenantId=` search param; defaults to `'acme'` (the
+ * first slug in `apps/api/prisma/seed.ts`). Before login, resolves the slug to a CUID via
  * `GET /api/tenants/resolve` and sets the `tenant_id` cookie so `tenantAwareFetch`
  * can inject `X-Tenant-Id` — the API's `tenantIdResolver` reads only that header.
  *
@@ -47,7 +47,10 @@ import { translateAuthError } from '@/lib/auth-errors';
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const tenantSlug = searchParams.get('tenantId') ?? 'default';
+  // Fallback slug must match a real tenant created by the API seed. 'acme' is
+  // the first tenant in apps/api/prisma/seed.ts. If the seed slugs change, this
+  // fallback (and the register page's TENANT_OPTIONS) must follow.
+  const tenantSlug = searchParams.get('tenantId') ?? 'acme';
   const { login } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -207,9 +210,36 @@ function LoginForm() {
             <span className="text-xs text-[rgba(255,255,255,0.3)]">or</span>
             <div className="h-px flex-1 bg-[rgba(255,255,255,0.08)]" />
           </div>
-          {/* Full-page navigation required for OAuth 302 redirect — do not use fetch */}
+          {/* Full-page navigation required for OAuth 302 redirect — do not use fetch.
+              The lib mounts the initiate endpoint at `GET /api/auth/oauth/:provider`,
+              expecting `tenantId` as a query param.
+
+              The href carries the slug as a graceful-degradation fallback, but the
+              onClick intercepts the click and resolves the slug to the tenant's CUID
+              first. The lib uses `tenantId` verbatim as the FK on `User.tenantId`
+              (Tenant.id is a CUID, not the slug), so passing the slug would surface
+              as a 500 from the Prisma FK constraint at callback time. */}
           <a
-            href="/api/auth/oauth/google/start"
+            href={`/api/auth/oauth/google?tenantId=${encodeURIComponent(tenantSlug)}`}
+            onClick={(e) => {
+              e.preventDefault();
+              void (async () => {
+                try {
+                  const tenantId = await resolveTenantForLogin(tenantSlug);
+                  window.location.assign(
+                    `/api/auth/oauth/google?tenantId=${encodeURIComponent(tenantId)}`,
+                  );
+                } catch (err) {
+                  if (err instanceof TenantNotFoundError) {
+                    toast.error(
+                      `Workspace "${err.slug}" was not found. Open the link with ?tenantId=<slug> (e.g. ?tenantId=acme).`,
+                    );
+                    return;
+                  }
+                  toast.error('Could not start Google sign-in. Please try again.');
+                }
+              })();
+            }}
             className="flex w-full items-center justify-center gap-2 rounded-full border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.04)] px-6 py-3 text-sm font-medium text-[rgba(255,255,255,0.7)] transition-colors hover:bg-[rgba(255,255,255,0.08)] hover:text-white"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">

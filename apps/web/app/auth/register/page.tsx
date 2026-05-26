@@ -28,14 +28,21 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/auth/password-input';
 import { registerSchema, type RegisterFormValues } from '@/lib/schemas/auth';
-import { mapAuthClientError } from '@/lib/auth-client';
+import { mapAuthClientError, resolveTenantForLogin, TenantNotFoundError } from '@/lib/auth-client';
 import { translateAuthError } from '@/lib/auth-errors';
 import { useCooldown } from '@/hooks/use-cooldown';
 
 // TODO(P14): source tenant list from /api/tenants/public
-/** Static workspace options for the tenant selector. */
+/**
+ * Static workspace options for the tenant selector. Values are the tenant slugs
+ * the API seed creates (see apps/api/prisma/seed.ts → TENANT_DEFINITIONS). The
+ * slugs are resolved to CUIDs at submit time via `/api/tenants/resolve` because
+ * the API's `tenantIdResolver` reads the resolved id from the `X-Tenant-Id`
+ * header, not the slug.
+ */
 const TENANT_OPTIONS: { value: string; label: string }[] = [
-  { value: 'default', label: 'Default workspace' },
+  { value: 'acme', label: 'Acme Corp' },
+  { value: 'globex', label: 'Globex Inc' },
 ];
 
 /**
@@ -46,7 +53,7 @@ export default function RegisterPage() {
   const { register: authRegister } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmedEmail, setConfirmedEmail] = useState<string | null>(null);
-  const [confirmedTenantId, setConfirmedTenantId] = useState<string>('default');
+  const [confirmedTenantId, setConfirmedTenantId] = useState<string>('acme');
 
   // NEXT_PUBLIC_ vars are statically inlined by Next.js at build time
   const googleEnabled = process.env.NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED === 'true';
@@ -54,13 +61,19 @@ export default function RegisterPage() {
   const {
     register,
     handleSubmit,
+    watch,
     formState: { errors },
   } = useForm<RegisterFormValues>({
     resolver: zodResolver(registerSchema),
     mode: 'onSubmit',
     reValidateMode: 'onChange',
-    defaultValues: { tenantId: 'default' },
+    defaultValues: { tenantId: 'acme' },
   });
+
+  // Watched so the "Continue with Google" link always carries the currently
+  // selected tenant — the lib's OAuth callback uses it to bind the new account
+  // to the correct tenant before any user row is inserted.
+  const oauthTenantId = watch('tenantId') || 'acme';
 
   const cooldownKey = confirmedEmail ? `register:cooldown:${confirmedEmail}` : 'register:cooldown';
   const { isCoolingDown, secondsLeft, startCooldown } = useCooldown(cooldownKey, 60);
@@ -68,17 +81,33 @@ export default function RegisterPage() {
   const onSubmit = async (data: RegisterFormValues) => {
     setIsSubmitting(true);
     try {
+      // Resolve the human-readable tenant slug to the real `Tenant.id` CUID
+      // before calling `register()`. The lib persists the value verbatim as
+      // the FK on `User.tenantId`, so passing the slug would surface as an
+      // HTTP 500 from the Prisma foreign-key constraint. This mirrors the
+      // login page's flow — see `app/auth/login/page.tsx`. The resolved CUID
+      // is also stashed in the `tenant_id` cookie so `tenantAwareFetch`
+      // injects `X-Tenant-Id` on subsequent calls.
+      const tenantId = await resolveTenantForLogin(data.tenantId);
+      document.cookie = `tenant_id=${tenantId}; Path=/; SameSite=Lax; Max-Age=31536000`;
+
       await authRegister({
         email: data.email,
         name: data.name,
         password: data.password,
-        tenantId: data.tenantId,
+        tenantId,
       });
-      // Show the email confirmation screen — no redirect until verified
+      // Show the email confirmation screen — no redirect until verified.
+      // Track the RESOLVED tenant id (CUID) so the resend-verification call
+      // uses the same value the API persisted on the user row.
       setConfirmedEmail(data.email);
-      setConfirmedTenantId(data.tenantId);
+      setConfirmedTenantId(tenantId);
       startCooldown();
     } catch (err) {
+      if (err instanceof TenantNotFoundError) {
+        toast.error(`Workspace "${err.slug}" was not found. Pick a different workspace.`);
+        return;
+      }
       const { code } = mapAuthClientError(err);
       toast.error(translateAuthError(code === 'UNKNOWN' ? '' : code));
     } finally {
@@ -263,9 +292,36 @@ export default function RegisterPage() {
             <span className="text-xs text-[rgba(255,255,255,0.3)]">or</span>
             <div className="h-px flex-1 bg-[rgba(255,255,255,0.08)]" />
           </div>
-          {/* Full-page navigation required for OAuth 302 redirect — do not use fetch */}
+          {/* Full-page navigation required for OAuth 302 redirect — do not use fetch.
+              The lib mounts the initiate endpoint at `GET /api/auth/oauth/:provider`,
+              expecting `tenantId` as a query param.
+
+              The href carries the slug as a graceful-degradation fallback, but the
+              onClick intercepts the click and resolves the slug to the tenant's CUID
+              first. The lib uses `tenantId` verbatim as the FK on `User.tenantId`
+              (Tenant.id is a CUID, not the slug), so passing the slug would surface
+              as a 500 from the Prisma FK constraint at callback time. */}
           <a
-            href="/api/auth/oauth/google/start"
+            href={`/api/auth/oauth/google?tenantId=${encodeURIComponent(oauthTenantId)}`}
+            onClick={(e) => {
+              e.preventDefault();
+              void (async () => {
+                try {
+                  const tenantId = await resolveTenantForLogin(oauthTenantId);
+                  window.location.assign(
+                    `/api/auth/oauth/google?tenantId=${encodeURIComponent(tenantId)}`,
+                  );
+                } catch (err) {
+                  if (err instanceof TenantNotFoundError) {
+                    toast.error(
+                      `Workspace "${err.slug}" was not found. Select a different workspace.`,
+                    );
+                    return;
+                  }
+                  toast.error('Could not start Google sign-in. Please try again.');
+                }
+              })();
+            }}
             className="flex w-full items-center justify-center gap-2 rounded-full border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.04)] px-6 py-3 text-sm font-medium text-[rgba(255,255,255,0.7)] transition-colors hover:bg-[rgba(255,255,255,0.08)] hover:text-white"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">

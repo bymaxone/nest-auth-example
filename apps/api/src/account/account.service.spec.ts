@@ -324,6 +324,70 @@ describe('AccountService', () => {
       expect(result[1]?.isCurrent).toBe(false);
     });
 
+    /**
+     * Exercises the "current first" branch when the current row appears
+     * FIRST in the DB input order. The earlier test put the non-current
+     * row first, so V8's first compare(a=globex, b=acme) hit the
+     * `a.isCurrent === false → 1` branch — the `-1` half of the ternary
+     * was never executed. Inverting the input order forces V8 to call
+     * compare(a=acme[current], b=globex[non-current]), which lands on the
+     * `a.isCurrent === true → -1` branch and closes the coverage gap.
+     */
+    it('keeps the current workspace first when it appears first in the DB input order', async () => {
+      userFindUnique.mockResolvedValue({ email: 'admin@example.dev' });
+      userFindMany.mockResolvedValue([
+        // Current row FIRST — opposite of the prior multi-tenant test.
+        {
+          tenantId: 'tenant-acme',
+          role: 'ADMIN',
+          tenant: { id: 'tenant-acme', slug: 'acme', name: 'Acme Corp' },
+        },
+        {
+          tenantId: 'tenant-globex',
+          role: 'ADMIN',
+          tenant: { id: 'tenant-globex', slug: 'globex', name: 'Globex Inc' },
+        },
+      ]);
+
+      const result = await service.listWorkspaces('user-1', 'tenant-acme');
+
+      expect(result.map((w) => w.tenantSlug)).toEqual(['acme', 'globex']);
+      expect(result[0]?.isCurrent).toBe(true);
+    });
+
+    /**
+     * Exercises the alphabetical tie-break branch of the workspace sort.
+     * The previous test pinned the "current first" branch by giving the
+     * two workspaces different `isCurrent` values. This test passes a
+     * `currentTenantId` that does NOT match any of the rows so both
+     * workspaces collapse to `isCurrent: false` and the comparator falls
+     * through to `a.tenantName.localeCompare(b.tenantName)`. Without this
+     * scenario, the localeCompare line never executes and coverage drops.
+     */
+    it('sorts non-current workspaces alphabetically by tenant name', async () => {
+      userFindUnique.mockResolvedValue({ email: 'admin@example.dev' });
+      // Reverse-alphabetical input order so the sort has work to do.
+      userFindMany.mockResolvedValue([
+        {
+          tenantId: 'tenant-globex',
+          role: 'ADMIN',
+          tenant: { id: 'tenant-globex', slug: 'globex', name: 'Globex Inc' },
+        },
+        {
+          tenantId: 'tenant-acme',
+          role: 'ADMIN',
+          tenant: { id: 'tenant-acme', slug: 'acme', name: 'Acme Corp' },
+        },
+      ]);
+
+      // `currentTenantId` does not match either workspace — both end up
+      // `isCurrent: false`, forcing the localeCompare branch.
+      const result = await service.listWorkspaces('user-1', 'tenant-nonexistent');
+
+      expect(result.map((w) => w.tenantName)).toEqual(['Acme Corp', 'Globex Inc']);
+      expect(result.every((w) => w.isCurrent === false)).toBe(true);
+    });
+
     it('scopes the lookup by the email of the JWT-resolved user, only ACTIVE accounts', async () => {
       // Tenant isolation + status check happens via the findMany WHERE clause —
       // verify the service requests exactly the right shape so the DB query

@@ -254,4 +254,54 @@ describe('TenantSwitcher states', () => {
       expect(document.body.textContent).toContain('✓');
     });
   });
+
+  it('surfaces an error toast and re-enables the switcher if signOutAndGoToLogin rejects', async () => {
+    /*
+     * Scenario: the POST /api/auth/logout call fails (e.g. network outage)
+     * during a workspace switch. The component's catch block must:
+     *   1. Surface a user-facing toast so the click is not silently lost.
+     *   2. Re-enable the switcher (`setIsSwitching(false)`) so the user can
+     *      retry without reloading the page.
+     *   3. Call `router.refresh()` to re-fetch the session state in case the
+     *      logout partially completed on the server.
+     * Protects: the `catch` arm of `handleSelect` in `tenant-switcher.tsx`
+     * (the success path is covered by the "logs out and redirects" test above).
+     */
+    vi.mocked(listWorkspaces).mockResolvedValue([
+      workspace('tid-1', 'Acme Corp', 'acme', true),
+      workspace('tid-2', 'Globex Inc', 'globex', false),
+    ]);
+    // The component's `signOutAndGoToLogin` helper calls `fetch('/api/auth/logout')`.
+    // Make that fail so the promise rejects and the catch arm runs.
+    fetchMock.mockRejectedValueOnce(new Error('Network failure'));
+
+    render(<TenantSwitcher />);
+    await waitFor(() => {
+      expect(screen.getByText('Acme Corp')).toBeDefined();
+    });
+
+    const trigger = screen.getByRole('button', { name: /switch workspace/i });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, bubbles: true });
+    fireEvent.mouseDown(trigger, { bubbles: true });
+    fireEvent.click(trigger, { bubbles: true });
+
+    await waitFor(() => {
+      const menuItems = document.body.querySelectorAll('[role="menuitem"]');
+      if (menuItems.length >= 2) {
+        // Second item is the non-current workspace ("Globex Inc").
+        fireEvent.click(menuItems[1]!);
+      }
+    });
+
+    // The toast carries a recoverable message — exact copy is not pinned so
+    // a small wording edit does not break the test. The function must NOT
+    // navigate (assignMock stays untouched) because the logout failed.
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalled();
+    });
+    expect(assignMock).not.toHaveBeenCalled();
+    // router.refresh() is the "re-sync session state" step in the recovery
+    // path; pinning it documents that the catch arm did its full cleanup.
+    expect(mockRouter.refresh).toHaveBeenCalled();
+  });
 });

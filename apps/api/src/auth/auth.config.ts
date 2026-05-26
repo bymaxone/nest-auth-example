@@ -175,8 +175,25 @@ export function buildAuthOptions(config: ConfigService<Env, true>): BymaxAuthMod
 
   // Conditionally merge oauth block — key must be absent (not undefined) when
   // OAuth is not configured, due to exactOptionalPropertyTypes: true.
+  //
+  // `successRedirectUrl` (lib v1.0.4+) instructs the OAuth callback to issue a
+  // 302 to the configured URL after delivering cookies, instead of returning
+  // the JSON response body that API/SPA consumers expect. Without it the
+  // browser would land on the JSON payload — fine for fetch-based clients,
+  // broken for the full-page OAuth navigation the example uses.
+  //
+  // The path is RELATIVE because the OAuth callback URL points to the WEB
+  // origin (`localhost:3000/api/auth/oauth/google/callback`) and Next.js
+  // rewrites `/api/:path*` to the NestJS API at `:4000`. From the browser's
+  // perspective, the callback response (Set-Cookie + 302) comes from the web
+  // origin, so the redirect to `/dashboard` is same-origin and auth cookies
+  // travel without SameSite=Strict tripping on a cross-port hop. The lib's
+  // startup validator accepts a leading-slash path without requiring HTTPS.
   if (googleOauth) {
-    options.oauth = { google: googleOauth };
+    options.oauth = {
+      google: googleOauth,
+      successRedirectUrl: '/dashboard',
+    };
   }
 
   // refreshCookiePath must include the /api global prefix so the refresh_token

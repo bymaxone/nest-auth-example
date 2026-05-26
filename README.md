@@ -41,7 +41,7 @@ If the library is **what** to use, this repository is **how** to use it.
 
 - **🎯 Live demo of every library feature** — registration, login, JWT refresh rotation, MFA (TOTP + recovery codes), Google OAuth, sessions with FIFO eviction, password reset (token & OTP modes), email verification, invitations, RBAC, multi-tenant isolation, platform admin context, brute-force lockout, WebSocket auth — all wired and runnable in under five minutes.
 - **🧱 Copy-paste friendly** — module organization, repository implementations (Prisma), email providers (Mailpit / Resend), proxy & route handlers (Next.js App Router), React hook usage. The folder names are deliberately generic so you can lift them directly into your codebase.
-- **🧪 Production-grade test harness** — 75 unit/integration suites (753 tests) + 21 API e2e suites (65 tests) + 21 Playwright specs (21 passing, no skips). Used by the library's maintainers to gate releases.
+- **🧪 Production-grade test harness** — 75 unit/integration suites (755 tests) + 26 API e2e suites (83 tests) + 23 Playwright specs (23 passing, no skips). Used by the library's maintainers to gate releases.
 - **🔄 Always tracking latest** — `main` is pinned to the latest `@bymax-one/nest-auth` minor; when the library ships a new release, this repo is updated alongside.
 
 ```bash
@@ -351,7 +351,7 @@ nest-auth-example/
 │   │   │   ├── config/               # Zod env schema + ConfigService<Env, true>
 │   │   │   ├── app.module.ts
 │   │   │   └── main.ts
-│   │   └── test/                     # supertest e2e (21 specs, 65 tests)
+│   │   └── test/                     # supertest e2e (26 specs, 83 tests)
 │   │
 │   └── web/                          # Next.js 16 frontend
 │       ├── app/
@@ -409,6 +409,7 @@ nest-auth-example/
 │   ├── DATABASE.md                   # schema rationale + migration strategy
 │   ├── REDIS.md                      # key namespaces + TTLs
 │   ├── EMAIL.md                      # how to swap providers
+│   ├── OAUTH_GOOGLE.md               # Google OAuth setup walkthrough
 │   ├── DEPLOYMENT.md                 # production checklist
 │   ├── TROUBLESHOOTING.md
 │   ├── RELEASES.md                   # which lib version each branch tracks
@@ -472,13 +473,13 @@ nest-auth-example/
 
 This repo is held to a similar bar as the library itself — every demonstrated flow has a regression-locking test, and CI runs the full matrix on every PR.
 
-| Suite                                           | Test count           | What it covers                                                                                      |
-| ----------------------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------- |
-| `pnpm --filter @nest-auth-example/api test`     | **320** in 28 suites | Unit + integration — repositories, hooks, services, guards composition                              |
-| `pnpm --filter @nest-auth-example/web test`     | **433** in 47 suites | Vitest — auth client, error mapping, components, layout primitives                                  |
-| `pnpm --filter @nest-auth-example/api test:e2e` | **65** in 21 suites  | supertest e2e — every auth flow against real Postgres + Redis (test stack)                          |
-| `pnpm --filter @nest-auth-example/web test:e2e` | **21** (no skips)    | Playwright — login, MFA, invitation, password reset, platform admin, workspace switch, WS isolation |
-| **Total**                                       | **839 tests**        | Plus the `_probe` package that fails typecheck if any lib subpath export changes                    |
+| Suite                                           | Test count           | What it covers                                                                                                                  |
+| ----------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm --filter @nest-auth-example/api test`     | **322** in 28 suites | Unit + integration — repositories, hooks, services, guards composition                                                          |
+| `pnpm --filter @nest-auth-example/web test`     | **433** in 47 suites | Vitest — auth client, error mapping, components, layout primitives                                                              |
+| `pnpm --filter @nest-auth-example/api test:e2e` | **83** in 26 suites  | supertest e2e — every auth flow against real Postgres + Redis (test stack)                                                      |
+| `pnpm --filter @nest-auth-example/web test:e2e` | **23** (no skips)    | Playwright — login, MFA, invitation, password reset, platform admin, workspace switch, OAuth Google click-through, WS isolation |
+| **Total**                                       | **861 tests**        | Plus the `_probe` package that fails typecheck if any lib subpath export changes                                                |
 
 ### Verification gates (run before every PR)
 
@@ -486,14 +487,14 @@ This repo is held to a similar bar as the library itself — every demonstrated 
 pnpm typecheck      # tsc --noEmit across all workspaces  → 0 errors
 pnpm lint           # ESLint flat config                   → 0 errors, no suppressions
 pnpm format:check   # Prettier                             → clean
-pnpm test           # unit + integration                   → 320 + 433 passing
+pnpm test           # unit + integration                   → 322 + 433 passing
 ```
 
 ### End-to-end gates
 
 ```bash
 pnpm infra:test:up                                   # ephemeral test stack
-pnpm --filter @nest-auth-example/api test:e2e        # 65 supertest e2e
+pnpm --filter @nest-auth-example/api test:e2e        # 83 supertest e2e
 pnpm --filter @nest-auth-example/web test:e2e        # Playwright (auto-starts api + web)
 pnpm infra:test:down                                 # tear down
 ```
@@ -648,6 +649,7 @@ The example targets a two-service topology. See [docs/DEPLOYMENT.md](docs/DEPLOY
 - [🐘 Database](docs/DATABASE.md) — Prisma schema rationale and migration strategy
 - [🔴 Redis](docs/REDIS.md) — key namespaces, TTLs, and eviction policies
 - [📬 Email](docs/EMAIL.md) — how to swap providers without touching auth logic
+- [🔐 Google OAuth](docs/OAUTH_GOOGLE.md) — turn the "Continue with Google" button into a working sign-in in ~10 min
 - [🚢 Deployment](docs/DEPLOYMENT.md) — production checklist
 - [🛠️ Troubleshooting](docs/TROUBLESHOOTING.md) — common snags and how to fix them
 - [🤖 AGENTS.md](AGENTS.md) — full spec for AI coding agents

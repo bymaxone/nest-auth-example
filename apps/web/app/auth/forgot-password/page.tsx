@@ -3,7 +3,7 @@
  *
  * Visual shell is provided by `app/(auth)/layout.tsx`. This page:
  *   - Accepts an email address and calls `useAuth().forgotPassword(email, tenantId)`
- *   - Reads `tenantId` from the `?tenant=` search param (defaults to `'default'`)
+ *   - Reads `tenantId` from the `?tenantId=` search param (defaults to `'acme'`)
  *   - On any resolved response (200 or "account not found" 404): shows the same
  *     generic confirmation — never distinguishes registered vs unknown email
  *   - Transport-level errors (network failure, rate limit) are surfaced as toasts
@@ -39,7 +39,8 @@ import { translateAuthError } from '@/lib/auth-errors';
  */
 function ForgotPasswordForm() {
   const searchParams = useSearchParams();
-  const tenantSlug = searchParams.get('tenantId') ?? 'default';
+  // Fallback slug must match a real tenant from apps/api/prisma/seed.ts.
+  const tenantSlug = searchParams.get('tenantId') ?? 'acme';
   const { forgotPassword } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);

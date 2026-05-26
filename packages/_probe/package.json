@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@bymax-one/nest-auth": "^1.0.2"
+    "@bymax-one/nest-auth": "^1.0.4"
   },
   "devDependencies": {
     "typescript": "^6.0.3"

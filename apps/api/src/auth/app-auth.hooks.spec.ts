@@ -16,7 +16,14 @@
  * @see apps/api/src/auth/app-auth.hooks.ts
  */
 
-import type { HookContext, OAuthProfile, SafeAuthUser, SessionInfo } from '@bymax-one/nest-auth';
+import {
+  BYMAX_AUTH_EMAIL_PROVIDER,
+  type HookContext,
+  type IEmailProvider,
+  type OAuthProfile,
+  type SafeAuthUser,
+  type SessionInfo,
+} from '@bymax-one/nest-auth';
 import { jest } from '@jest/globals';
 import { Test } from '@nestjs/testing';
 
@@ -57,9 +64,14 @@ function makeSafeUser(overrides?: Partial<SafeAuthUser>): SafeAuthUser {
 describe('AppAuthHooks', () => {
   let hooks: AppAuthHooks;
   let auditLogCreate: jest.Mock<() => Promise<void>>;
+  let sendNewSessionAlert: jest.Mock<() => Promise<void>>;
 
   beforeEach(async () => {
     auditLogCreate = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    sendNewSessionAlert = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    // Stub `IEmailProvider` — only `sendNewSessionAlert` is exercised by
+    // `onNewSession`; the remaining methods would throw if accidentally called.
+    const emailProviderStub = { sendNewSessionAlert } as unknown as IEmailProvider;
     const moduleRef = await Test.createTestingModule({
       providers: [
         AppAuthHooks,
@@ -68,6 +80,10 @@ describe('AppAuthHooks', () => {
           useValue: {
             auditLog: { create: auditLogCreate },
           },
+        },
+        {
+          provide: BYMAX_AUTH_EMAIL_PROVIDER,
+          useValue: emailProviderStub,
         },
       ],
     }).compile();
@@ -349,6 +365,56 @@ describe('AppAuthHooks', () => {
       const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
 
       await expect(hooks.onNewSession(user, sessionInfo, ctx)).resolves.toBeUndefined();
+    });
+
+    it('dispatches sendNewSessionAlert with the user email and the session info (FCM #15)', async () => {
+      // The library never calls sendNewSessionAlert itself — this hook is the
+      // only path that triggers the security email. Verify the call shape so a
+      // refactor that moves the dispatch elsewhere is caught at the unit level.
+      const user = makeSafeUser({ id: 'user-3', email: 'carol@example.test' });
+      const sessionInfo: SessionInfo = {
+        sessionHash: 'sha256-mail',
+        device: 'Safari on iOS',
+        ip: '198.51.100.7',
+      };
+      const ctx = makeContext({ userId: 'user-3', tenantId: 'acme' });
+
+      await hooks.onNewSession(user, sessionInfo, ctx);
+
+      expect(sendNewSessionAlert).toHaveBeenCalledTimes(1);
+      expect(sendNewSessionAlert).toHaveBeenCalledWith('carol@example.test', sessionInfo);
+    });
+
+    it('swallows email dispatch failures so the session creation flow is never blocked', async () => {
+      // A flaky SMTP provider must never break login — the audit row is enough
+      // for forensic traceability even when the email is lost.
+      sendNewSessionAlert.mockRejectedValue(new Error('SMTP unreachable'));
+      const user = makeSafeUser();
+      const sessionInfo: SessionInfo = { sessionHash: 'x', device: 'y', ip: '1.2.3.4' };
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await expect(hooks.onNewSession(user, sessionInfo, ctx)).resolves.toBeUndefined();
+      // The audit row still must be written even if the email failed.
+      expect(auditLogCreate).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * Exercises the `err instanceof Error ? err.message : String(err)` branch
+     * for the *non-Error* path. A misbehaving email provider that rejects with
+     * a plain string (or anything not deriving from `Error`) must still be
+     * caught and logged — the previous test covers the Error path; this one
+     * pins the fallback `String(err)` branch so the logger never throws on
+     * an unusual rejection shape.
+     */
+    it('swallows non-Error email dispatch failures and logs them via String(err)', async () => {
+      sendNewSessionAlert.mockRejectedValue('plain string rejection');
+      const user = makeSafeUser();
+      const sessionInfo: SessionInfo = { sessionHash: 'x', device: 'y', ip: '1.2.3.4' };
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await expect(hooks.onNewSession(user, sessionInfo, ctx)).resolves.toBeUndefined();
+      // Audit row is written regardless of the email provider's reject shape.
+      expect(auditLogCreate).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -135,4 +135,5 @@ pnpm infra:nuke       # stop AND delete volumes (fresh start)
 - [Architecture](./ARCHITECTURE.md) — how the two apps and the library fit together.
 - [Environment](./ENVIRONMENT.md) — every configuration variable.
 - [Database](./DATABASE.md) · [Redis](./REDIS.md) · [Email](./EMAIL.md) — the stores and transports.
+- [Google OAuth](./OAUTH_GOOGLE.md) — turning the "Continue with Google" button into a working sign-in flow.
 - [Deployment](./DEPLOYMENT.md) — taking it to production.

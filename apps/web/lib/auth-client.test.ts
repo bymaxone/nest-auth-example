@@ -87,6 +87,7 @@ import {
   createProject,
   deleteProject,
   listInvitations,
+  listWorkspaces,
   createInvitation,
   revokeInvitation,
   changePassword,
@@ -600,6 +601,41 @@ describe('revokeAllSessions', () => {
     const [path, init] = mockInnerFetch.mock.calls[0] as [string, RequestInit];
     expect(path).toBe('/auth/sessions/all');
     expect(init.method).toBe('DELETE');
+  });
+});
+
+describe('listWorkspaces', () => {
+  it('fetches GET /account/workspaces and returns the array', async () => {
+    /*
+     * Scenario: listWorkspaces is the data source for the dashboard's tenant
+     * switcher dropdown. It must call apiFetch with `/account/workspaces` and
+     * return the parsed array verbatim — the API already sorts current-first
+     * + alphabetical, so the client does no re-ordering.
+     * Protects: listWorkspaces' path and return-value contract.
+     */
+    const workspaces = [
+      {
+        tenantId: 'tid-1',
+        tenantSlug: 'acme',
+        tenantName: 'Acme Corp',
+        role: 'ADMIN',
+        isCurrent: true,
+      },
+      {
+        tenantId: 'tid-2',
+        tenantSlug: 'globex',
+        tenantName: 'Globex Inc',
+        role: 'ADMIN',
+        isCurrent: false,
+      },
+    ];
+    mockInnerFetch.mockResolvedValueOnce(makeJsonResponse(workspaces));
+
+    const result = await listWorkspaces();
+
+    expect(result).toEqual(workspaces);
+    const [path] = mockInnerFetch.mock.calls[0] as [string];
+    expect(path).toBe('/account/workspaces');
   });
 });
 

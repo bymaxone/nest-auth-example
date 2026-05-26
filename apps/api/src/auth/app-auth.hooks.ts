@@ -31,15 +31,17 @@
  * @see docs/guidelines/nest-auth-guidelines.md
  */
 
-import { Injectable, Logger } from '@nestjs/common';
-import type {
-  BeforeRegisterResult,
-  HookContext,
-  IAuthHooks,
-  OAuthLoginResult,
-  OAuthProfile,
-  SafeAuthUser,
-  SessionInfo,
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  BYMAX_AUTH_EMAIL_PROVIDER,
+  type BeforeRegisterResult,
+  type HookContext,
+  type IAuthHooks,
+  type IEmailProvider,
+  type OAuthLoginResult,
+  type OAuthProfile,
+  type SafeAuthUser,
+  type SessionInfo,
 } from '@bymax-one/nest-auth';
 import type { Prisma } from '@prisma/client';
 
@@ -49,8 +51,10 @@ import { isBlockedStatus } from './auth.constants.js';
 /**
  * Auth lifecycle hooks that write immutable `AuditLog` rows for every event.
  *
- * Injected via `BYMAX_AUTH_HOOKS` token in Phase 7's `AuthModule`.
- * The only dependency is `PrismaService` — never inject other services here.
+ * Injected via `BYMAX_AUTH_HOOKS` token in Phase 7's `AuthModule`. The hooks
+ * class also dispatches the new-session security email — the library does not
+ * call `IEmailProvider.sendNewSessionAlert` automatically; consumers wire it
+ * inside their own `onNewSession` hook.
  *
  * @public
  */
@@ -58,7 +62,11 @@ import { isBlockedStatus } from './auth.constants.js';
 export class AppAuthHooks implements IAuthHooks {
   private readonly logger = new Logger(AppAuthHooks.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(BYMAX_AUTH_EMAIL_PROVIDER)
+    private readonly emailProvider: IEmailProvider,
+  ) {}
 
   /**
    * Inserts one `AuditLog` row for the given event.
@@ -223,6 +231,20 @@ export class AppAuthHooks implements IAuthHooks {
       sessionHash: sessionInfo.sessionHash,
       device: sessionInfo.device,
     });
+
+    // Dispatch the new-session security email (FCM #15). The library never
+    // calls `sendNewSessionAlert` itself — consumers are responsible for the
+    // dispatch, typically from this hook. Wrap in try/catch so an email
+    // failure never blocks the login response.
+    try {
+      await this.emailProvider.sendNewSessionAlert(user.email, sessionInfo);
+    } catch (err: unknown) {
+      this.logger.error({
+        msg: 'sendNewSessionAlert dispatch failed',
+        userId: user.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   };
 
   /**

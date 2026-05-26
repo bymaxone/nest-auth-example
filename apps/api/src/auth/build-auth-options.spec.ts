@@ -142,6 +142,27 @@ describe('buildAuthOptions', () => {
       });
     });
 
+    it('sets options.oauth.successRedirectUrl to "/dashboard" when OAuth is configured', () => {
+      // Lib v1.0.4 added `oauth.successRedirectUrl` so the OAuth callback can
+      // redirect the browser instead of returning JSON. The example pins it to
+      // the relative `/dashboard` path — combined with an OAuth callback URL
+      // that points to the web origin (Next.js rewrites `/api/:path*` to the
+      // NestJS API), the redirect stays same-origin and the auth cookies
+      // travel without SameSite=Strict tripping on a cross-port hop. The
+      // lib's startup validator rejects this option when paired with
+      // `tokenDelivery: 'bearer'` — the example uses the default `cookie`
+      // mode, which makes the redirect safe.
+      const config = makeConfig({
+        OAUTH_GOOGLE_CLIENT_ID: 'gid.apps.googleusercontent.com',
+        OAUTH_GOOGLE_CLIENT_SECRET: 'GOCSPX-secret',
+        OAUTH_GOOGLE_CALLBACK_URL: 'http://localhost:3000/api/auth/oauth/google/callback',
+      });
+
+      const options = buildAuthOptions(config as never);
+
+      expect(options.oauth?.successRedirectUrl).toBe('/dashboard');
+    });
+
     it('omits options.oauth when OAUTH_GOOGLE_CLIENT_ID is absent', () => {
       // A partial OAuth config (secret without ID) must not produce a google
       // block — the missing ID check prevents an incomplete strategy registration.

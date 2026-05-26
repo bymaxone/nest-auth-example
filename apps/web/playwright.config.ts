@@ -98,6 +98,25 @@ export default defineConfig({
       timeout: 120_000,
       stdout: 'ignore',
       stderr: 'pipe',
+      env: {
+        // Boot the API with OAuth ENABLED using format-valid placeholder
+        // credentials. The OAUTH_GOOGLE_* trio is sufficient for the lib's
+        // OAuth controller to mount and for the initiate endpoint to redirect
+        // to `accounts.google.com` — which is all the click-through Playwright
+        // spec asserts. Completing the OAuth handshake would talk to real
+        // Google with these IDs, so the spec stops at the redirect and never
+        // follows it. The format must match what Google emits (anything
+        // ending in `.apps.googleusercontent.com`) because the lib templates
+        // the value directly into the authorization URL.
+        OAUTH_GOOGLE_CLIENT_ID:
+          process.env['OAUTH_GOOGLE_CLIENT_ID'] ??
+          'playwright-test-client.apps.googleusercontent.com',
+        OAUTH_GOOGLE_CLIENT_SECRET:
+          process.env['OAUTH_GOOGLE_CLIENT_SECRET'] ?? 'playwright-test-client-secret',
+        OAUTH_GOOGLE_CALLBACK_URL:
+          process.env['OAUTH_GOOGLE_CALLBACK_URL'] ??
+          'http://localhost:4000/api/auth/oauth/google/callback',
+      },
     },
     {
       command: 'pnpm dev',
@@ -113,8 +132,9 @@ export default defineConfig({
         AUTH_JWT_SECRET_FOR_PROXY: process.env['AUTH_JWT_SECRET_FOR_PROXY'] ?? apiJwtSecret ?? '',
         NEXT_PUBLIC_API_URL: process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3000/api',
         NEXT_PUBLIC_WS_URL: process.env['NEXT_PUBLIC_WS_URL'] ?? 'ws://localhost:3000',
-        NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED:
-          process.env['NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED'] ?? 'false',
+        // OAuth button visible in the UI for the click-through spec — the API
+        // is configured above with matching placeholder credentials.
+        NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED: process.env['NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED'] ?? 'true',
       },
     },
   ],

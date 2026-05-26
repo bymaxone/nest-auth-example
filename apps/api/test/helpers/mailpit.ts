@@ -51,14 +51,29 @@ export async function clearMailpit(): Promise<void> {
 }
 
 /**
+ * Subjects that are SIDE EFFECTS of the auth flow, not the primary email a
+ * test is waiting for. `waitForEmail` skips these by default so a spec polling
+ * for a verify OTP, password-reset link, or invitation does not pick up the
+ * new-session security alert that the `onNewSession` hook dispatches during
+ * `register` (the lib calls `createSession` inside `register`, which fires the
+ * hook and queues an alert email for the same recipient as the verify OTP).
+ *
+ * Tests that specifically need the new-session alert use
+ * {@link waitForEmailBySubject} with the appropriate regex.
+ */
+const DEFAULT_SUBJECT_SKIP = /new sign-in detected/i;
+
+/**
  * Polls the Mailpit API until a message addressed to `recipientEmail` is found,
  * then returns the HTML body of that message.
  *
- * Uses a 200ms poll interval and a 10-second maximum wait.
+ * Uses a 200ms poll interval and a 10-second maximum wait. By default skips
+ * new-session security alerts so that auth-flow tests pick up the right
+ * primary email (verify OTP, password reset, invitation, etc.).
  *
  * @param recipientEmail - The `To` address to filter on (case-insensitive).
  * @param timeoutMs - Maximum time to wait in milliseconds (default: 10_000).
- * @returns The HTML body of the first matching message.
+ * @returns The HTML body of the first matching non-side-effect message.
  * @throws `Error` when no matching message arrives within the timeout.
  */
 export async function waitForEmail(recipientEmail: string, timeoutMs = 10_000): Promise<string> {
@@ -72,8 +87,10 @@ export async function waitForEmail(recipientEmail: string, timeoutMs = 10_000): 
     }
 
     const data = (await res.json()) as MailpitMessagesResponse;
-    const match = data.messages?.find((m) =>
-      m.To.some((t) => t.Address.toLowerCase() === normalizedRecipient),
+    const match = data.messages?.find(
+      (m) =>
+        !DEFAULT_SUBJECT_SKIP.test(m.Subject) &&
+        m.To.some((t) => t.Address.toLowerCase() === normalizedRecipient),
     );
 
     if (match) {
@@ -162,4 +179,78 @@ export function extractInviteTokenFromHtml(html: string): string {
   }
 
   throw new Error('Could not extract an invitation token from the email body');
+}
+
+/**
+ * Polls the Mailpit API until a message addressed to `recipientEmail` whose
+ * Subject matches `subjectRegex` is found, then returns the HTML body.
+ *
+ * Stricter variant of {@link waitForEmail} — needed when a single recipient
+ * receives multiple messages (e.g. login produces both a "new-session alert"
+ * and an "invitation"); the subject discriminator picks the right one.
+ *
+ * @param recipientEmail - The `To` address to filter on (case-insensitive).
+ * @param subjectRegex   - Regex applied to the Subject line of each candidate.
+ * @param timeoutMs      - Maximum time to wait in milliseconds (default: 10_000).
+ * @returns The HTML body of the first message that matches both filters.
+ * @throws `Error` when no matching message arrives within the timeout.
+ */
+export async function waitForEmailBySubject(
+  recipientEmail: string,
+  subjectRegex: RegExp,
+  timeoutMs = 10_000,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  const normalizedRecipient = recipientEmail.toLowerCase();
+
+  while (Date.now() < deadline) {
+    const res = await fetch(`${MAILPIT_BASE}/api/v1/messages?limit=50`);
+    if (!res.ok) {
+      throw new Error(`Mailpit list failed: ${res.status.toString()}`);
+    }
+
+    const data = (await res.json()) as MailpitMessagesResponse;
+    const match = data.messages?.find(
+      (m) =>
+        subjectRegex.test(m.Subject) &&
+        m.To.some((t) => t.Address.toLowerCase() === normalizedRecipient),
+    );
+
+    if (match) {
+      const detailRes = await fetch(`${MAILPIT_BASE}/api/v1/message/${match.ID}`);
+      if (!detailRes.ok) {
+        throw new Error(`Mailpit detail fetch failed: ${detailRes.status.toString()}`);
+      }
+      const detail = (await detailRes.json()) as MailpitMessageDetail;
+      return detail.HTML;
+    }
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 200));
+  }
+
+  throw new Error(
+    `No email matching subject ${subjectRegex.toString()} addressed to '${recipientEmail}' arrived within ${timeoutMs.toString()}ms`,
+  );
+}
+
+/**
+ * Lists every captured email's Subject + To addresses. Useful for assertions
+ * like "exactly one new-session alert was sent" or "no resend-otp email
+ * leaked to the wrong recipient" without parsing HTML bodies.
+ *
+ * @param limit - Maximum number of messages to retrieve (default: 50).
+ * @returns Array of `{ subject, to }` records.
+ */
+export async function listMailpitMessages(
+  limit = 50,
+): Promise<Array<{ subject: string; to: string[] }>> {
+  const res = await fetch(`${MAILPIT_BASE}/api/v1/messages?limit=${limit.toString()}`);
+  if (!res.ok) {
+    throw new Error(`Mailpit list failed: ${res.status.toString()}`);
+  }
+  const data = (await res.json()) as MailpitMessagesResponse;
+  return (data.messages ?? []).map((m) => ({
+    subject: m.Subject,
+    to: m.To.map((t) => t.Address.toLowerCase()),
+  }));
 }

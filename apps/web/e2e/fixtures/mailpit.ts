@@ -28,6 +28,14 @@ interface MailpitMessageDetail {
 }
 
 /**
+ * Subjects that are SIDE EFFECTS of the auth flow, not the primary email a
+ * test is waiting for. Skipped by default so a spec waiting for a verify OTP,
+ * password-reset link, or invitation does not pick up the new-session security
+ * alert that the `onNewSession` hook dispatches during register / login.
+ */
+const SKIP_SUBJECTS = /new sign-in detected/i;
+
+/**
  * Polls Mailpit until an email addressed to `recipientEmail` arrives.
  *
  * @param recipientEmail - Recipient address to filter on (case-insensitive).
@@ -45,8 +53,9 @@ export async function waitForEmail(recipientEmail: string, timeoutMs = 10_000): 
       throw new Error(`Mailpit list failed: ${res.status.toString()}`);
     }
     const data = (await res.json()) as MailpitMessagesResponse;
-    const match = data.messages?.find((m) =>
-      m.To.some((t) => t.Address.toLowerCase() === normalised),
+    const match = data.messages?.find(
+      (m) =>
+        !SKIP_SUBJECTS.test(m.Subject) && m.To.some((t) => t.Address.toLowerCase() === normalised),
     );
     if (match) {
       const detail = await fetch(`${MAILPIT_URL}/api/v1/message/${match.ID}`);

@@ -200,14 +200,29 @@ describe('OAuth account linking — email/password user links to Google OAuth', 
       //    d. Calls onOAuthLogin → 'create' → PrismaUserRepository.createWithOAuth
       //       (upsert) → updates the existing user's OAuth fields instead of
       //       creating a duplicate row.
-      //    e. Issues access_token + refresh_token cookies and returns { user }.
-      const callbackRes = await agent.get(
-        `/api/auth/oauth/google/callback?code=fake-code&state=${encodeURIComponent(state ?? '')}`,
-      );
+      //    e. Sets access_token + refresh_token cookies AND issues a 302
+      //       redirect to `oauth.successRedirectUrl` ('/dashboard' in
+      //       auth.config.ts, lib v1.0.4+). The response body is empty on the
+      //       redirect leg by design — the cookies travel in the same
+      //       response so the destination page lands authenticated.
+      //    `.redirects(0)` prevents supertest from auto-following the 302 so
+      //    the response is captured at the redirect boundary.
+      const callbackRes = await agent
+        .get(
+          `/api/auth/oauth/google/callback?code=fake-code&state=${encodeURIComponent(state ?? '')}`,
+        )
+        .redirects(0);
 
-      expect(callbackRes.status).toBe(200);
-      expect(callbackRes.body).toHaveProperty('user');
-      expect(callbackRes.body.user).toMatchObject({ email: email.toLowerCase() });
+      expect(callbackRes.status).toBe(302);
+      expect(callbackRes.headers['location']).toBe('/dashboard');
+      // Cookies must accompany the redirect — the destination page would
+      // otherwise see no session. Pin both the access and refresh cookies.
+      const setCookieHeader = callbackRes.headers['set-cookie'];
+      const setCookies = Array.isArray(setCookieHeader)
+        ? setCookieHeader.join('\n')
+        : (setCookieHeader ?? '');
+      expect(setCookies).toMatch(/access_token=/);
+      expect(setCookies).toMatch(/refresh_token=/);
 
       // 8. Assert no duplicate row was created — exactly 1 user with this email.
       const userCount = await prisma.user.count({
@@ -250,12 +265,21 @@ describe('OAuth account linking — email/password user links to Google OAuth', 
       const state = authUrl.searchParams.get('state');
       expect(state).toBeTruthy();
 
-      // Complete callback.
-      const callbackRes = await agent.get(
-        `/api/auth/oauth/google/callback?code=fake-code&state=${encodeURIComponent(state ?? '')}`,
-      );
+      // Complete callback. Since v1.0.4 the response is a 302 to
+      // `oauth.successRedirectUrl` ('/dashboard') with the auth cookies on
+      // the same response — the JSON body that earlier versions returned is
+      // gone by design. `.redirects(0)` keeps supertest at the redirect
+      // boundary so the response is captured before any follow-up GET to
+      // `/dashboard` (which would 404 inside the supertest agent because
+      // the dashboard lives on the Next.js side, not on the NestJS API).
+      const callbackRes = await agent
+        .get(
+          `/api/auth/oauth/google/callback?code=fake-code&state=${encodeURIComponent(state ?? '')}`,
+        )
+        .redirects(0);
 
-      expect(callbackRes.status).toBe(200);
+      expect(callbackRes.status).toBe(302);
+      expect(callbackRes.headers['location']).toBe('/dashboard');
 
       // Assert exactly 1 user was created with the expected OAuth identity.
       const user = await prisma.user.findFirst({
