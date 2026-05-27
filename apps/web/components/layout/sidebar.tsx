@@ -21,7 +21,16 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, User, Shield, Monitor, Users, MailOpen, FolderOpen } from 'lucide-react';
+import {
+  LayoutDashboard,
+  User,
+  Shield,
+  Monitor,
+  Users,
+  MailOpen,
+  FolderOpen,
+  ScrollText,
+} from 'lucide-react';
 import { useSession } from '@bymax-one/nest-auth/react';
 import { cn } from '@/lib/utils';
 
@@ -47,6 +56,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Projects', href: '/dashboard/projects', icon: FolderOpen },
   { label: 'Team', href: '/dashboard/team', icon: Users, adminOnly: true },
   { label: 'Invitations', href: '/dashboard/invitations', icon: MailOpen, adminOnly: true },
+  { label: 'Audit log', href: '/dashboard/audit', icon: ScrollText, adminOnly: true },
 ];
 
 interface SidebarNavItemProps {

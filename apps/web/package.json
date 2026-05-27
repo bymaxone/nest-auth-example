@@ -33,7 +33,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@bymax-one/nest-auth": "^1.0.4",
+    "@bymax-one/nest-auth": "^1.0.10",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-avatar": "^1.1.11",
     "@radix-ui/react-dialog": "^1.1.15",

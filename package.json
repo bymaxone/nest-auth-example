@@ -68,7 +68,7 @@
     "onlyBuiltDependencies": []
   },
   "devDependencies": {
-    "@bymax-one/nest-auth": "^1.0.4",
+    "@bymax-one/nest-auth": "^1.0.10",
     "@commitlint/cli": "^20.5.0",
     "@commitlint/config-conventional": "^20.5.0",
     "@eslint/js": "^10.0.1",

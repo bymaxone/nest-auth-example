@@ -54,17 +54,21 @@ test.describe('Invitation flow', () => {
     // 204 No Content is the documented success status — read .text() only on
     // failure (204 responses have no body and triggering .text() on them raises
     // "No data found for resource with given identifier" from Chrome DevTools).
+    //
+    // The web client posts to the app-side `/api/invitations` endpoint (not
+    // the lib's `/api/auth/invitations`) so the row lands in the same Prisma
+    // table the dashboard reads from — see the comment on `createInvitation`
+    // in `lib/auth-client.ts`. The matcher uses a path-segment regex so the
+    // assertion does not accidentally also match the lib's auth endpoint.
     const inviteResponsePromise = page.waitForResponse(
-      (r) => r.url().includes('/api/auth/invitations') && r.request().method() === 'POST',
+      (r) => /\/api\/invitations(\?|$)/.test(r.url()) && r.request().method() === 'POST',
       { timeout: 10_000 },
     );
     await page.getByRole('button', { name: /send invite/i }).click();
     const inviteResponse = await inviteResponsePromise;
     const status = inviteResponse.status();
     if (status >= 300) {
-      throw new Error(
-        `POST /api/auth/invitations failed: ${status} ${await inviteResponse.text()}`,
-      );
+      throw new Error(`POST /api/invitations failed: ${status} ${await inviteResponse.text()}`);
     }
 
     // 3. Wait for the invitation email in Mailpit.

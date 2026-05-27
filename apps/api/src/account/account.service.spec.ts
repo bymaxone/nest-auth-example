@@ -20,10 +20,16 @@
  * @see apps/api/src/account/account.service.ts
  */
 
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { jest } from '@jest/globals';
 import { randomBytes, scrypt as nodeScrypt } from 'node:crypto';
 import { promisify } from 'node:util';
+import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import type { TestingModule } from '@nestjs/testing';
 
@@ -65,18 +71,40 @@ interface WorkspaceRow {
   tenant: { id: string; slug: string; name: string };
 }
 
+/**
+ * Union of every `select` projection the service uses through
+ * `prisma.user.findUnique`. Each test mocks the call to return whichever
+ * shape its target method expects.
+ */
+type UserFindUniqueReturn =
+  | { id: string; passwordHash: string | null }
+  | { email: string }
+  | { mfaEnabled: boolean; mfaRecoveryCodes: string[] }
+  // Shape returned by `findSwitchTarget`'s target-row lookup — `select` is
+  // `{ id, status, tenant: { select: { slug } } }`. Declared as a discriminant
+  // arm so the test mocks compile without `as unknown as ...` casts.
+  | { id: string; status: string; tenant: { slug: string } }
+  | null;
+
 describe('AccountService', () => {
   let service: AccountService;
-  let userFindUnique: jest.Mock<
-    () => Promise<{ id: string; passwordHash: string | null } | { email: string } | null>
-  >;
+  let userFindUnique: jest.Mock<() => Promise<UserFindUniqueReturn>>;
   let userFindMany: jest.Mock<() => Promise<WorkspaceRow[]>>;
   let userUpdate: jest.Mock<() => Promise<unknown>>;
+  let tenantFindMany: jest.Mock<() => Promise<Array<{ id: string }>>>;
+  let configGet: jest.Mock<(key: string) => string | undefined>;
 
   beforeEach(async () => {
     userFindUnique = jest.fn();
     userFindMany = jest.fn();
     userUpdate = jest.fn<() => Promise<unknown>>();
+    tenantFindMany = jest.fn();
+    configGet = jest.fn<(key: string) => string | undefined>();
+    // Default: no tenant requires MFA. Individual tests override per case.
+    configGet.mockReturnValue('');
+    // Default: tenant lookup returns no matches; tests that need a match
+    // override with `tenantFindMany.mockResolvedValueOnce(...)`.
+    tenantFindMany.mockResolvedValue([]);
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
@@ -85,7 +113,12 @@ describe('AccountService', () => {
           provide: PrismaService,
           useValue: {
             user: { findUnique: userFindUnique, findMany: userFindMany, update: userUpdate },
+            tenant: { findMany: tenantFindMany },
           },
+        },
+        {
+          provide: ConfigService,
+          useValue: { get: configGet },
         },
       ],
     }).compile();
@@ -408,6 +441,295 @@ describe('AccountService', () => {
       expect(args?.where.email).toBe('admin@example.dev');
       // Status guard must request ACTIVE rows only.
       expect(String(args?.where.status)).toBe('ACTIVE');
+    });
+  });
+
+  // ─── findSwitchTarget ──────────────────────────────────────────────────────
+
+  describe('findSwitchTarget', () => {
+    /*
+     * Scenario: caller asks to switch into the tenant they are already
+     * signed into. The service must throw `BadRequestException` before
+     * touching the DB — otherwise the controller would mint a needless
+     * new session and silently rotate cookies for the same identity.
+     * Protects: self-switch refusal.
+     */
+    it('rejects self-switch with BadRequestException', async () => {
+      await expect(
+        service.findSwitchTarget('user-1', 'tenant-acme', 'tenant-acme'),
+      ).rejects.toThrow(BadRequestException);
+      expect(userFindUnique).not.toHaveBeenCalled();
+    });
+
+    /*
+     * Scenario: caller's own User row is missing (deleted between JWT
+     * issuance and this call). Without an email, the sibling lookup
+     * cannot run — service must throw `UnauthorizedException` so the
+     * caller's stale session is killed by the global error handler.
+     * Protects: caller-not-found branch.
+     */
+    it('throws UnauthorizedException when the caller row cannot be resolved', async () => {
+      userFindUnique.mockResolvedValueOnce(null);
+
+      await expect(
+        service.findSwitchTarget('ghost', 'tenant-acme', 'tenant-globex'),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    /*
+     * Scenario: caller has an email but no sibling row in the destination
+     * tenant. The service must surface `NotFoundException` so the UI can
+     * refresh the stale workspace list — a 403 here would mislead callers
+     * into thinking they "have an account but cannot use it."
+     * Protects: missing-target branch.
+     */
+    it('throws NotFoundException when the email has no row in the target tenant', async () => {
+      // First call: caller's own row → returns email.
+      // Second call: lookup in target tenant → no row.
+      userFindUnique.mockResolvedValueOnce({ email: 'admin@example.dev' });
+      userFindUnique.mockResolvedValueOnce(null);
+
+      await expect(
+        service.findSwitchTarget('user-1', 'tenant-acme', 'tenant-globex'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    /*
+     * Scenario: caller has a sibling row in the destination tenant but it
+     * is SUSPENDED / BANNED / INACTIVE. The service must throw
+     * `ForbiddenException` distinct from the 404 above so the UI can
+     * surface a meaningful message instead of silently dropping the
+     * workspace from the dropdown.
+     * Protects: status guard mirrors the password-login path.
+     */
+    it('throws ForbiddenException when the target row is not ACTIVE', async () => {
+      userFindUnique.mockResolvedValueOnce({ email: 'admin@example.dev' });
+      userFindUnique.mockResolvedValueOnce({
+        id: 'user-target',
+        status: 'SUSPENDED',
+        tenant: { slug: 'globex' },
+      });
+
+      await expect(
+        service.findSwitchTarget('user-1', 'tenant-acme', 'tenant-globex'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    /*
+     * Scenario: happy path — caller's email has an ACTIVE row in the
+     * target tenant. Service returns `{ targetUserId, targetTenantSlug }`
+     * so the controller can mint tokens via the lib and the audit log
+     * can record the destination slug.
+     * Protects: the canonical return shape.
+     */
+    it('returns the target userId + slug on a valid email match', async () => {
+      userFindUnique.mockResolvedValueOnce({ email: 'admin@example.dev' });
+      userFindUnique.mockResolvedValueOnce({
+        id: 'user-target-globex',
+        status: 'ACTIVE',
+        tenant: { slug: 'globex' },
+      });
+
+      const result = await service.findSwitchTarget('user-1', 'tenant-acme', 'tenant-globex');
+
+      expect(result).toEqual({
+        targetUserId: 'user-target-globex',
+        targetTenantSlug: 'globex',
+      });
+    });
+
+    /*
+     * Scenario: the target lookup must use the `(tenantId, email)`
+     * composite unique key — the same key the lib uses to bind one User
+     * row per (tenant, email) pair. A future refactor swapping it for
+     * `(email)` alone would let the lookup pick a row from the WRONG
+     * tenant. Pinning the WHERE shape catches that regression.
+     * Protects: ownership rule queries against the intended unique key.
+     */
+    it('scopes the target lookup by (tenantId, email) composite key', async () => {
+      userFindUnique.mockResolvedValueOnce({ email: 'admin@example.dev' });
+      userFindUnique.mockResolvedValueOnce({
+        id: 'user-target',
+        status: 'ACTIVE',
+        tenant: { slug: 'globex' },
+      });
+
+      await service.findSwitchTarget('user-1', 'tenant-acme', 'tenant-globex');
+
+      const calls = userFindUnique.mock.calls as unknown as Array<
+        [{ where: Record<string, unknown> }]
+      >;
+      // Two calls: caller lookup + target lookup.
+      expect(calls).toHaveLength(2);
+      const targetCallWhere = calls[1]?.[0].where as Record<string, unknown>;
+      expect(targetCallWhere).toHaveProperty('tenantId_email');
+      const composite = targetCallWhere['tenantId_email'] as Record<string, string>;
+      expect(composite.tenantId).toBe('tenant-globex');
+      expect(composite.email).toBe('admin@example.dev');
+    });
+  });
+
+  // ─── getMfaStatus ──────────────────────────────────────────────────────────
+
+  describe('getMfaStatus', () => {
+    it('returns enabled=false and remaining=0 when MFA is not enrolled', async () => {
+      /*
+       * Scenario: a user without MFA enrolled hits the security page. The
+       * service must return a snapshot where `recoveryCodesRemaining` is
+       * forced to 0 — even if the DB row somehow had stale code hashes
+       * left over from a previous enrollment, the UI must not surface
+       * them as actionable. Protects the `user.mfaEnabled ? … : 0`
+       * conditional.
+       */
+      userFindUnique.mockResolvedValue({ mfaEnabled: false, mfaRecoveryCodes: [] });
+
+      const status = await service.getMfaStatus('user-1', 'tenant-acme');
+
+      expect(status.enabled).toBe(false);
+      expect(status.recoveryCodesRemaining).toBe(0);
+      expect(status.recoveryCodesTotal).toBe(8);
+    });
+
+    it('returns remaining=length(mfaRecoveryCodes) when MFA is enabled', async () => {
+      /*
+       * Scenario: a user has MFA on and consumed 3 of 8 recovery codes.
+       * Five hashed entries remain in the DB. The service must expose
+       * the array length as `recoveryCodesRemaining` so the UI can render
+       * the "5 of 8 remaining" indicator. Protects the truthy branch of
+       * the same conditional.
+       */
+      userFindUnique.mockResolvedValue({
+        mfaEnabled: true,
+        mfaRecoveryCodes: ['hash1', 'hash2', 'hash3', 'hash4', 'hash5'],
+      });
+
+      const status = await service.getMfaStatus('user-1', 'tenant-acme');
+
+      expect(status.enabled).toBe(true);
+      expect(status.recoveryCodesRemaining).toBe(5);
+      expect(status.recoveryCodesTotal).toBe(8);
+    });
+
+    it('throws UnauthorizedException when the (userId, tenantId) pair has no row', async () => {
+      /*
+       * Scenario: a JWT outlives a deleted user, or a guessed
+       * (userId, tenantId) pair points at no row. The service must
+       * refuse to leak a default snapshot and surface 401 instead — the
+       * client should be forced through re-authentication, not allowed
+       * to render a "no MFA" page that looks deceptively normal.
+       */
+      userFindUnique.mockResolvedValue(null);
+
+      await expect(service.getMfaStatus('user-1', 'tenant-acme')).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+    });
+
+    it('scopes the lookup by (id, tenantId) for tenant isolation', async () => {
+      /*
+       * Scenario: a user from tenant B must not be able to probe a user
+       * in tenant A even with a guessed ID. The findUnique WHERE clause
+       * must combine the two — pinning the call shape catches a future
+       * refactor that drops the tenantId scoping.
+       */
+      userFindUnique.mockResolvedValue({ mfaEnabled: true, mfaRecoveryCodes: [] });
+
+      await service.getMfaStatus('user-1', 'tenant-acme');
+
+      const calls = userFindUnique.mock.calls as unknown as Array<
+        [{ where: { id: string; tenantId: string } }]
+      >;
+      const args = calls[0]?.[0];
+      expect(args).toBeDefined();
+      expect(args?.where.id).toBe('user-1');
+      expect(args?.where.tenantId).toBe('tenant-acme');
+    });
+
+    it('returns required=false when MFA_REQUIRED_TENANT_SLUGS is empty', async () => {
+      /*
+       * Scenario: a vanilla dev / e2e environment has the env var unset
+       * or empty. The status snapshot must report `required: false` so
+       * the dashboard shell does NOT redirect and the security banner
+       * stays hidden — pinning the default-off behaviour catches a
+       * future change that would accidentally surface enforcement to
+       * every workspace.
+       */
+      userFindUnique.mockResolvedValue({ mfaEnabled: false, mfaRecoveryCodes: [] });
+      configGet.mockReturnValue('');
+
+      const status = await service.getMfaStatus('user-1', 'tenant-acme');
+
+      expect(status.required).toBe(false);
+    });
+
+    it('returns required=true when the user tenant id matches a configured slug', async () => {
+      /*
+       * Scenario: the env var lists `globex` and the user is in the
+       * globex tenant. The status snapshot must report `required: true`
+       * so the dashboard shell knows to redirect to /dashboard/security
+       * and the banner explains why. Protects the slug → tenant CUID
+       * resolution path through `prisma.tenant.findMany` plus the
+       * `requiredTenantIds.has(tenantId)` check.
+       */
+      userFindUnique.mockResolvedValue({ mfaEnabled: false, mfaRecoveryCodes: [] });
+      configGet.mockReturnValue('globex');
+      tenantFindMany.mockResolvedValueOnce([{ id: 'tenant-globex-cuid' }]);
+
+      const status = await service.getMfaStatus('user-globex', 'tenant-globex-cuid');
+
+      expect(status.required).toBe(true);
+    });
+
+    it('returns required=false when the user is in a non-required tenant', async () => {
+      /*
+       * Scenario: globex requires MFA but the caller is in acme. The
+       * snapshot must NOT mark acme as required — pinning the `has()`
+       * lookup against the resolved CUID set so a future refactor that
+       * widens the check to `length > 0` (broken) surfaces as a test
+       * failure rather than silently enforcing globally.
+       */
+      userFindUnique.mockResolvedValue({ mfaEnabled: false, mfaRecoveryCodes: [] });
+      configGet.mockReturnValue('globex');
+      tenantFindMany.mockResolvedValueOnce([{ id: 'tenant-globex-cuid' }]);
+
+      const status = await service.getMfaStatus('user-acme', 'tenant-acme-cuid');
+
+      expect(status.required).toBe(false);
+    });
+
+    it('treats undefined env var the same as empty (defence in depth)', async () => {
+      /*
+       * Scenario: ConfigService.get returns `undefined` when the key is
+       * unset. The service's nullish-coalescing fallback must coerce that
+       * to `''` so the slug list is empty and no DB lookup fires. Pinning
+       * the `??` branch so a refactor to `||` (which would also coerce
+       * the empty string back through the same path) doesn't regress.
+       */
+      userFindUnique.mockResolvedValue({ mfaEnabled: false, mfaRecoveryCodes: [] });
+      configGet.mockReturnValue(undefined);
+
+      const status = await service.getMfaStatus('user-1', 'tenant-acme');
+
+      expect(status.required).toBe(false);
+      expect(tenantFindMany).not.toHaveBeenCalled();
+    });
+
+    it('memoizes the required-tenant lookup across multiple calls', async () => {
+      /*
+       * Scenario: the security page typically calls /account/mfa more
+       * than once during a session (mount + after enrol). The service
+       * must hit `prisma.tenant.findMany` only on the first call so
+       * the hot path stays cheap. Protects the `requiredTenantIds`
+       * cache against a future refactor that drops the memo.
+       */
+      userFindUnique.mockResolvedValue({ mfaEnabled: true, mfaRecoveryCodes: [] });
+      configGet.mockReturnValue('globex');
+      tenantFindMany.mockResolvedValueOnce([{ id: 'tenant-globex-cuid' }]);
+
+      await service.getMfaStatus('user-1', 'tenant-globex-cuid');
+      await service.getMfaStatus('user-1', 'tenant-globex-cuid');
+
+      expect(tenantFindMany).toHaveBeenCalledTimes(1);
     });
   });
 });

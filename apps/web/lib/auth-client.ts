@@ -32,7 +32,7 @@
  */
 
 import { createAuthClient, createAuthFetch, AuthClientError } from '@bymax-one/nest-auth/client';
-import type { AuthFetch, AuthErrorCode } from '@bymax-one/nest-auth/client';
+import type { AuthErrorResponse, AuthFetch, AuthErrorCode } from '@bymax-one/nest-auth/client';
 
 // ── Tenant cookie utility ─────────────────────────────────────────────────────
 
@@ -181,6 +181,16 @@ export function handleAuthClientError(
 // ── Tenant pre-login resolution ───────────────────────────────────────────────
 
 /**
+ * Matches the canonical CUID v1 shape: 25 characters, lowercase, leading `c`.
+ * Mirrors the server-side regex on `SwitchWorkspaceDto.tenantId` so both ends
+ * recognise the same "already resolved" identifier and skip the slug-lookup
+ * round-trip in `resolveTenantForLogin`.
+ *
+ * @public
+ */
+export const CUID_REGEX = /^c[a-z0-9]{24}$/;
+
+/**
  * Thrown by `resolveTenantForLogin` when the API confirms the slug does not
  * map to any tenant (HTTP 404). Lets pages distinguish "tenant missing" from
  * "invalid credentials" instead of letting both surface as the same toast.
@@ -214,6 +224,11 @@ export class TenantNotFoundError extends Error {
  * @throws {TenantNotFoundError} When the API returns 404 for the given slug.
  */
 export async function resolveTenantForLogin(slugOrId: string): Promise<string> {
+  // Skip the API round-trip when the caller already has a resolved CUID
+  // (e.g. the verify-email page carries the CUID in the URL after register).
+  if (CUID_REGEX.test(slugOrId)) {
+    return slugOrId;
+  }
   let response: Response;
   try {
     response = await fetch(`/api/tenants/resolve?slug=${encodeURIComponent(slugOrId)}`);
@@ -244,12 +259,19 @@ export async function resolveTenantForLogin(slugOrId: string): Promise<string> {
  * Throws `AuthClientError` on non-2xx responses with the server's error message
  * when available, falling back to a generic message.
  *
+ * @internal Exposed so the sibling slice modules (`auth-client.mfa.ts`,
+ *           `auth-client.audit.ts`, `auth-client.notifications.ts`) can share
+ *           the same fetch pipeline without re-implementing tenant-aware
+ *           headers + error normalisation. Consumers should keep using the
+ *           topic-named helpers (`mfaSetup`, `listAuditEntries`, …) rather
+ *           than calling this directly.
+ *
  * @param path - Path relative to `/api` (e.g. `'/users'` or `'/auth/sessions'`).
  * @param init - Optional fetch init. `Content-Type` defaults to `application/json`.
  * @returns Parsed JSON body, or `undefined` for 204 No Content responses.
  * @throws `AuthClientError` on non-2xx responses.
  */
-async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   // Do NOT set Content-Type here. `createAuthFetch` inside `innerAuthFetch`
   // already injects `Content-Type: application/json` via its frozen
   // DEFAULT_HEADERS, and its `mergeHeaders` helper iterates `Headers` objects
@@ -266,21 +288,105 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const text = await response.text();
 
   if (!response.ok) {
-    let message = `Request failed with status ${response.status}`;
-    try {
-      const parsed = JSON.parse(text) as Record<string, unknown>;
-      if (typeof parsed['message'] === 'string') {
-        message = parsed['message'];
-      }
-    } catch {
-      // Ignore — keep generic message when body is not JSON.
-    }
-    throw new AuthClientError(message, response.status);
+    throw buildAuthClientError(response.status, text);
   }
 
   if (!text) return undefined as T;
 
   return JSON.parse(text) as T;
+}
+
+/**
+ * Builds an `AuthClientError` from a non-2xx HTTP response body.
+ *
+ * Three possible body shapes — checked in priority order so the most
+ * specific match wins:
+ *
+ *   1. **Example's `AuthExceptionFilter` envelope (flat top-level)**:
+ *      `{ code: 'auth.<code>', message: string, statusCode: number }`
+ *      This is what `apps/api/src/auth/auth-exception.filter.ts` serializes
+ *      every `AuthException` thrown by `@bymax-one/nest-auth` into. The
+ *      filter flattens the lib's nested `{ error: { code, message, details } }`
+ *      into this top-level shape so the frontend can read `parsed.code`
+ *      directly. This is the dominant shape on the wire for every
+ *      auth/MFA/platform endpoint.
+ *
+ *   2. **Lib's raw `AuthException` envelope** (only seen if the consumer
+ *      project does NOT register an exception filter that reshapes it):
+ *      `{ error: { code: 'auth.<code>', message, details } }`
+ *      Kept as a fallback so the helper works against either deployment
+ *      style without changes.
+ *
+ *   3. **NestJS `ValidationPipe` / generic exceptions** carry the
+ *      top-level shape `{ statusCode, message, error: string }` with no
+ *      `code` of their own. Falling back to `parsed.message` keeps these
+ *      surfacing a meaningful message even without a stable code.
+ *
+ * Any shape is normalised into the `AuthErrorResponse` interface so
+ * consumers reading `error.body` get a stable contract. When the body
+ * does not match any known shape, `body` is left `undefined` and the
+ * error carries only the generic status message.
+ *
+ * @internal Exposed only so the sibling `auth-client.platform.ts` module can
+ *           reuse the same error envelope normalisation. Not part of the
+ *           consumer-facing surface — consumers should rely on the typed
+ *           `AuthClientError.body` instead.
+ *
+ * @param status - HTTP status code from the failed response.
+ * @param text - Raw response body text.
+ * @returns An `AuthClientError` ready to be thrown.
+ */
+export function buildAuthClientError(status: number, text: string): AuthClientError {
+  let message = `Request failed with status ${status}`;
+  let body: AuthErrorResponse | undefined;
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+
+    // Shape 1 — example's flat AuthExceptionFilter envelope (top-level `code`).
+    if (typeof parsed['code'] === 'string') {
+      const code = parsed['code'];
+      if (typeof parsed['message'] === 'string') message = parsed['message'];
+      body = {
+        code: code as AuthErrorCode,
+        message,
+        error: '',
+        statusCode: status,
+      };
+      return new AuthClientError(message, status, body);
+    }
+
+    // Shape 2 — lib's raw AuthException envelope (`{ error: { code, message } }`).
+    const envelope = parsed['error'];
+    if (
+      typeof envelope === 'object' &&
+      envelope !== null &&
+      typeof (envelope as Record<string, unknown>)['code'] === 'string'
+    ) {
+      const e = envelope as { code: string; message?: unknown; details?: unknown };
+      if (typeof e.message === 'string') message = e.message;
+      body = {
+        code: e.code as AuthErrorCode,
+        message,
+        error: '',
+        statusCode: status,
+      };
+      return new AuthClientError(message, status, body);
+    }
+
+    // Shape 3 — NestJS standard envelope (`{ statusCode, message, error }`).
+    if (typeof parsed['message'] === 'string') {
+      message = parsed['message'];
+      body = {
+        message,
+        error: typeof parsed['error'] === 'string' ? parsed['error'] : '',
+        statusCode: status,
+      };
+      return new AuthClientError(message, status, body);
+    }
+  } catch {
+    // Non-JSON body — keep generic message + undefined body.
+  }
+  return new AuthClientError(message, status, body);
 }
 
 // ── Session types ─────────────────────────────────────────────────────────────
@@ -414,32 +520,6 @@ export interface InvitationInfo {
   createdAt: string;
 }
 
-// ── MFA types ─────────────────────────────────────────────────────────────────
-
-/**
- * MFA setup response from `POST /api/auth/mfa/setup`.
- */
-export interface MfaSetupInfo {
-  /** Base32-encoded TOTP secret for manual entry in authenticator apps. */
-  secret: string;
-  /** `otpauth://totp/…` URI for QR code generation. */
-  qrCodeUri: string;
-  /** Plain-text recovery codes. Displayed once; never persisted in plain text. */
-  recoveryCodes: string[];
-}
-
-// ── Password change input ─────────────────────────────────────────────────────
-
-/**
- * Payload for the `changePassword` helper.
- */
-export interface ChangePasswordInput {
-  /** User's current password for re-authentication. */
-  currentPassword: string;
-  /** Desired new password (minimum 8 characters). */
-  newPassword: string;
-}
-
 // ── Session helpers ───────────────────────────────────────────────────────────
 
 /**
@@ -483,6 +563,68 @@ export const listTenants = (): Promise<TenantInfo[]> => apiFetch<TenantInfo[]>('
  */
 export const listWorkspaces = (): Promise<WorkspaceInfo[]> =>
   apiFetch<WorkspaceInfo[]>('/account/workspaces');
+
+/**
+ * Result body returned by `POST /api/account/switch-workspace` on success.
+ *
+ * The example uses cookie-mode `tokenDelivery`, so the access + refresh
+ * tokens travel via `Set-Cookie` headers — the JSON body carries only the
+ * `user` projection. Mirrors the lib's `CookieAuthResponse` shape.
+ *
+ * @public
+ */
+export interface SwitchWorkspaceResult {
+  /** The signed-in user in the destination tenant. */
+  user: {
+    id: string;
+    email: string;
+    name: string;
+    role: string;
+    status: string;
+    tenantId: string;
+    emailVerified: boolean;
+    mfaEnabled: boolean;
+  };
+}
+
+/**
+ * Silently switches the current session to a sibling `User` row in another
+ * tenant (Slack-style multi-workspace identity sharing) — no password
+ * re-entry required.
+ *
+ * Backed by `POST /api/account/switch-workspace` which:
+ *   1. Validates the caller's email has an ACTIVE row in `tenantId`.
+ *   2. Calls the lib's `AuthService.issueTokensForUserId` (v1.0.10+) to
+ *      mint a fresh session for that target row.
+ *   3. Writes the access / refresh / has-session cookies via the lib's
+ *      `TokenDeliveryService.deliverAuthResponse`.
+ *
+ * After this call the browser's cookies belong to the destination tenant.
+ * Callers must trigger a session reload (`useSession().refresh()` plus a
+ * `router.refresh()`) so React state mirrors the new identity. The
+ * `TenantSwitcher` component handles that wiring; consumers calling this
+ * directly are responsible.
+ *
+ * MFA-enabled destination accounts are rejected by the lib with
+ * `MFA_REQUIRED` (HTTP 401, `code: 'auth.mfa_required'`). The caller
+ * should catch that and redirect the user to
+ * `/auth/login?tenantId=<slug>` so the destination tenant's MFA
+ * challenge runs through the canonical login flow.
+ *
+ * @param tenantId - Destination tenant CUID (from `WorkspaceInfo.tenantId`).
+ * @returns The destination tenant's user projection.
+ * @throws `AuthClientError` with code:
+ *   - `auth.mfa_required` when the destination has MFA — redirect to login.
+ *   - `auth.account_suspended` / `auth.account_banned` / `auth.account_inactive`
+ *     when the destination row is blocked.
+ *   - HTTP 404 when the caller has no row in the destination tenant.
+ *   - HTTP 400 when the destination equals the current tenant.
+ */
+export const switchWorkspace = (tenantId: string): Promise<SwitchWorkspaceResult> =>
+  apiFetch<SwitchWorkspaceResult>('/account/switch-workspace', {
+    method: 'POST',
+    body: JSON.stringify({ tenantId }),
+  });
 
 // ── User helpers ──────────────────────────────────────────────────────────────
 
@@ -566,7 +708,11 @@ export const listInvitations = (): Promise<InvitationInfo[]> =>
  * @param role  - Role the invitee will receive on acceptance.
  */
 export const createInvitation = (email: string, role: string): Promise<void> =>
-  apiFetch<void>('/auth/invitations', {
+  // POST to the app-side controller (`/api/invitations`) so the row is
+  // persisted in the same Prisma table the dashboard reads from. The lib's
+  // `/api/auth/invitations` endpoint stores in Redis only; using that here
+  // would silently send the email but never surface the invitation in the UI.
+  apiFetch<void>('/invitations', {
     method: 'POST',
     body: JSON.stringify({ email, role }),
   });
@@ -581,348 +727,56 @@ export const createInvitation = (email: string, role: string): Promise<void> =>
 export const revokeInvitation = (id: string): Promise<void> =>
   apiFetch<void>(`/invitations/${id}`, { method: 'DELETE' });
 
-// ── MFA helpers ───────────────────────────────────────────────────────────────
+// ── Topic-module re-exports ───────────────────────────────────────────────────
 
-/**
- * Initiates the MFA setup flow for the authenticated user.
- *
- * Returns the TOTP secret, QR code URI, and plain-text recovery codes.
- * The recovery codes are shown once and must not be persisted in plain text.
- *
- * @returns `MfaSetupInfo` with `secret`, `qrCodeUri`, and `recoveryCodes`.
- */
-export const mfaSetup = (): Promise<MfaSetupInfo> =>
-  apiFetch<MfaSetupInfo>('/auth/mfa/setup', { method: 'POST' });
+// The MFA, audit, notifications, and platform-admin slices each live in their
+// own module so this file stays under the 800-line cap and each auth contract
+// (cookie-mode dashboard vs bearer-mode platform) stays self-contained. The
+// barrels below keep the public import path stable for existing consumers:
+// `import { mfaSetup, listAuditEntries, notifySelf, platformLogin } from
+// '@/lib/auth-client'` still works.
 
-/**
- * Verifies the first TOTP code and permanently enables MFA on the account.
- *
- * Returns 204 No Content on success. After a successful call all existing
- * sessions are invalidated and the user must re-authenticate.
- *
- * @param code - 6-digit TOTP code from the authenticator app.
- */
-export const mfaVerifyEnable = (code: string): Promise<void> =>
-  apiFetch<void>('/auth/mfa/verify-enable', {
-    method: 'POST',
-    body: JSON.stringify({ code }),
-  });
+export {
+  mfaSetup,
+  mfaVerifyEnable,
+  mfaDisable,
+  mfaChallengeViaCookie,
+  mfaRegenerateRecoveryCodes,
+  getMfaStatus,
+} from './auth-client.mfa';
+export type {
+  MfaSetupInfo,
+  MfaStatusInfo,
+  MfaRegenerateRecoveryCodesResult,
+} from './auth-client.mfa';
 
-/**
- * Disables MFA on the authenticated user's account.
- *
- * Requires a valid TOTP code (recovery codes are not accepted by design).
- *
- * @param code - 6-digit TOTP code confirming the disable action.
- */
-export const mfaDisable = (code: string): Promise<void> =>
-  apiFetch<void>('/auth/mfa/disable', {
-    method: 'POST',
-    body: JSON.stringify({ code }),
-  });
+export { listAuditEntries } from './auth-client.audit';
+export type { AuditEntryInfo } from './auth-client.audit';
 
-// ── Account helpers ───────────────────────────────────────────────────────────
+export { notifySelf } from './auth-client.notifications';
+export type { NotifySelfPayload, NotifySelfResponse } from './auth-client.notifications';
 
-/**
- * Changes the authenticated user's password.
- *
- * Backed by the custom `POST /api/account/change-password` endpoint.
- * The endpoint re-validates `currentPassword` before updating the hash.
- *
- * @param input - `currentPassword` and `newPassword`.
- */
-export const changePassword = (input: ChangePasswordInput): Promise<void> =>
-  apiFetch<void>('/account/change-password', {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
+export { changePassword } from './auth-client.account';
+export type { ChangePasswordInput } from './auth-client.account';
 
-// ── Notification helpers ──────────────────────────────────────────────────────
-
-/** Optional payload for the self-notification demo endpoint. */
-export interface NotifySelfPayload {
-  /** Notification headline (defaults to `'Hello'` server-side). */
-  title?: string;
-  /** Notification body text (defaults to `'This is a test notification.'` server-side). */
-  body?: string;
-}
-
-/** Response from `POST /api/debug/notify/self`. */
-export interface NotifySelfResponse {
-  /** Number of WebSocket sockets that received the notification. */
-  delivered: number;
-}
-
-/**
- * Sends a test notification to the authenticated user's own WebSocket sockets.
- *
- * Calls the dev-only `POST /api/debug/notify/self` endpoint. The server pushes
- * a `notification:new` WS event to all open sockets for the current user, which
- * the `<NotificationListener />` component surfaces as a `sonner` toast.
- *
- * Only available when `NODE_ENV !== 'production'`; the endpoint returns 403 in
- * production builds.
- *
- * @param payload - Optional title and body; both have sensible server-side defaults.
- * @returns `{ delivered: number }` — count of sockets that received the message.
- */
-export const notifySelf = (payload?: NotifySelfPayload): Promise<NotifySelfResponse> =>
-  apiFetch<NotifySelfResponse>('/debug/notify/self', {
-    method: 'POST',
-    body: JSON.stringify(payload ?? {}),
-  });
-
-// ── Platform types ────────────────────────────────────────────────────────────
-
-/**
- * Tenant record as returned by `GET /api/platform/tenants`.
- *
- * Mirrors the Prisma `Tenant` model returned by `PlatformService.listTenants()`.
- */
-export interface PlatformTenantInfo {
-  /** Unique tenant identifier (cuid). */
-  id: string;
-  /** Human-readable tenant name. */
-  name: string;
-  /** URL-safe tenant slug. */
-  slug: string;
-  /** ISO 8601 creation timestamp. */
-  createdAt: string;
-  /** ISO 8601 last-updated timestamp. */
-  updatedAt: string;
-}
-
-/**
- * Platform admin account record — minimal shape from the login/me response.
- *
- * Mirrors `AuthPlatformUserClient` from `@bymax-one/nest-auth/shared`.
- */
-export interface PlatformAdminInfo {
-  /** Unique internal identifier for the platform administrator. */
-  id: string;
-  /** Primary email address. */
-  email: string;
-  /** Display name. */
-  name: string;
-  /** Platform role (`SUPER_ADMIN` | `SUPPORT`). */
-  role: string;
-  /** Account lifecycle status. */
-  status: string;
-}
-
-/**
- * Successful platform login response from `POST /api/auth/platform/login`.
- *
- * Mirrors `PlatformBearerAuthResponse` from the library's token-delivery service.
- * Platform sessions are always bearer-mode — tokens live in the JSON body.
- */
-export interface PlatformLoginSuccess {
-  /** Authenticated platform administrator. */
-  admin: PlatformAdminInfo;
-  /** Short-lived platform access JWT. */
-  accessToken: string;
-  /** Opaque platform refresh token. */
-  refreshToken: string;
-}
-
-/**
- * MFA challenge result — returned when the platform admin has MFA enabled.
- *
- * Exchange the `mfaTempToken` at `POST /api/auth/platform/mfa/challenge`.
- */
-export interface PlatformMfaChallenge {
-  /** Discriminant field — always `true` for the MFA path. */
-  mfaRequired: true;
-  /** Short-lived MFA temp token to exchange at the challenge endpoint. */
-  mfaTempToken: string;
-}
-
-/**
- * Discriminated union for the platform login response.
- *
- * Branch on `'mfaRequired' in result` to distinguish the MFA path.
- */
-export type PlatformLoginResult = PlatformLoginSuccess | PlatformMfaChallenge;
-
-/**
- * User record as returned by `GET /api/platform/users` and
- * `PATCH /api/platform/users/:id/status`.
- *
- * Mirrors `PlatformSafeUser` from `PlatformService` (credentials stripped).
- */
-export interface PlatformUserInfo {
-  /** Unique user identifier (UUID). */
-  id: string;
-  /** User's primary email address. */
-  email: string;
-  /** User's display name. */
-  name: string;
-  /** Authorization role within the tenant. */
-  role: string;
-  /** Account lifecycle status. */
-  status: string;
-  /** Tenant the user belongs to. */
-  tenantId: string;
-  /** Whether the user's email has been verified. */
-  emailVerified: boolean;
-  /** Whether TOTP MFA is enabled on the account. */
-  mfaEnabled: boolean;
-  /** ISO 8601 timestamp of the most recent login, or `null`. */
-  lastLoginAt: string | null;
-  /** ISO 8601 account creation timestamp. */
-  createdAt: string;
-}
-
-// ── Platform fetch ────────────────────────────────────────────────────────────
-
-/**
- * Reads the platform access token from sessionStorage (browser-only).
- *
- * Returns `null` in SSR contexts where `sessionStorage` is unavailable.
- * Duplicates `getPlatformAccessToken` from `lib/platform-auth` to avoid
- * a cross-module import cycle while keeping auth-client.ts self-contained.
- */
-function readPlatformToken(): string | null {
-  if (typeof sessionStorage === 'undefined') return null;
-  return sessionStorage.getItem('platform_access_token');
-}
-
-/**
- * Sends a bearer-authenticated JSON request to a platform API path.
- *
- * Reads the platform access token from sessionStorage and injects it as
- * `Authorization: Bearer <token>`. This path bypasses `tenantAwareFetch`
- * entirely — platform routes live under `/api/platform/*` and are guarded
- * server-side by `JwtPlatformGuard`, not by tenant JWT cookies.
- *
- * Throws `AuthClientError` on non-2xx responses with the server error message
- * when available, falling back to a generic message.
- *
- * @param path - Absolute path including `/api/` prefix (e.g. `/api/platform/tenants`).
- * @param init - Optional fetch init. `Content-Type` defaults to `application/json`.
- * @returns Parsed JSON body, or `undefined` for 204 No Content.
- * @throws `AuthClientError` on non-2xx responses.
- */
-async function platformApiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = readPlatformToken();
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(init.headers as Record<string, string> | undefined),
-  };
-  if (token !== null) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(path, { ...init, headers, credentials: 'include' });
-
-  if (response.status === 204) return undefined as T;
-
-  const text = await response.text();
-
-  if (!response.ok) {
-    let message = `Request failed with status ${response.status}`;
-    try {
-      const parsed = JSON.parse(text) as Record<string, unknown>;
-      if (typeof parsed['message'] === 'string') {
-        message = parsed['message'];
-      }
-    } catch {
-      // Ignore — keep generic message when body is not JSON.
-    }
-    throw new AuthClientError(message, response.status);
-  }
-
-  if (!text) return undefined as T;
-  return JSON.parse(text) as T;
-}
-
-// ── Platform auth helpers ─────────────────────────────────────────────────────
-
-/**
- * Authenticates a platform administrator with email and password.
- *
- * Posts to `POST /api/auth/platform/login`. Returns either a
- * `PlatformLoginSuccess` (with bearer tokens in the body) or a
- * `PlatformMfaChallenge` when the admin has MFA enabled.
- *
- * Store the returned tokens via `setPlatformTokens` from `lib/platform-auth`.
- *
- * @param email    - Platform admin email address.
- * @param password - Plain-text password (transmitted over HTTPS).
- * @returns `PlatformLoginResult` — discriminate on `'mfaRequired' in result`.
- */
-export const platformLogin = (email: string, password: string): Promise<PlatformLoginResult> =>
-  platformApiFetch<PlatformLoginResult>('/api/auth/platform/login', {
-    method: 'POST',
-    body: JSON.stringify({ email, password }),
-  });
-
-/**
- * Revokes the current platform administrator session.
- *
- * Sends `POST /api/auth/platform/logout` with the access token in the
- * `Authorization: Bearer` header and the refresh token in the request body.
- * After this call, clear sessionStorage tokens via `clearPlatformTokens()`.
- *
- * The platform logout endpoint blacklists the access token JTI in Redis and
- * deletes the refresh session. Any subsequent request guarded by
- * `JwtPlatformGuard` will be rejected.
- *
- * @param refreshToken - The opaque platform refresh token from sessionStorage.
- */
-export const platformLogout = (refreshToken: string): Promise<void> => {
-  const token = readPlatformToken();
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token !== null) headers['Authorization'] = `Bearer ${token}`;
-
-  return fetch('/api/auth/platform/logout', {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ refreshToken }),
-    credentials: 'include',
-  }).then(() => undefined);
-};
-
-// ── Platform data helpers ─────────────────────────────────────────────────────
-
-/**
- * Lists all tenants in the system.
- *
- * Calls `GET /api/platform/tenants` behind `JwtPlatformGuard`.
- * Accessible to both `SUPER_ADMIN` and `SUPPORT` roles.
- *
- * @returns Array of `PlatformTenantInfo` ordered by creation date.
- */
-export const listPlatformTenants = (): Promise<PlatformTenantInfo[]> =>
-  platformApiFetch<PlatformTenantInfo[]>('/api/platform/tenants');
-
-/**
- * Lists all users in the specified tenant.
- *
- * Calls `GET /api/platform/users?tenantId=<id>` behind `JwtPlatformGuard`.
- * Credential fields (`passwordHash`, `mfaSecret`, etc.) are stripped server-side.
- *
- * @param tenantId - The tenant whose users should be listed.
- * @returns Array of `PlatformUserInfo` sorted newest-first.
- */
-export const listPlatformUsers = (tenantId: string): Promise<PlatformUserInfo[]> =>
-  platformApiFetch<PlatformUserInfo[]>(`/api/platform/users?tenantId=${tenantId}`);
-
-/**
- * Updates a user's account status from the platform context.
- *
- * Calls `PATCH /api/platform/users/:id/status` behind `JwtPlatformGuard`.
- * Restricted to `SUPER_ADMIN` — `SUPPORT` is read-only.
- *
- * @param userId - Target user ID (UUID v4).
- * @param status - New account status (`'ACTIVE'`, `'SUSPENDED'`, etc.).
- * @returns The updated `PlatformUserInfo`.
- */
-export const platformUpdateUserStatus = (
-  userId: string,
-  status: string,
-): Promise<PlatformUserInfo> =>
-  platformApiFetch<PlatformUserInfo>(`/api/platform/users/${userId}/status`, {
-    method: 'PATCH',
-    body: JSON.stringify({ status }),
-  });
+export {
+  platformLogin,
+  platformLogout,
+  platformGetMe,
+  platformMfaSetup,
+  platformMfaVerifyEnable,
+  platformMfaDisable,
+  platformMfaRegenerateRecoveryCodes,
+  listPlatformTenants,
+  listPlatformUsers,
+  platformUpdateUserStatus,
+} from './auth-client.platform';
+export type {
+  PlatformTenantInfo,
+  PlatformAdminInfo,
+  PlatformLoginSuccess,
+  PlatformMfaChallenge,
+  PlatformLoginResult,
+  PlatformUserInfo,
+  PlatformMeInfo,
+} from './auth-client.platform';

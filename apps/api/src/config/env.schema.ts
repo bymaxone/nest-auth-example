@@ -200,6 +200,27 @@ const base = z.object({
     .min(1)
     .optional()
     .describe('Public apex domain for cookie domain resolution in production'),
+
+  // ---------------------------------------------------------------------------
+  // Tenant-level MFA enforcement
+  // ---------------------------------------------------------------------------
+  /**
+   * Comma-separated list of tenant slugs (see `apps/api/prisma/seed.ts`)
+   * whose users MUST enrol in MFA before they can use anything beyond the
+   * MFA setup endpoints. Enforced server-side by `TenantMfaPolicyGuard`
+   * and surfaced in the UI as a banner on `/dashboard/security`.
+   *
+   * Defaults to empty (no tenant requires MFA). Set to e.g. `globex` to
+   * exercise the policy against the seed's globex workspace.
+   *
+   * Note: this is a comma-separated SLUG list, not CUIDs — the guard
+   * resolves slugs to CUIDs at request time so a fresh seed always
+   * matches without touching this env var.
+   */
+  MFA_REQUIRED_TENANT_SLUGS: z
+    .string()
+    .default('')
+    .describe('Comma-separated tenant slugs whose users must enrol in MFA (e.g. "globex")'),
 });
 
 /**

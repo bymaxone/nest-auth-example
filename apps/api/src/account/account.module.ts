@@ -13,6 +13,7 @@
 
 import { Module } from '@nestjs/common';
 
+import { AuthModule } from '../auth/auth.module.js';
 import { PrismaModule } from '../prisma/prisma.module.js';
 import { AccountController } from './account.controller.js';
 import { AccountService } from './account.service.js';
@@ -20,10 +21,14 @@ import { AccountService } from './account.service.js';
 /**
  * Self-contained module for the current user's account endpoints.
  *
+ * `AuthModule` is imported so the password-less workspace-switch endpoint can
+ * inject `AuthService.issueTokensForUserId` and `TokenDeliveryService.deliverAuthResponse`
+ * from `@bymax-one/nest-auth` (v1.0.10+).
+ *
  * @public
  */
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, AuthModule],
   controllers: [AccountController],
   providers: [AccountService],
 })

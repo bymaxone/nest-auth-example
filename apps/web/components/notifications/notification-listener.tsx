@@ -61,6 +61,18 @@ export function NotificationListener() {
 
     const ws = getWsClient();
 
+    // Force an immediate reconnect with the current cookies. Critical when
+    // the user signs in under a new identity (re-login, tenant switch, or
+    // OAuth-MFA completion) and the singleton was either:
+    //   - sleeping on an exponential-backoff timer against an unauthenticated
+    //     endpoint (cookies were cleared on logout), or
+    //   - still holding a stale socket authenticated as the previous user.
+    // `reconnect()` cancels the pending timer, resets `attempt`, tears down
+    // any current socket, and opens a fresh upgrade with the browser's
+    // current `access_token` cookie. No-op when the singleton is freshly
+    // initialised (idempotent).
+    ws.reconnect();
+
     const handler: NotificationHandler = (payload) => {
       toast(payload.title, { description: payload.body });
     };

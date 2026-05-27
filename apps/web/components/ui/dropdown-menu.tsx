@@ -48,7 +48,10 @@ const DropdownMenuSubContent = React.forwardRef<
   <DropdownMenuPrimitive.SubContent
     ref={ref}
     className={cn(
-      'border-(--glass-border) bg-(--color-bg-primary) z-50 min-w-32 overflow-hidden rounded-xl border p-1 shadow-lg backdrop-blur-md',
+      // z-300 sits above the dashboard topbar (z-200) so dropdowns whose
+      // trigger lives inside the fixed top bar do not get clipped by the
+      // bar's stacking context. See `components/layout/topbar.tsx`.
+      'border-(--glass-border) bg-(--color-bg-primary) z-300 min-w-32 overflow-hidden rounded-xl border p-1 shadow-lg backdrop-blur-md',
       'data-[state=open]:animate-in data-[state=closed]:animate-out',
       'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
       'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
@@ -73,7 +76,11 @@ const DropdownMenuContent = React.forwardRef<
       ref={ref}
       sideOffset={sideOffset}
       className={cn(
-        'border-(--glass-border) bg-(--color-bg-primary) z-50 min-w-32 overflow-hidden rounded-xl border p-1 shadow-md backdrop-blur-md',
+        // z-300 sits above the dashboard topbar (z-200) so dropdowns
+        // anchored inside the topbar (TenantSwitcher, sign-out, user
+        // menu) are not clipped by the topbar's stacking context.
+        // See `components/layout/topbar.tsx`.
+        'border-(--glass-border) bg-(--color-bg-primary) z-300 min-w-32 overflow-hidden rounded-xl border p-1 shadow-md backdrop-blur-md',
         'data-[state=open]:animate-in data-[state=closed]:animate-out',
         'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
         'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
@@ -98,7 +105,7 @@ const DropdownMenuItem = React.forwardRef<
     className={cn(
       'relative flex cursor-default select-none items-center gap-2 rounded-lg px-2 py-1.5 text-sm outline-none transition-colors',
       'focus:bg-(--glass-bg-hover) focus:text-foreground',
-      'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+      'data-disabled:pointer-events-none data-disabled:opacity-50',
       '[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
       inset && 'pl-8',
       className,

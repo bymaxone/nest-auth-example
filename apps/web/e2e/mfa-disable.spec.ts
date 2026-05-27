@@ -106,20 +106,13 @@ test.describe('MFA disable via UI', () => {
     // 90 s, so the disable code must come from a fresh step.
     await waitForNextTotpStep(page);
 
-    // ── 5b. Force a fresh /me fetch so useSession() sees mfaEnabled: true. ─
-    // The enrollment flow calls `router.refresh()` on success, but the
-    // client-side session cache reads from the JWT, which still embeds
-    // `mfaEnabled: false` from the pre-enrollment access token. A full
-    // navigation forces a fresh `GET /api/auth/me` round-trip whose
-    // response reflects the just-persisted `mfaEnabled: true`, so the
-    // security page re-renders the `MfaDisableCard` instead of the
-    // (stale) `MfaSetupCard`.
-    await page.goto('/dashboard/security');
-
     // ── 6. Open the disable form on the security page. ─────────────────────
     // The page now shows the `MfaDisableCard` because the user has MFA
-    // enabled. Click "Disable two-factor authentication" to reveal the OTP
-    // form (initial render only shows the button + warning copy).
+    // enabled. The security page's `onEnabled` callback calls the lib's
+    // `useSession().refresh()` which re-issues `GET /api/auth/me`, picks
+    // up the just-persisted `mfaEnabled: true`, and swaps the rendered
+    // card. Playwright's auto-wait on the next locator holds until that
+    // card transition completes — no manual reload required.
     await page.getByRole('button', { name: /disable two-factor authentication/i }).click();
 
     // ── 7. Submit a fresh TOTP and confirm. ────────────────────────────────
@@ -136,20 +129,13 @@ test.describe('MFA disable via UI', () => {
     const disableResult = await disableResponse;
     expect(disableResult.status()).toBeLessThan(300);
 
-    // ── 8. Force a fresh /me fetch so useSession() sees mfaEnabled: false. ─
-    // Mirrors the post-enrollment reload above. The disable POST flips
-    // `mfaEnabled` on the persisted user row, but the still-warm access
-    // token's claim says otherwise — `router.refresh()` re-renders the
-    // server tree, yet the client-side session cache reads from the JWT.
-    // A full navigation forces `GET /api/auth/me` to be re-issued, which
-    // picks up the now-false flag and re-renders the setup card.
-    await page.goto('/dashboard/security');
-
-    // ── 9. Assert MFA is now off. ──────────────────────────────────────────
-    // The page rerenders the setup card once `mfaEnabled` flips back to
-    // false. Look for the "Set up authenticator" button — it only appears
-    // when MFA is disabled — and confirm the disable button is no longer
-    // in the DOM.
+    // ── 8. Assert MFA is now off. ──────────────────────────────────────────
+    // The page re-renders the setup card once `mfaEnabled` flips back to
+    // false. The `onDisabled` callback in the security page calls the
+    // lib's `useSession().refresh()` which re-fetches `GET /api/auth/me`
+    // and updates the `AuthProvider` state in place. Playwright's
+    // auto-wait holds the `toBeVisible` assertion until the card
+    // transition completes — no manual reload required.
     await expect(page.getByRole('button', { name: /set up authenticator/i })).toBeVisible({
       timeout: 10_000,
     });

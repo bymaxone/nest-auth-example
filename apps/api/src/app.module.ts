@@ -18,9 +18,14 @@
  * - `NotificationsModule` — WebSocket gateway at `/ws/notifications` protected by
  *   `WsJwtGuard`; includes the dev-only `POST /api/debug/notify/:userId` trigger
  *   (FCM row #24).
- * - Four global `APP_GUARD` providers registered in the exact order mandated by
+ * - Five global `APP_GUARD` providers registered in the exact order mandated by
  *   `docs/guidelines/nest-auth-guidelines.md`: JwtAuthGuard → UserStatusGuard →
- *   MfaRequiredGuard → RolesGuard. Order must not be changed without an ADR.
+ *   MfaRequiredGuard → TenantMfaPolicyGuard → RolesGuard. The new
+ *   `TenantMfaPolicyGuard` is app-owned (see `auth/tenant-mfa-policy.guard.ts`)
+ *   and forces every user in the tenants listed in `MFA_REQUIRED_TENANT_SLUGS`
+ *   to enrol in MFA before they can touch protected endpoints; it composes
+ *   with the lib's `MfaRequiredGuard` rather than replacing it. Order must
+ *   not be changed without an ADR.
  *
  * Import order is intentional:
  * 1. `AppConfigModule` must be first — registers `ConfigService` globally.
@@ -52,7 +57,9 @@ import { RedisModule } from './redis/redis.module.js';
 import { HealthModule } from './health/health.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { AppJwtAuthGuard } from './auth/app-jwt-auth.guard.js';
+import { TenantMfaPolicyGuard } from './auth/tenant-mfa-policy.guard.js';
 import { AccountModule } from './account/account.module.js';
+import { AuditModule } from './audit/audit.module.js';
 import { InvitationsModule } from './invitations/invitations.module.js';
 import { TenantsModule } from './tenants/tenants.module.js';
 import { ProjectsModule } from './projects/projects.module.js';
@@ -89,6 +96,7 @@ import { DebugModule } from './debug/debug.module.js';
     // ── Feature modules ────────────────────────────────────────────────────
     HealthModule,
     AccountModule,
+    AuditModule,
     InvitationsModule,
     TenantsModule,
     ProjectsModule,
@@ -125,7 +133,14 @@ import { DebugModule } from './debug/debug.module.js';
     // 3. MfaRequiredGuard: enforces MFA challenge completion when the user
     //    has MFA enabled. Routes decorated with @SkipMfa() bypass this guard.
     { provide: APP_GUARD, useExisting: MfaRequiredGuard },
-    // 4. RolesGuard: enforces @Roles(...) requirements using the role hierarchy
+    // 4. TenantMfaPolicyGuard: tenant-level enrolment enforcement. Forces
+    //    users in the configured tenant list (MFA_REQUIRED_TENANT_SLUGS) to
+    //    enrol in MFA before they can use protected endpoints. Reuses the
+    //    same @SkipMfa() decorator as the lib's MfaRequiredGuard, so MFA
+    //    setup routes remain reachable. App-owned — not exported by the lib.
+    TenantMfaPolicyGuard,
+    { provide: APP_GUARD, useExisting: TenantMfaPolicyGuard },
+    // 5. RolesGuard: enforces @Roles(...) requirements using the role hierarchy
     //    defined in auth.config.ts. Routes without @Roles() pass through.
     { provide: APP_GUARD, useExisting: RolesGuard },
   ],

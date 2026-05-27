@@ -497,3 +497,96 @@ describe('close() with pending reconnect timer', () => {
     expect(MockWebSocket.instances).toHaveLength(1);
   });
 });
+
+describe('reconnect()', () => {
+  /*
+   * Regression: prior to the lifecycle-handler detach fix, calling
+   * `reconnect()` opened the new socket synchronously but the OLD socket's
+   * `onclose` then fired asynchronously, nullifying the module-level
+   * `socket` reference and scheduling a second `setTimeout(connect, …)`.
+   * Result: every `reconnect()` produced 2-3 zombie sockets on the server,
+   * and the frontend received the same `notification:new` event 2-3 times
+   * (visible as duplicate toasts after re-login / tenant switch).
+   *
+   * This test pins that exactly ONE replacement socket exists after
+   * `reconnect()`, even after the runtime has had a chance to drain
+   * pending timers and microtasks. Protects the detach-before-close
+   * contract in `WsClient.reconnect`.
+   */
+  it('opens exactly one replacement socket — no zombie reconnects', () => {
+    const ws = getWsClient();
+    expect(MockWebSocket.instances).toHaveLength(1);
+    const original = MockWebSocket.instances[0]!;
+
+    ws.reconnect();
+
+    // Immediately after reconnect: exactly two sockets exist (the closed
+    // original + the brand-new replacement).
+    expect(MockWebSocket.instances).toHaveLength(2);
+
+    // Drain any pending macrotasks. If the old socket's `onclose` were
+    // still attached, the backoff timer would fire here and add a third
+    // socket — the regression we're guarding against.
+    vi.advanceTimersByTime(30_000);
+
+    expect(MockWebSocket.instances).toHaveLength(2);
+    // The original socket has been closed; the replacement is the new
+    // module-level socket. They are distinct instances.
+    expect(MockWebSocket.instances[1]).not.toBe(original);
+  });
+
+  it('cancels any pending backoff timer before opening the replacement', () => {
+    /*
+     * Scenario: the WS singleton is mid-backoff (it disconnected, the
+     * reconnect timer is scheduled, but hasn't fired). The user re-logs
+     * in and the listener calls `reconnect()` — the pending timer must
+     * be cancelled so we don't get a second `connect()` after the
+     * replacement is already open.
+     * Protects the `clearTimeout(reconnectTimer)` line in reconnect().
+     */
+    const ws = getWsClient();
+    const ws0 = MockWebSocket.instances[0]!;
+    ws0.simulateClose();
+    // A backoff timer is now armed at ~1s.
+    expect(MockWebSocket.instances).toHaveLength(1);
+
+    ws.reconnect();
+    // One new socket opened synchronously by reconnect().
+    expect(MockWebSocket.instances).toHaveLength(2);
+
+    // If the pending timer were still armed it would fire at ~1s and
+    // open a third socket.
+    vi.advanceTimersByTime(30_000);
+    expect(MockWebSocket.instances).toHaveLength(2);
+  });
+
+  it('resets the backoff attempt counter so the next disconnect reconnects fast', () => {
+    /*
+     * Scenario: the singleton was in a deep backoff window (attempt = 5)
+     * because the previous user's session was rejecting upgrades. After
+     * `reconnect()` opens a fresh socket with new cookies and that one
+     * also closes (e.g. transient infra blip), the next reconnect MUST
+     * use the base delay (~1s), not the 30s cap. Otherwise the user
+     * would wait 30s for notifications to resume on the second disconnect.
+     * Protects the `attempt = 0` line in reconnect().
+     */
+    const ws = getWsClient();
+    // Force attempt counter up by triggering 4 disconnects + reconnects.
+    for (let i = 0; i < 4; i++) {
+      const current = MockWebSocket.instances[MockWebSocket.instances.length - 1]!;
+      current.simulateClose();
+      vi.advanceTimersByTime(60_000); // let the backoff fire
+    }
+    // attempt counter is now somewhere ≥ 4 → next backoff would be ≥ 16s.
+
+    ws.reconnect();
+    const post = MockWebSocket.instances[MockWebSocket.instances.length - 1]!;
+    post.simulateOpen();
+    // Simulate the post-reconnect socket closing.
+    post.simulateClose();
+    const countBefore = MockWebSocket.instances.length;
+    // Base delay (~1 s) — if reset failed we'd still be sleeping.
+    vi.advanceTimersByTime(1_500);
+    expect(MockWebSocket.instances.length).toBe(countBefore + 1);
+  });
+});

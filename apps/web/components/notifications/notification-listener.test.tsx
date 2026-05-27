@@ -31,8 +31,9 @@ vi.mock('@/lib/ws-client', () => {
   const on = vi.fn();
   const off = vi.fn();
   const close = vi.fn();
+  const reconnect = vi.fn();
   return {
-    getWsClient: vi.fn(() => ({ on, off, close })),
+    getWsClient: vi.fn(() => ({ on, off, close, reconnect })),
   };
 });
 
@@ -72,6 +73,24 @@ describe('NotificationListener', () => {
 
     const ws = getWsClient();
     expect(ws.on).toHaveBeenCalledWith('notification:new', expect.any(Function));
+  });
+
+  it('forces an immediate ws.reconnect() when the user transitions to authenticated', () => {
+    /*
+     * Scenario: the WS singleton may be sleeping on an exponential-backoff
+     * timer (after the previous user signed out) or holding a stale socket
+     * authenticated as a different identity. When `user.id` becomes set,
+     * the listener must call `ws.reconnect()` to cancel the timer, reset
+     * `attempt`, and open a fresh upgrade with the browser's current
+     * cookies — otherwise notifications never reach the new session.
+     * Protects: re-login / tenant-switch reconnect behaviour.
+     */
+    vi.mocked(useSession).mockReturnValue(makeSession('user-1') as ReturnType<typeof useSession>);
+
+    render(<NotificationListener />);
+
+    const ws = getWsClient();
+    expect(ws.reconnect).toHaveBeenCalledTimes(1);
   });
 
   it('fires a toast when a notification:new event arrives', () => {

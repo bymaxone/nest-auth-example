@@ -12,7 +12,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Building2, Users } from 'lucide-react';
+import { Building2, Users, Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /** Definition of a single platform nav item. */
@@ -31,6 +31,7 @@ interface PlatformNavItem {
 const PLATFORM_NAV_ITEMS: PlatformNavItem[] = [
   { label: 'Tenants', href: '/platform/tenants', icon: Building2, exact: true },
   { label: 'Users', href: '/platform/users', icon: Users, exact: false },
+  { label: 'Security', href: '/platform/security', icon: Shield, exact: true },
 ];
 
 /** Single nav item — extracted so the active-state check stays component-scoped. */

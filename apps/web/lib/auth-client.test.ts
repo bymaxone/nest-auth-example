@@ -88,6 +88,9 @@ import {
   deleteProject,
   listInvitations,
   listWorkspaces,
+  switchWorkspace,
+  getMfaStatus,
+  listAuditEntries,
   createInvitation,
   revokeInvitation,
   changePassword,
@@ -95,6 +98,8 @@ import {
   mfaSetup,
   mfaVerifyEnable,
   mfaDisable,
+  mfaRegenerateRecoveryCodes,
+  mfaChallengeViaCookie,
   platformLogin,
   platformLogout,
   listPlatformTenants,
@@ -549,6 +554,205 @@ describe('apiFetch response handling', () => {
     const result = await revokeAllSessions();
     expect(result).toBeUndefined();
   });
+
+  it('propagates the example AuthExceptionFilter flat envelope code through to AuthClientError.code', async () => {
+    /*
+     * Scenario: the API's `AuthExceptionFilter` reshapes every
+     * `AuthException` thrown by `@bymax-one/nest-auth` into a FLAT
+     * top-level shape `{ code, message, statusCode }` (see
+     * `apps/api/src/auth/auth-exception.filter.ts`). This is the
+     * dominant shape on the wire — apiFetch must read `code` at the
+     * top level and propagate it so call sites can route through
+     * `translateAuthError(code)`. Without this, the user sees the
+     * generic "An unexpected error occurred" toast on a wrong TOTP
+     * during the OAuth-MFA challenge.
+     * Protects: the primary "Shape 1" branch that handles the
+     * example's serialized envelope.
+     */
+    mockInnerFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          code: 'auth.mfa_invalid_code',
+          message: 'Invalid MFA code',
+          statusCode: 401,
+        }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    let caught: unknown;
+    try {
+      await listUsers();
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(AuthClientError);
+    const err = caught as AuthClientError;
+    expect(err.code).toBe('auth.mfa_invalid_code');
+    expect(err.body?.message).toBe('Invalid MFA code');
+    expect(err.message).toBe('Invalid MFA code');
+    expect(err.status).toBe(401);
+  });
+
+  it('propagates the lib AuthException nested envelope code through to AuthClientError.code', async () => {
+    /*
+     * Scenario: the lib's `AuthException` wraps the body under
+     * `{ error: { code, message, details } }` when no consumer-side
+     * exception filter reshapes it. apiFetch must unwrap that envelope
+     * as a fallback so the helper works against either deployment style
+     * — apps that register a flattening filter (Shape 1) and apps that
+     * forward the lib's raw envelope (Shape 2). Protects the secondary
+     * fallback branch.
+     */
+    mockInnerFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: {
+            code: 'auth.mfa_invalid_code',
+            message: 'Invalid MFA code',
+            details: null,
+          },
+        }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    let caught: unknown;
+    try {
+      await listUsers();
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(AuthClientError);
+    const err = caught as AuthClientError;
+    expect(err.code).toBe('auth.mfa_invalid_code');
+    expect(err.body?.message).toBe('Invalid MFA code');
+    expect(err.status).toBe(403);
+  });
+
+  it('keeps the generic status message when the flat envelope omits message', async () => {
+    /*
+     * Scenario: a defence-in-depth case — the flat envelope carries
+     * `code` but `message` is missing or non-string. apiFetch must
+     * still build a body with the resolved code, falling back to the
+     * generic "Request failed with status N" message rather than
+     * blowing up on the missing field. Protects the false branch of
+     * `if (typeof parsed.message === 'string')` inside the Shape 1
+     * branch.
+     */
+    mockInnerFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          code: 'auth.unknown',
+          statusCode: 500,
+          // No `message` field — exercises the false branch.
+        }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    let caught: unknown;
+    try {
+      await listUsers();
+    } catch (err) {
+      caught = err;
+    }
+    const err = caught as AuthClientError;
+    expect(err.code).toBe('auth.unknown');
+    expect(err.body?.message).toBe('Request failed with status 500');
+  });
+
+  it('falls back to top-level NestJS message shape when no error envelope is present', async () => {
+    /*
+     * Scenario: a NestJS ValidationPipe 400 carries the top-level shape
+     * `{ statusCode, message, error }` with no `code` field and no
+     * nested `error.code`. apiFetch must read the top-level `message`
+     * and surface a structured body even though there is no stable code.
+     * Protects: the tertiary "Shape 3" branch.
+     */
+    mockInnerFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          statusCode: 400,
+          message: 'email must be an email',
+          error: 'Bad Request',
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    let caught: unknown;
+    try {
+      await listUsers();
+    } catch (err) {
+      caught = err;
+    }
+    const err = caught as AuthClientError;
+    expect(err.code).toBeUndefined();
+    expect(err.body?.message).toBe('email must be an email');
+    expect(err.body?.error).toBe('Bad Request');
+  });
+
+  it('keeps body undefined when JSON body has neither envelope nor message', async () => {
+    /*
+     * Scenario: defence-in-depth — a server returns a JSON object that
+     * does not match either of the two known shapes (no `error.code`,
+     * no top-level `message`). apiFetch must fall through both
+     * branches, leaving `body === undefined`, and still throw an
+     * `AuthClientError` with the generic status message. Protects the
+     * "neither shape matched" exit of the JSON.parse branch.
+     */
+    mockInnerFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ statusCode: 500, unrelated: 'field' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    let caught: unknown;
+    try {
+      await listUsers();
+    } catch (err) {
+      caught = err;
+    }
+    const err = caught as AuthClientError;
+    expect(err.code).toBeUndefined();
+    expect(err.body).toBeUndefined();
+    expect(err.message).toBe('Request failed with status 500');
+  });
+
+  it('keeps the generic status message when the nested AuthException envelope omits message', async () => {
+    /*
+     * Scenario: a defence-in-depth case — the lib's raw `AuthException`
+     * envelope carries `code` but `message` is missing or non-string.
+     * apiFetch must still build a body with the resolved code, falling
+     * back to the generic "Request failed with status N" message rather
+     * than blowing up on the missing field. Protects the false branch
+     * of `if (typeof e.message === 'string')` inside Shape 2.
+     */
+    mockInnerFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: {
+            code: 'auth.unknown',
+            // No `message` field — exercises the false branch.
+            details: null,
+          },
+        }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    let caught: unknown;
+    try {
+      await listUsers();
+    } catch (err) {
+      caught = err;
+    }
+    const err = caught as AuthClientError;
+    expect(err.code).toBe('auth.unknown');
+    expect(err.body?.message).toBe('Request failed with status 500');
+  });
 });
 
 // ── Session helpers ───────────────────────────────────────────────────────────
@@ -604,6 +808,64 @@ describe('revokeAllSessions', () => {
   });
 });
 
+describe('getMfaStatus', () => {
+  it('fetches GET /account/mfa and returns the status snapshot', async () => {
+    /*
+     * Scenario: getMfaStatus is the data source for the Security page's
+     * recovery-code counter and the dashboard shell's MFA-required
+     * redirect gate. It must call apiFetch with the path `/account/mfa`
+     * and return the parsed body verbatim — the API computes
+     * `recoveryCodesRemaining`, `recoveryCodesTotal`, and `required`
+     * server-side so the client does NO derivation.
+     * Protects: getMfaStatus' path and return-value contract.
+     */
+    const snapshot = {
+      enabled: true,
+      recoveryCodesRemaining: 5,
+      recoveryCodesTotal: 8,
+      required: false,
+    };
+    mockInnerFetch.mockResolvedValueOnce(makeJsonResponse(snapshot));
+
+    const result = await getMfaStatus();
+
+    expect(result).toEqual(snapshot);
+    const [path] = mockInnerFetch.mock.calls[0] as [string];
+    expect(path).toBe('/account/mfa');
+  });
+});
+
+describe('listAuditEntries', () => {
+  it('fetches GET /audit and returns the array', async () => {
+    /*
+     * Scenario: the dashboard audit page reads from GET /api/audit
+     * (admin-gated server-side). The client helper must call the
+     * correct path and return the parsed body verbatim — the API
+     * already orders newest-first and caps at 100, so no client-side
+     * re-ordering is required.
+     * Protects: listAuditEntries' path and return-value contract.
+     */
+    const entries = [
+      {
+        id: 'audit-1',
+        event: 'user.login.succeeded',
+        actorUserId: 'user-1',
+        payload: { reason: 'password' },
+        ip: '10.0.0.1',
+        userAgent: 'Mozilla/5.0',
+        createdAt: '2026-05-26T14:00:00.000Z',
+      },
+    ];
+    mockInnerFetch.mockResolvedValueOnce(makeJsonResponse(entries));
+
+    const result = await listAuditEntries();
+
+    expect(result).toEqual(entries);
+    const [path] = mockInnerFetch.mock.calls[0] as [string];
+    expect(path).toBe('/audit');
+  });
+});
+
 describe('listWorkspaces', () => {
   it('fetches GET /account/workspaces and returns the array', async () => {
     /*
@@ -636,6 +898,42 @@ describe('listWorkspaces', () => {
     expect(result).toEqual(workspaces);
     const [path] = mockInnerFetch.mock.calls[0] as [string];
     expect(path).toBe('/account/workspaces');
+  });
+});
+
+describe('switchWorkspace', () => {
+  it('POSTs the destination tenantId to /account/switch-workspace and returns the user projection', async () => {
+    /*
+     * Scenario: the tenant switcher dropdown calls `switchWorkspace(cuid)`
+     * to mint a session for the caller's sibling User row in another
+     * tenant without re-prompting for a password. The helper must hit
+     * `/account/switch-workspace` with `POST`, carry the CUID in the
+     * body, and return the lib's `CookieAuthResponse.user` projection
+     * so the dropdown can update its `useSession()` state from the
+     * response.
+     * Protects: switchWorkspace path, method, body, and return contract.
+     */
+    const userProjection = {
+      user: {
+        id: 'user-target',
+        email: 'admin@example.dev',
+        name: 'Admin',
+        role: 'ADMIN',
+        status: 'ACTIVE',
+        tenantId: 'tid-2',
+        emailVerified: true,
+        mfaEnabled: false,
+      },
+    };
+    mockInnerFetch.mockResolvedValueOnce(makeJsonResponse(userProjection));
+
+    const result = await switchWorkspace('tid-2');
+
+    expect(result).toEqual(userProjection);
+    const [path, init] = mockInnerFetch.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe('/account/switch-workspace');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBe(JSON.stringify({ tenantId: 'tid-2' }));
   });
 });
 
@@ -781,10 +1079,13 @@ describe('listInvitations', () => {
 });
 
 describe('createInvitation', () => {
-  it('sends POST /auth/invitations with email and role in the body', async () => {
+  it('sends POST /invitations with email and role in the body', async () => {
     /*
-     * Scenario: createInvitation must POST to the library-managed invitations
-     * endpoint with email and role serialised in the body.
+     * Scenario: createInvitation must POST to the app-side invitations endpoint
+     * so the row is persisted in the same Prisma table the dashboard reads
+     * from. The lib's `/auth/invitations` endpoint stores in Redis only, so
+     * using it here would silently send the email but never surface the
+     * invitation in the UI.
      * Protects: createInvitation path, method, and body contract.
      */
     mockInnerFetch.mockResolvedValueOnce(make204Response());
@@ -792,7 +1093,7 @@ describe('createInvitation', () => {
     await createInvitation('invited@example.com', 'MEMBER');
 
     const [path, init] = mockInnerFetch.mock.calls[0] as [string, RequestInit];
-    expect(path).toBe('/auth/invitations');
+    expect(path).toBe('/invitations');
     expect(init.method).toBe('POST');
     expect(init.body).toBe(JSON.stringify({ email: 'invited@example.com', role: 'MEMBER' }));
   });
@@ -939,6 +1240,119 @@ describe('platformLogin', () => {
     const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
     const headers = init.headers as Record<string, string>;
     expect(headers['Authorization']).toBeUndefined();
+  });
+});
+
+describe('platformGetMe', () => {
+  it('fetches GET /api/auth/platform/me and returns the parsed body', async () => {
+    /*
+     * Scenario: the platform security page calls platformGetMe on
+     * mount to know whether to render the setup or disable card. The
+     * helper must hit /api/auth/platform/me and return the parsed
+     * `PlatformMeInfo` shape (email, name, role, mfaEnabled).
+     * Protects path + return-value contract.
+     */
+    sessionStorage.setItem('platform_access_token', 'platform-access');
+    const me = {
+      email: 'admin@platform.test',
+      name: 'Platform Tester',
+      role: 'SUPER_ADMIN',
+      mfaEnabled: true,
+    };
+    const mockFetch = vi.fn<typeof fetch>().mockResolvedValueOnce(makeJsonResponse(me));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await import('./auth-client.js').then((m) => m.platformGetMe());
+
+    expect(result).toEqual(me);
+    const [path] = mockFetch.mock.calls[0] as [string];
+    expect(path).toBe('/api/auth/platform/me');
+  });
+});
+
+describe('platformMfaSetup / verify-enable / disable / regenerate', () => {
+  it('platformMfaSetup posts to /api/auth/platform/mfa/setup with bearer auth and returns MfaSetupInfo', async () => {
+    /*
+     * Scenario: a platform admin clicks "Set up authenticator" on the
+     * platform security page. The helper must hit the platform-prefixed
+     * route (NOT /api/auth/mfa/setup), include the bearer token from
+     * sessionStorage, and return the parsed setup payload verbatim.
+     * Protects: platformMfaSetup path + bearer-auth wiring.
+     */
+    sessionStorage.setItem('platform_access_token', 'platform-access');
+    const setupBody = {
+      secret: 'JBSWY3DPEHPK3PXP',
+      qrCodeUri: 'otpauth://totp/Example:admin?secret=JBSWY3DPEHPK3PXP&issuer=Example',
+      recoveryCodes: ['AAAA-BBBB-CCCC-DDDD-EEEE-FFFF'],
+    };
+    const mockFetch = vi.fn<typeof fetch>().mockResolvedValueOnce(makeJsonResponse(setupBody));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await import('./auth-client.js').then((m) => m.platformMfaSetup());
+
+    expect(result).toEqual(setupBody);
+    const [path, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe('/api/auth/platform/mfa/setup');
+    expect(init.method).toBe('POST');
+    const headers = init.headers as Record<string, string>;
+    expect(headers['Authorization']).toBe('Bearer platform-access');
+  });
+
+  it('platformMfaVerifyEnable posts the TOTP to /api/auth/platform/mfa/verify-enable', async () => {
+    /*
+     * Scenario: after scanning the QR + entering the first TOTP on the
+     * platform security page, the helper must persist the code to the
+     * platform-specific verify-enable route. Protects path + body.
+     */
+    sessionStorage.setItem('platform_access_token', 'platform-access');
+    const mockFetch = vi.fn<typeof fetch>().mockResolvedValueOnce(make204Response());
+    vi.stubGlobal('fetch', mockFetch);
+
+    await import('./auth-client.js').then((m) => m.platformMfaVerifyEnable('123456'));
+
+    const [path, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe('/api/auth/platform/mfa/verify-enable');
+    expect(init.body).toBe(JSON.stringify({ code: '123456' }));
+  });
+
+  it('platformMfaDisable posts the TOTP to /api/auth/platform/mfa/disable', async () => {
+    /*
+     * Scenario: the platform security page exposes a Disable button for
+     * admins with MFA on. The helper must hit the platform-specific
+     * disable route so the lib's MfaService routes to the platform
+     * user repo (not the dashboard one). Protects path + body.
+     */
+    sessionStorage.setItem('platform_access_token', 'platform-access');
+    const mockFetch = vi.fn<typeof fetch>().mockResolvedValueOnce(make204Response());
+    vi.stubGlobal('fetch', mockFetch);
+
+    await import('./auth-client.js').then((m) => m.platformMfaDisable('654321'));
+
+    const [path, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe('/api/auth/platform/mfa/disable');
+    expect(init.body).toBe(JSON.stringify({ code: '654321' }));
+  });
+
+  it('platformMfaRegenerateRecoveryCodes posts the TOTP and returns the new codes', async () => {
+    /*
+     * Scenario: a platform admin rotates their recovery codes from the
+     * platform security card. Must hit the platform-specific
+     * recovery-codes route and return the freshly-issued plain codes
+     * for the modal display.
+     */
+    sessionStorage.setItem('platform_access_token', 'platform-access');
+    const fresh = { recoveryCodes: ['1111-2222-3333-4444-5555-6666'] };
+    const mockFetch = vi.fn<typeof fetch>().mockResolvedValueOnce(makeJsonResponse(fresh));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await import('./auth-client.js').then((m) =>
+      m.platformMfaRegenerateRecoveryCodes('789012'),
+    );
+
+    expect(result).toEqual(fresh);
+    const [path, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe('/api/auth/platform/mfa/recovery-codes');
+    expect(init.body).toBe(JSON.stringify({ code: '789012' }));
   });
 });
 
@@ -1102,6 +1516,61 @@ describe('mfaDisable', () => {
   });
 });
 
+describe('mfaRegenerateRecoveryCodes', () => {
+  it('sends POST /auth/mfa/recovery-codes with the TOTP code and returns the new codes', async () => {
+    /*
+     * Scenario: the security page's "Regenerate" button calls
+     * mfaRegenerateRecoveryCodes after the user confirms a current TOTP. The
+     * helper must hit the lib's `POST /auth/mfa/recovery-codes` endpoint
+     * (shipped in @bymax-one/nest-auth ≥ 1.0.6) with the code in the body
+     * and return the freshly issued plain-text codes verbatim.
+     * Protects: mfaRegenerateRecoveryCodes path, method, body, and the
+     *   parsed return shape `{ recoveryCodes }`.
+     */
+    const fresh = {
+      recoveryCodes: ['AAAA-BBBB-CCCC-DDDD-EEEE-FFFF', '1111-2222-3333-4444-5555-6666'],
+    };
+    mockInnerFetch.mockResolvedValueOnce(makeJsonResponse(fresh));
+
+    const result = await mfaRegenerateRecoveryCodes('123456');
+
+    const [path, init] = mockInnerFetch.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe('/auth/mfa/recovery-codes');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBe(JSON.stringify({ code: '123456' }));
+    expect(result).toEqual(fresh);
+  });
+});
+
+describe('mfaChallengeViaCookie', () => {
+  it('sends POST /auth/mfa/challenge with the code only — no mfaTempToken in body', async () => {
+    /*
+     * Scenario: the OAuth + MFA flow plants an HttpOnly `mfa_temp_token`
+     * cookie that the page cannot read. The helper must POST just the
+     * `code` — the browser carries the cookie automatically because
+     * `tenantAwareFetch` includes credentials, and the lib's
+     * `MfaController.challenge` reads the token from the cookie when
+     * the body is missing it (lib v1.0.7+).
+     * Protects: the path + the no-token body shape that is the
+     * difference between this helper and `authClient.mfaChallenge`.
+     */
+    mockInnerFetch.mockResolvedValueOnce(make204Response());
+
+    await mfaChallengeViaCookie('123456');
+
+    const [path, init] = mockInnerFetch.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe('/auth/mfa/challenge');
+    expect(init.method).toBe('POST');
+    // body is typed as BodyInit | null in RequestInit, which is too wide
+    // for `.toContain` — narrow to the actual string value we passed.
+    const bodyString = init.body as string;
+    expect(bodyString).toBe(JSON.stringify({ code: '123456' }));
+    // mfaTempToken MUST NOT appear in the body — that's the whole point
+    // of the cookie-driven flow.
+    expect(bodyString).not.toContain('mfaTempToken');
+  });
+});
+
 describe('platformApiFetch — 204 and error handling', () => {
   it('returns undefined for 204 No Content responses', async () => {
     /*
@@ -1146,6 +1615,165 @@ describe('platformApiFetch — 204 and error handling', () => {
     await expect(listPlatformTenants()).rejects.toThrow(AuthClientError);
   });
 
+  it('propagates the example flat envelope code through to AuthClientError.code', async () => {
+    /*
+     * Scenario: the platform API also passes every `AuthException`
+     * through `AuthExceptionFilter`, which serializes the flat
+     * `{ code, message, statusCode }` shape. platformApiFetch must read
+     * the top-level `code` so platform-side toasts route through
+     * `translateAuthError(code)`. Without this, every platform MFA
+     * failure (and the regenerate / disable variants) would surface as
+     * the generic "An unexpected error occurred" toast.
+     * Protects: Shape 1 in platformApiFetch.
+     */
+    const mockFetch = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          code: 'auth.mfa_invalid_code',
+          message: 'Invalid MFA code',
+          statusCode: 401,
+        }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', mockFetch);
+
+    let caught: unknown;
+    try {
+      await listPlatformTenants();
+    } catch (err) {
+      caught = err;
+    }
+    const err = caught as AuthClientError;
+    expect(err).toBeInstanceOf(AuthClientError);
+    expect(err.code).toBe('auth.mfa_invalid_code');
+    expect(err.body?.message).toBe('Invalid MFA code');
+  });
+
+  it('propagates the lib AuthException nested envelope through platformApiFetch', async () => {
+    /*
+     * Scenario: parallel to the apiFetch test — platformApiFetch must
+     * also fall back to unwrapping the lib's raw `{ error: { code, ... } }`
+     * envelope so the helper works regardless of whether a consumer
+     * registers a flattening filter.
+     * Protects: Shape 2 in platformApiFetch.
+     */
+    const mockFetch = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: {
+            code: 'auth.mfa_invalid_code',
+            message: 'Invalid MFA code',
+            details: null,
+          },
+        }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', mockFetch);
+
+    let caught: unknown;
+    try {
+      await listPlatformTenants();
+    } catch (err) {
+      caught = err;
+    }
+    const err = caught as AuthClientError;
+    expect(err).toBeInstanceOf(AuthClientError);
+    expect(err.code).toBe('auth.mfa_invalid_code');
+    expect(err.body?.message).toBe('Invalid MFA code');
+  });
+
+  it('keeps body undefined when platform JSON body has neither envelope nor message', async () => {
+    /*
+     * Scenario: parallel defence-in-depth for the platform path — a
+     * JSON body matching neither known shape must fall through to the
+     * generic message with `body === undefined`. Protects the
+     * "neither shape matched" exit in platformApiFetch.
+     */
+    const mockFetch = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response(JSON.stringify({ statusCode: 500, unrelated: 'field' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    vi.stubGlobal('fetch', mockFetch);
+
+    let caught: unknown;
+    try {
+      await listPlatformTenants();
+    } catch (err) {
+      caught = err;
+    }
+    const err = caught as AuthClientError;
+    expect(err.code).toBeUndefined();
+    expect(err.body).toBeUndefined();
+    expect(err.message).toBe('Request failed with status 500');
+  });
+
+  it('keeps the generic status message when the platform envelope omits message', async () => {
+    /*
+     * Scenario: parallel defence-in-depth — the platform path must
+     * handle the AuthException envelope with code-but-no-message
+     * identically to the dashboard variant. Protects the false branch
+     * of `if (typeof e.message === 'string')` in platformApiFetch.
+     */
+    const mockFetch = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: {
+            code: 'auth.unknown',
+            details: null,
+          },
+        }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', mockFetch);
+
+    let caught: unknown;
+    try {
+      await listPlatformTenants();
+    } catch (err) {
+      caught = err;
+    }
+    const err = caught as AuthClientError;
+    expect(err.code).toBe('auth.unknown');
+    expect(err.body?.message).toBe('Request failed with status 500');
+  });
+
+  it('falls back to top-level NestJS message shape when no error envelope is present (platform)', async () => {
+    /*
+     * Scenario: a NestJS ValidationPipe 400 (or any non-AuthException
+     * NestJS exception) carries the flat `{ statusCode, message, error }`
+     * shape. platformApiFetch must surface `message` from the top level
+     * — same handling as the apiFetch variant. Protects the "Shape 2"
+     * branch in the platform path.
+     */
+    const mockFetch = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          statusCode: 400,
+          message: 'invalid request',
+          error: 'Bad Request',
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', mockFetch);
+
+    let caught: unknown;
+    try {
+      await listPlatformTenants();
+    } catch (err) {
+      caught = err;
+    }
+    const err = caught as AuthClientError;
+    expect(err.code).toBeUndefined();
+    expect(err.body?.message).toBe('invalid request');
+    expect(err.body?.error).toBe('Bad Request');
+  });
+
   it('returns undefined when response body is empty but status is 2xx', async () => {
     /*
      * Scenario: a 200 with an empty body must return undefined without throwing.
@@ -1162,6 +1790,27 @@ describe('platformApiFetch — 204 and error handling', () => {
 });
 
 describe('resolveTenantForLogin', () => {
+  it('short-circuits when the input already matches CUID_REGEX', async () => {
+    /*
+     * Scenario: the register flow stores the resolved CUID in the URL and
+     * the verify-email page re-uses it on the next API call. Hitting the
+     * resolve endpoint with a CUID would always return 404 (the API only
+     * indexes slugs) and the helper would mis-throw `TenantNotFoundError`.
+     * The CUID_REGEX guard bypasses the fetch entirely and returns the
+     * input unchanged so the surrounding flow keeps working.
+     * Protects: the `CUID_REGEX.test(slugOrId)` short-circuit branch in
+     * `resolveTenantForLogin`.
+     */
+    const mockFetch = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', mockFetch);
+
+    const cuid = 'cmo60aidg00017jf2voxw88ug';
+    const result = await resolveTenantForLogin(cuid);
+
+    expect(result).toBe(cuid);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it('returns the CUID from the resolve endpoint when the slug is valid', async () => {
     /*
      * Scenario: the login page passes `?tenantId=acme` and the API resolves it

@@ -31,19 +31,7 @@ import { registerSchema, type RegisterFormValues } from '@/lib/schemas/auth';
 import { mapAuthClientError, resolveTenantForLogin, TenantNotFoundError } from '@/lib/auth-client';
 import { translateAuthError } from '@/lib/auth-errors';
 import { useCooldown } from '@/hooks/use-cooldown';
-
-// TODO(P14): source tenant list from /api/tenants/public
-/**
- * Static workspace options for the tenant selector. Values are the tenant slugs
- * the API seed creates (see apps/api/prisma/seed.ts → TENANT_DEFINITIONS). The
- * slugs are resolved to CUIDs at submit time via `/api/tenants/resolve` because
- * the API's `tenantIdResolver` reads the resolved id from the `X-Tenant-Id`
- * header, not the slug.
- */
-const TENANT_OPTIONS: { value: string; label: string }[] = [
-  { value: 'acme', label: 'Acme Corp' },
-  { value: 'globex', label: 'Globex Inc' },
-];
+import { TENANT_OPTIONS, DEFAULT_TENANT_SLUG } from '@/lib/tenants';
 
 /**
  * Register page — collects credentials and tenant, then shows an email
@@ -53,7 +41,7 @@ export default function RegisterPage() {
   const { register: authRegister } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmedEmail, setConfirmedEmail] = useState<string | null>(null);
-  const [confirmedTenantId, setConfirmedTenantId] = useState<string>('acme');
+  const [confirmedTenantId, setConfirmedTenantId] = useState<string>(DEFAULT_TENANT_SLUG);
 
   // NEXT_PUBLIC_ vars are statically inlined by Next.js at build time
   const googleEnabled = process.env.NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED === 'true';
@@ -67,13 +55,13 @@ export default function RegisterPage() {
     resolver: zodResolver(registerSchema),
     mode: 'onSubmit',
     reValidateMode: 'onChange',
-    defaultValues: { tenantId: 'acme' },
+    defaultValues: { tenantId: DEFAULT_TENANT_SLUG },
   });
 
   // Watched so the "Continue with Google" link always carries the currently
   // selected tenant — the lib's OAuth callback uses it to bind the new account
   // to the correct tenant before any user row is inserted.
-  const oauthTenantId = watch('tenantId') || 'acme';
+  const oauthTenantId = watch('tenantId') || DEFAULT_TENANT_SLUG;
 
   const cooldownKey = confirmedEmail ? `register:cooldown:${confirmedEmail}` : 'register:cooldown';
   const { isCoolingDown, secondsLeft, startCooldown } = useCooldown(cooldownKey, 60);
@@ -149,6 +137,13 @@ export default function RegisterPage() {
             <span className="font-mono text-[rgba(255,255,255,0.8)]">{confirmedEmail}</span>.
           </p>
         </div>
+
+        <Link
+          href={`/auth/verify-email?email=${encodeURIComponent(confirmedEmail)}&tenantId=${encodeURIComponent(confirmedTenantId)}`}
+          className="inline-flex h-9 w-full items-center justify-center rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+        >
+          Enter verification code
+        </Link>
 
         <Button
           type="button"

@@ -271,10 +271,10 @@ Every row maps to a feature exposed by `@bymax-one/nest-auth`. Each one is exerc
 Each `package.json` declares the same semver range so the example always installs a single, reproducible copy of the library:
 
 ```jsonc
-// package.json (root, apps/api, apps/web, packages/_probe)
+// package.json (root, apps/api, apps/web)
 {
   "dependencies": {
-    "@bymax-one/nest-auth": "^1.0.2",
+    "@bymax-one/nest-auth": "^1.0.10",
   },
 }
 ```

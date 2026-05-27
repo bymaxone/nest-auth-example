@@ -26,6 +26,7 @@ import { OtpInput } from '@/components/auth/otp-input';
 import { verifyEmailSchema, type VerifyEmailFormValues } from '@/lib/schemas/auth';
 import { translateAuthError } from '@/lib/auth-errors';
 import { useCooldown } from '@/hooks/use-cooldown';
+import { resolveTenantForLogin, TenantNotFoundError } from '@/lib/auth-client';
 
 /**
  * Inner form — extracted so the default export can wrap it in `<Suspense>`,
@@ -60,11 +61,17 @@ function VerifyEmailForm() {
     if (!hasRequiredParams) return;
     setIsSubmitting(true);
     try {
+      // The URL may carry the tenant slug (`acme`) or the CUID — resolve to CUID
+      // because the lib's `tenantIdResolver` only matches the OTP key that was
+      // hashed at registration with the resolved CUID. Passing the slug here
+      // surfaces as `OTP_EXPIRED` (key not found) even when the OTP is valid.
+      const resolvedTenantId = await resolveTenantForLogin(tenantId);
+
       const response = await fetch('/api/auth/verify-email', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, otp: data.otp, tenantId }),
+        headers: { 'Content-Type': 'application/json', 'X-Tenant-Id': resolvedTenantId },
+        body: JSON.stringify({ email, otp: data.otp, tenantId: resolvedTenantId }),
       });
 
       if (!response.ok) {
@@ -75,7 +82,11 @@ function VerifyEmailForm() {
       }
 
       router.replace('/auth/login?verified=1');
-    } catch {
+    } catch (err) {
+      if (err instanceof TenantNotFoundError) {
+        toast.error(`Workspace "${err.slug}" was not found. Re-open the link from your email.`);
+        return;
+      }
       toast.error('An unexpected error occurred. Please try again.');
     } finally {
       setIsSubmitting(false);
@@ -85,11 +96,12 @@ function VerifyEmailForm() {
   const handleResend = async () => {
     if (!hasRequiredParams || isCoolingDown) return;
     try {
+      const resolvedTenantId = await resolveTenantForLogin(tenantId);
       await fetch('/api/auth/resend-verification', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, tenantId }),
+        headers: { 'Content-Type': 'application/json', 'X-Tenant-Id': resolvedTenantId },
+        body: JSON.stringify({ email, tenantId: resolvedTenantId }),
       });
       startCooldown();
       toast.success('Verification email resent.');

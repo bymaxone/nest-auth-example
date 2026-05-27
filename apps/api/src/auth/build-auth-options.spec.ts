@@ -163,6 +163,49 @@ describe('buildAuthOptions', () => {
       expect(options.oauth?.successRedirectUrl).toBe('/dashboard');
     });
 
+    it('sets options.oauth.mfaRedirectUrl to "/auth/mfa-challenge?source=oauth" when OAuth is configured', () => {
+      /*
+       * Scenario: lib v1.0.7 introduced `oauth.mfaRedirectUrl`. With OAuth
+       * configured, the example must wire it so an MFA-enabled user signing
+       * in via Google lands on `/auth/mfa-challenge?source=oauth` instead of
+       * receiving a session JWT with `mfaVerified: false` (which would be
+       * rejected by `MfaRequiredGuard` on every subsequent request). The
+       * `?source=oauth` query param tells the page to use the
+       * cookie-driven challenge flow instead of the sessionStorage one.
+       * Protects: the wiring at `auth.config.ts:198` that closes the v1.0.6
+       * lockout bug for OAuth + MFA users.
+       */
+      const config = makeConfig({
+        OAUTH_GOOGLE_CLIENT_ID: 'gid.apps.googleusercontent.com',
+        OAUTH_GOOGLE_CLIENT_SECRET: 'GOCSPX-secret',
+        OAUTH_GOOGLE_CALLBACK_URL: 'http://localhost:3000/api/auth/oauth/google/callback',
+      });
+
+      const options = buildAuthOptions(config as never);
+
+      expect(options.oauth?.mfaRedirectUrl).toBe('/auth/mfa-challenge?source=oauth');
+    });
+
+    it('sets options.oauth.errorRedirectUrl to "/auth/login" when OAuth is configured', () => {
+      /*
+       * Scenario: lib v1.0.7 introduced `oauth.errorRedirectUrl`. The example
+       * pins it to `/auth/login` so any `AuthException` thrown during the
+       * OAuth callback (provider failure, hook reject, invalid state, etc.)
+       * resolves to a 302 to that URL with `?error=<code>` appended — the
+       * login page already reads `?error=<code>` and surfaces a toast. Without
+       * this option, the browser would land on a raw JSON 500 response.
+       */
+      const config = makeConfig({
+        OAUTH_GOOGLE_CLIENT_ID: 'gid.apps.googleusercontent.com',
+        OAUTH_GOOGLE_CLIENT_SECRET: 'GOCSPX-secret',
+        OAUTH_GOOGLE_CALLBACK_URL: 'http://localhost:3000/api/auth/oauth/google/callback',
+      });
+
+      const options = buildAuthOptions(config as never);
+
+      expect(options.oauth?.errorRedirectUrl).toBe('/auth/login');
+    });
+
     it('omits options.oauth when OAUTH_GOOGLE_CLIENT_ID is absent', () => {
       // A partial OAuth config (secret without ID) must not produce a google
       // block — the missing ID check prevents an incomplete strategy registration.

@@ -64,6 +64,18 @@ export interface WsClient {
    * an endpoint that will reject unauthenticated upgrades.
    */
   close(): void;
+  /**
+   * Force an immediate reconnection with the current cookies.
+   *
+   * Cancels any pending backoff timer, resets the attempt counter, and tears
+   * down the current socket (if any). The next `connect()` runs synchronously
+   * with delay 0 and uses whatever auth cookies the browser holds NOW —
+   * critical when the user signs in under a new identity (e.g. tenant switch
+   * or re-login after logout) and the singleton was last connected with the
+   * previous user's cookies (or was mid-backoff against an unauthenticated
+   * endpoint).
+   */
+  reconnect(): void;
 }
 
 // ── Module-level singleton state ──────────────────────────────────────────────
@@ -193,6 +205,43 @@ const wsClientSingleton: WsClient = {
       socket.close();
       socket = null;
     }
+  },
+
+  reconnect() {
+    // Reset the backoff state so the next `connect()` runs at delay=0 — the
+    // user just authenticated (or re-authenticated), so the cookies are fresh
+    // and the singleton must not keep sleeping on an old exponential window.
+    attempt = 0;
+    stopped = false;
+    if (reconnectTimer !== null) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    if (socket !== null) {
+      // **Detach lifecycle handlers BEFORE `close()`.** `WebSocket.close()` is
+      // asynchronous — the old socket's `onclose` would fire AFTER the
+      // synchronous `connect()` call below has already replaced the
+      // module-level `socket` with a fresh instance. Without detachment, the
+      // stale `onclose` then:
+      //   1. Nullifies `socket` (clobbering the brand-new connection).
+      //   2. Enters the `!stopped` branch and schedules YET ANOTHER reconnect
+      //      via `setTimeout(connect, backoff())`.
+      // Result: every `reconnect()` call leaves 2-3 zombie sockets alive on
+      // the server, each delivering the same `notification:new` event — the
+      // user sees the toast fire 2-3 times per notification.
+      //
+      // `WebSocket.close()` itself still sends the close frame to the
+      // server, so the gateway's `handleDisconnect` fires and removes the
+      // old socket from `userSockets` cleanly. We only suppress the
+      // CLIENT-SIDE side effects that race the new connection.
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onclose = null;
+      socket.onerror = null;
+      socket.close();
+      socket = null;
+    }
+    connect();
   },
 };
 

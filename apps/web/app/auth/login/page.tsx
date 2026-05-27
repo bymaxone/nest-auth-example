@@ -14,17 +14,23 @@
  * Clicking it uses a full-page navigation (`<a>`) so the browser follows the library's
  * 302 redirect — a client-side `fetch` would not work for OAuth redirects.
  *
- * Reads `tenantId` from the `?tenantId=` search param; defaults to `'acme'` (the
- * first slug in `apps/api/prisma/seed.ts`). Before login, resolves the slug to a CUID via
- * `GET /api/tenants/resolve` and sets the `tenant_id` cookie so `tenantAwareFetch`
- * can inject `X-Tenant-Id` — the API's `tenantIdResolver` reads only that header.
+ * Tenant picker: renders a `<select>` populated from the shared
+ * {@link TENANT_OPTIONS} list (same source as the register page). The default
+ * value is resolved by {@link resolveDefaultTenantSlug}, which honors an
+ * incoming `?tenantId=` query param when it matches a known tenant — so a
+ * welcome / invitation email that deep-links to `/auth/login?tenantId=globex`
+ * pre-selects globex. The dropdown is the source of truth at submit time;
+ * the URL param is only the initial default. Before submitting, the slug is
+ * resolved to a CUID via `GET /api/tenants/resolve` and stashed in the
+ * `tenant_id` cookie so `tenantAwareFetch` injects `X-Tenant-Id` — the API's
+ * `tenantIdResolver` reads only that header.
  *
  * @layer pages/auth
  */
 
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
@@ -38,6 +44,7 @@ import { PasswordInput } from '@/components/auth/password-input';
 import { loginSchema, type LoginFormValues } from '@/lib/schemas/auth';
 import { mapAuthClientError, resolveTenantForLogin, TenantNotFoundError } from '@/lib/auth-client';
 import { translateAuthError } from '@/lib/auth-errors';
+import { TENANT_OPTIONS, resolveDefaultTenantSlug } from '@/lib/tenants';
 
 /**
  * Inner form — extracted so the default export can wrap it in `<Suspense>`,
@@ -47,10 +54,14 @@ import { translateAuthError } from '@/lib/auth-errors';
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  // Fallback slug must match a real tenant created by the API seed. 'acme' is
-  // the first tenant in apps/api/prisma/seed.ts. If the seed slugs change, this
-  // fallback (and the register page's TENANT_OPTIONS) must follow.
-  const tenantSlug = searchParams.get('tenantId') ?? 'acme';
+  // Dropdown is the source of truth at submit time; the URL param is only
+  // the initial default. `resolveDefaultTenantSlug` returns the URL slug
+  // when it matches a known tenant, otherwise falls back to the seed's
+  // first tenant (DEFAULT_TENANT_SLUG). Reads `searchParams` only once on
+  // mount — subsequent changes come from the <select> onChange handler.
+  const [tenantSlug, setTenantSlug] = useState<string>(() =>
+    resolveDefaultTenantSlug(searchParams.get('tenantId')),
+  );
   const { login } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -102,6 +113,24 @@ function LoginForm() {
   const sessionExpired = searchParams.get('reason') === 'session_expired';
   const justVerified = searchParams.get('verified') === '1';
   const justReset = searchParams.get('reset') === '1';
+  // `?error=<code>` is appended by the lib's `oauth.errorRedirectUrl` flow
+  // (v1.0.7+) when the OAuth callback throws an `AuthException`. The lib
+  // strips the `auth.` namespace prefix and surfaces just the suffix —
+  // e.g. `auth.oauth_failed` → `?error=oauth_failed`. The toast pulls
+  // the localized message via `translateAuthError`, which knows the
+  // full `auth.<code>` form, so we prefix the value back to look it up.
+  const oauthError = searchParams.get('error');
+
+  useEffect(() => {
+    if (oauthError !== null && oauthError.length > 0) {
+      const fullCode = oauthError.startsWith('auth.') ? oauthError : `auth.${oauthError}`;
+      toast.error(translateAuthError(fullCode));
+    }
+    // The query param is intentionally NOT cleared from the URL — if the
+    // user bookmarks or shares it, the toast re-fires on revisit. That's
+    // the desired UX (the error happened on the last navigation; until
+    // the user acts again, the page should keep surfacing it).
+  }, [oauthError]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -145,6 +174,29 @@ function LoginForm() {
         noValidate
         className="flex flex-col gap-4"
       >
+        {/* Workspace — symmetric with the register page picker. Kept outside
+            React Hook Form because the slug does NOT participate in the login
+            credential schema; it travels through the resolved CUID + the
+            `tenant_id` cookie + the `X-Tenant-Id` header that the lib's
+            `tenantIdResolver` consumes. */}
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="tenantId" className="text-[rgba(255,255,255,0.7)]">
+            Workspace
+          </Label>
+          <select
+            id="tenantId"
+            value={tenantSlug}
+            onChange={(e) => setTenantSlug(e.target.value)}
+            className="flex h-12 w-full appearance-none rounded-full border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.05)] px-5 py-2 text-sm text-white transition-shadow duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6224]/50"
+          >
+            {TENANT_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value} className="bg-[#1a1a1a] text-white">
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {/* Email */}
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="email" className="text-[rgba(255,255,255,0.7)]">

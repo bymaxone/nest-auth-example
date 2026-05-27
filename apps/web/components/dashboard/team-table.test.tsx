@@ -233,6 +233,93 @@ describe('TeamTable toggle flow', () => {
     });
   });
 
+  it('renders an "Activate" button for a PENDING user and writes ACTIVE on click', async () => {
+    /*
+     * Scenario: admin sees a teammate sitting in PENDING_APPROVAL. The
+     * row must surface an "Activate" button that PATCH-es the status to
+     * ACTIVE and shows a "User activated." toast. Pins the new
+     * PENDING→ACTIVE branch in the STATUS_ACTIONS matrix — without it
+     * the only path out of PENDING would be the API (no UI affordance).
+     */
+    const pendingUser: TenantUserInfo = { ...mockUsers[1]!, status: 'PENDING' };
+    const { toast } = await import('sonner');
+    vi.mocked(listUsers).mockResolvedValue([mockUsers[0]!, pendingUser]);
+    vi.mocked(updateUserStatus).mockResolvedValue({ ...pendingUser, status: 'ACTIVE' });
+
+    render(<TeamTable isAdmin currentUserId="user-1" />);
+    await waitFor(() => expect(screen.getByText('Bob')).toBeDefined());
+
+    const activateBtn = screen.getByRole('button', { name: /^activate$/i });
+    fireEvent.click(activateBtn);
+
+    await waitFor(() => {
+      expect(updateUserStatus).toHaveBeenCalledWith('user-2', 'ACTIVE');
+      expect(vi.mocked(toast).success).toHaveBeenCalledWith('User activated.');
+    });
+  });
+
+  it('renders no action button for a BANNED user (dead-end status)', async () => {
+    /*
+     * Scenario: BANNED is intentionally a higher-friction state — lifting
+     * a ban happens outside the team table (e.g. via a platform admin
+     * flow). The table must NOT surface an "Unban" button. Pins the
+     * empty-array entry in STATUS_ACTIONS so a future refactor that
+     * tries to "be helpful" by re-enabling ban toggles surfaces here.
+     */
+    const bannedUser: TenantUserInfo = { ...mockUsers[1]!, status: 'BANNED' };
+    vi.mocked(listUsers).mockResolvedValue([mockUsers[0]!, bannedUser]);
+
+    render(<TeamTable isAdmin currentUserId="user-1" />);
+    await waitFor(() => expect(screen.getByText('Bob')).toBeDefined());
+
+    // Only Alice's row may contain buttons (she's the current user — no
+    // toggle for self). Bob's row must have zero action buttons.
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('renders a "Reactivate" button for an INACTIVE user', async () => {
+    /*
+     * Scenario: an admin wants to re-enable a deactivated account. The
+     * "Reactivate" label distinguishes the action from "Unsuspend" so
+     * the audit log + future analytics can see the intent. Pins the
+     * INACTIVE→ACTIVE row of the STATUS_ACTIONS matrix.
+     */
+    const inactiveUser: TenantUserInfo = { ...mockUsers[1]!, status: 'INACTIVE' };
+    vi.mocked(listUsers).mockResolvedValue([mockUsers[0]!, inactiveUser]);
+    vi.mocked(updateUserStatus).mockResolvedValue({ ...inactiveUser, status: 'ACTIVE' });
+
+    render(<TeamTable isAdmin currentUserId="user-1" />);
+    await waitFor(() => expect(screen.getByText('Bob')).toBeDefined());
+
+    fireEvent.click(screen.getByRole('button', { name: /reactivate/i }));
+
+    await waitFor(() => {
+      expect(updateUserStatus).toHaveBeenCalledWith('user-2', 'ACTIVE');
+    });
+  });
+
+  it('renders no action buttons when the user has an unknown status (admin view)', async () => {
+    /*
+     * Scenario: a future Prisma enum addition (e.g. ARCHIVED) ships
+     * before the team-table is updated. The admin row must render
+     * zero buttons rather than crashing — pinning the
+     * `STATUS_ACTIONS[status] ?? []` fallback branch.
+     */
+    const unknownStatusUser: TenantUserInfo = {
+      ...mockUsers[1]!,
+      status: 'UNKNOWN_STATUS' as TenantUserInfo['status'],
+    };
+    vi.mocked(listUsers).mockResolvedValue([mockUsers[0]!, unknownStatusUser]);
+
+    render(<TeamTable isAdmin currentUserId="user-1" />);
+    await waitFor(() => expect(screen.getByText('Bob')).toBeDefined());
+
+    // The unknown status row must NOT add buttons — only Alice's row may
+    // contain them, but Alice is the current user so her actions are
+    // suppressed → total button count is zero.
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
   it('renders STATUS_STYLES fallback for a user with an unknown status', async () => {
     /*
      * Scenario: a user whose status value is not in STATUS_STYLES must trigger

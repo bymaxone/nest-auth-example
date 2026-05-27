@@ -26,10 +26,43 @@ import type { TenantUserInfo } from '@/lib/auth-client';
 
 const STATUS_STYLES: Record<string, string> = {
   ACTIVE: 'border-[rgba(34,197,94,0.3)] bg-[rgba(34,197,94,0.1)] text-[#22c55e]',
+  PENDING: 'border-[rgba(59,130,246,0.3)] bg-[rgba(59,130,246,0.1)] text-[#60a5fa]',
   INACTIVE:
     'border-[rgba(255,255,255,0.15)] bg-[rgba(255,255,255,0.05)] text-[rgba(255,255,255,0.4)]',
   SUSPENDED: 'border-[rgba(234,179,8,0.3)] bg-[rgba(234,179,8,0.1)] text-[#eab308]',
   BANNED: 'border-[rgba(239,68,68,0.3)] bg-[rgba(239,68,68,0.1)] text-[#ef4444]',
+};
+
+/**
+ * Status-transition affordances shown on each row in the admin view.
+ *
+ * Each status maps to the action(s) an admin can apply to a member in that
+ * state. Returning an empty array means "no admin action available" (e.g. a
+ * BANNED user is intentionally a dead-end; lifting a ban is a deliberately
+ * higher-friction action handled outside the team table).
+ *
+ * Keeping the matrix here — rather than scattered ternaries in JSX — keeps
+ * the lib's `UserStatus` enum and the UI's state machine visibly aligned.
+ */
+interface StatusAction {
+  /** Status to write via PATCH /api/users/:id/status. */
+  readonly next: string;
+  /** Button copy. */
+  readonly label: string;
+  /** Toast message on success (past tense, user-friendly). */
+  readonly successCopy: string;
+  /** Optional Tailwind colour modifier — destructive actions stand out. */
+  readonly variant?: 'default' | 'destructive';
+}
+
+const STATUS_ACTIONS: Record<string, readonly StatusAction[]> = {
+  ACTIVE: [
+    { next: 'SUSPENDED', label: 'Suspend', successCopy: 'suspended', variant: 'destructive' },
+  ],
+  PENDING: [{ next: 'ACTIVE', label: 'Activate', successCopy: 'activated' }],
+  SUSPENDED: [{ next: 'ACTIVE', label: 'Unsuspend', successCopy: 'unsuspended' }],
+  INACTIVE: [{ next: 'ACTIVE', label: 'Reactivate', successCopy: 'reactivated' }],
+  BANNED: [],
 };
 
 interface TeamTableProps {
@@ -66,12 +99,19 @@ export function TeamTable({ isAdmin, currentUserId }: TeamTableProps) {
     void load();
   }, [load]);
 
-  const handleToggleStatus = async (user: TenantUserInfo) => {
-    const nextStatus = user.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
+  /**
+   * Submits a single status transition for the targeted user.
+   *
+   * Uses the `STATUS_ACTIONS` matrix as the source of truth — the caller
+   * passes in the row's status-specific action, so the same handler
+   * powers "Suspend", "Activate", "Unsuspend", and "Reactivate" without
+   * branching by status string inside the body.
+   */
+  const handleStatusAction = async (user: TenantUserInfo, action: StatusAction) => {
     setToggling(user.id);
     try {
-      await updateUserStatus(user.id, nextStatus);
-      toast.success(`User ${nextStatus === 'ACTIVE' ? 'unsuspended' : 'suspended'}.`);
+      await updateUserStatus(user.id, action.next);
+      toast.success(`User ${action.successCopy}.`);
       await load();
     } catch (err) {
       handleAuthClientError(err, { toast });
@@ -127,15 +167,24 @@ export function TeamTable({ isAdmin, currentUserId }: TeamTableProps) {
               {isAdmin && (
                 <TableCell>
                   {user.id !== currentUserId && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={toggling === user.id}
-                      onClick={() => void handleToggleStatus(user)}
-                      className="h-6 px-2 text-[10px] text-[rgba(255,255,255,0.4)] hover:text-white"
-                    >
-                      {user.status === 'ACTIVE' ? 'Suspend' : 'Unsuspend'}
-                    </Button>
+                    <div className="flex gap-1">
+                      {(STATUS_ACTIONS[user.status] ?? []).map((action) => (
+                        <Button
+                          key={action.next}
+                          variant="ghost"
+                          size="sm"
+                          disabled={toggling === user.id}
+                          onClick={() => void handleStatusAction(user, action)}
+                          className={`h-6 px-2 text-[10px] ${
+                            action.variant === 'destructive'
+                              ? 'text-[rgba(255,255,255,0.4)] hover:bg-red-500/10 hover:text-red-300'
+                              : 'text-[rgba(255,255,255,0.4)] hover:text-white'
+                          }`}
+                        >
+                          {action.label}
+                        </Button>
+                      ))}
+                    </div>
                   )}
                 </TableCell>
               )}

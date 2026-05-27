@@ -209,7 +209,19 @@ describe('Login & Logout — login → /me → logout → error paths', () => {
     expect(cookieHeader).toMatch(/refresh_token/);
     // HttpOnly must be set on each to prevent client-side JavaScript access.
     const accessCookie = (cookies ?? []).find((c) => c.startsWith('access_token'));
+    const refreshCookie = (cookies ?? []).find((c) => c.startsWith('refresh_token'));
     expect(accessCookie?.toLowerCase()).toContain('httponly');
+    // SameSite=Lax is the lib's default since v1.0.5 (was 'strict' before).
+    // The example relies on Lax for the OAuth round-trip: when Google's
+    // 302 lands on the callback handler and the handler in turn 302s to
+    // `/dashboard`, the Set-Cookie must survive both hops. With Strict,
+    // Chromium would drop the auth cookies on the cross-site-initiated
+    // navigation and the user would bounce back to /auth/login. Pinning
+    // the attribute here turns a future lib regression into a loud test
+    // failure instead of a silent UX break that only shows up under real
+    // OAuth credentials.
+    expect(accessCookie?.toLowerCase()).toContain('samesite=lax');
+    expect(refreshCookie?.toLowerCase()).toContain('samesite=lax');
   });
 
   it('GET /api/auth/me returns user data after login', async () => {

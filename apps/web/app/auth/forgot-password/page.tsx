@@ -2,8 +2,11 @@
  * @fileoverview Forgot password page — email input with anti-enumeration success state.
  *
  * Visual shell is provided by `app/(auth)/layout.tsx`. This page:
- *   - Accepts an email address and calls `useAuth().forgotPassword(email, tenantId)`
- *   - Reads `tenantId` from the `?tenantId=` search param (defaults to `'acme'`)
+ *   - Accepts a workspace + email address and calls `useAuth().forgotPassword(email, tenantId)`
+ *   - Renders the same workspace `<select>` as login + register (shared
+ *     {@link TENANT_OPTIONS}); default value honors `?tenantId=` query param
+ *     when it matches a known tenant, otherwise falls back to the seed's
+ *     first slug via {@link resolveDefaultTenantSlug}
  *   - On any resolved response (200 or "account not found" 404): shows the same
  *     generic confirmation — never distinguishes registered vs unknown email
  *   - Transport-level errors (network failure, rate limit) are surfaced as toasts
@@ -32,6 +35,7 @@ import { Label } from '@/components/ui/label';
 import { forgotPasswordSchema, type ForgotPasswordFormValues } from '@/lib/schemas/auth';
 import { mapAuthClientError, resolveTenantForLogin, TenantNotFoundError } from '@/lib/auth-client';
 import { translateAuthError } from '@/lib/auth-errors';
+import { TENANT_OPTIONS, resolveDefaultTenantSlug } from '@/lib/tenants';
 
 /**
  * Inner form — wrapped in `<Suspense>` by the default export so the page can be
@@ -39,8 +43,12 @@ import { translateAuthError } from '@/lib/auth-errors';
  */
 function ForgotPasswordForm() {
   const searchParams = useSearchParams();
-  // Fallback slug must match a real tenant from apps/api/prisma/seed.ts.
-  const tenantSlug = searchParams.get('tenantId') ?? 'acme';
+  // Dropdown is the source of truth at submit time; the URL param is only
+  // the initial default. See lib/tenants.ts for the rationale on why this
+  // example uses a static picker instead of subdomain-based scoping.
+  const [tenantSlug, setTenantSlug] = useState<string>(() =>
+    resolveDefaultTenantSlug(searchParams.get('tenantId')),
+  );
   const { forgotPassword } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -130,6 +138,25 @@ function ForgotPasswordForm() {
         noValidate
         className="flex flex-col gap-4"
       >
+        {/* Workspace — symmetric with login + register pickers. */}
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="fp-tenantId" className="text-[rgba(255,255,255,0.7)]">
+            Workspace
+          </Label>
+          <select
+            id="fp-tenantId"
+            value={tenantSlug}
+            onChange={(e) => setTenantSlug(e.target.value)}
+            className="flex h-12 w-full appearance-none rounded-full border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.05)] px-5 py-2 text-sm text-white transition-shadow duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6224]/50"
+          >
+            {TENANT_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value} className="bg-[#1a1a1a] text-white">
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {/* Email */}
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="email" className="text-[rgba(255,255,255,0.7)]">

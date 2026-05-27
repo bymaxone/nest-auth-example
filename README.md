@@ -393,9 +393,6 @@ nest-auth-example/
 │       │   └── ui/                   # shadcn primitives
 │       └── e2e/                      # Playwright (21 specs)
 │
-├── packages/
-│   └── _probe/                       # tiny package that imports every lib subpath
-│                                     # to fail typecheck if any subpath export breaks
 ├── docker/
 │   ├── postgres/init.sql             # CREATE DATABASE example_app;
 │   └── redis/redis.conf              # eviction = volatile-lru
@@ -473,13 +470,13 @@ nest-auth-example/
 
 This repo is held to a similar bar as the library itself — every demonstrated flow has a regression-locking test, and CI runs the full matrix on every PR.
 
-| Suite                                           | Test count           | What it covers                                                                                                                  |
-| ----------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm --filter @nest-auth-example/api test`     | **322** in 28 suites | Unit + integration — repositories, hooks, services, guards composition                                                          |
-| `pnpm --filter @nest-auth-example/web test`     | **433** in 47 suites | Vitest — auth client, error mapping, components, layout primitives                                                              |
-| `pnpm --filter @nest-auth-example/api test:e2e` | **83** in 26 suites  | supertest e2e — every auth flow against real Postgres + Redis (test stack)                                                      |
-| `pnpm --filter @nest-auth-example/web test:e2e` | **23** (no skips)    | Playwright — login, MFA, invitation, password reset, platform admin, workspace switch, OAuth Google click-through, WS isolation |
-| **Total**                                       | **861 tests**        | Plus the `_probe` package that fails typecheck if any lib subpath export changes                                                |
+| Suite                                           | Test count           | What it covers                                                                                                                                                                                      |
+| ----------------------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm --filter @nest-auth-example/api test`     | **322** in 28 suites | Unit + integration — repositories, hooks, services, guards composition                                                                                                                              |
+| `pnpm --filter @nest-auth-example/web test`     | **433** in 47 suites | Vitest — auth client, error mapping, components, layout primitives                                                                                                                                  |
+| `pnpm --filter @nest-auth-example/api test:e2e` | **83** in 26 suites  | supertest e2e — every auth flow against real Postgres + Redis (test stack)                                                                                                                          |
+| `pnpm --filter @nest-auth-example/web test:e2e` | **23** (no skips)    | Playwright — login, MFA, invitation, password reset, platform admin, workspace switch, OAuth Google click-through, WS isolation                                                                     |
+| **Total**                                       | **861 tests**        | Every `@bymax-one/nest-auth` subpath (`server`, `shared`, `client`, `react`, `nextjs`) is consumed by real application code, so the typecheck gate breaks immediately if any subpath export changes |
 
 ### Verification gates (run before every PR)
 

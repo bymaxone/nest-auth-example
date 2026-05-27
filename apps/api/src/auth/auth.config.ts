@@ -186,13 +186,37 @@ export function buildAuthOptions(config: ConfigService<Env, true>): BymaxAuthMod
   // origin (`localhost:3000/api/auth/oauth/google/callback`) and Next.js
   // rewrites `/api/:path*` to the NestJS API at `:4000`. From the browser's
   // perspective, the callback response (Set-Cookie + 302) comes from the web
-  // origin, so the redirect to `/dashboard` is same-origin and auth cookies
-  // travel without SameSite=Strict tripping on a cross-port hop. The lib's
-  // startup validator accepts a leading-slash path without requiring HTTPS.
+  // origin, so the redirect to `/dashboard` is same-origin and the auth
+  // cookies arrive on the destination page with zero cross-origin caveats.
+  // Note: since lib v1.0.5 the default `cookies.sameSite` is `'lax'`, which
+  // already permits top-level navigation cookies — but routing through the
+  // web origin keeps the dev-tools timeline clean and avoids depending on
+  // cross-origin SameSite semantics. The lib's startup validator accepts a
+  // leading-slash path without requiring HTTPS.
   if (googleOauth) {
     options.oauth = {
       google: googleOauth,
       successRedirectUrl: '/dashboard',
+      // `mfaRedirectUrl` (lib v1.0.7+) — destination when the OAuth-resolved
+      // user has MFA enabled. Without this, an MFA-enabled user who signs in
+      // via Google would receive session cookies with `mfaVerified: false`,
+      // which the global `MfaRequiredGuard` rejects on every subsequent
+      // request — leaving the user locked out with no surfaced path forward.
+      //
+      // With this option set, the lib instead plants a short-lived
+      // `mfa_temp_token` HttpOnly cookie (Path scoped to `/api/auth/mfa`,
+      // 5-minute Max-Age) and 302s here. The `/auth/mfa-challenge` page
+      // POSTs to `/api/auth/mfa/challenge` with just `{ code }` — the lib
+      // reads the temp token from the cookie automatically. The `?source=oauth`
+      // query param tells the page to skip its sessionStorage read and use
+      // the cookie-only flow.
+      mfaRedirectUrl: '/auth/mfa-challenge?source=oauth',
+      // `errorRedirectUrl` (lib v1.0.7+) — destination when the OAuth
+      // callback throws an `AuthException` (provider error, hook reject,
+      // invalid state, etc.). The lib appends `?error=<code>` (e.g.
+      // `?error=oauth_failed`) preserving any existing query params.
+      // Without this, the browser sees a raw JSON 500.
+      errorRedirectUrl: '/auth/login',
     };
   }
 
@@ -201,10 +225,28 @@ export function buildAuthOptions(config: ConfigService<Env, true>): BymaxAuthMod
   // Without this, cookie-aware HTTP clients (browsers, supertest) never attach
   // the refresh_token on requests to /api/auth/refresh because the path /auth
   // does not prefix-match /api/auth/refresh per RFC 6265.
+  //
+  // mfaTempCookiePath (lib v1.0.9+) follows the SAME RFC 6265 logic: the lib's
+  // OAuth callback plants `mfa_temp_token` and the MFA controller clears it,
+  // both using this Path attribute. The lib's default is `/auth/mfa` (correct
+  // when routes mount at the app root). Because main.ts calls
+  // `app.setGlobalPrefix('api')`, the real challenge URL is
+  // `/api/auth/mfa/challenge`, and the cookie MUST be set with Path
+  // `/api/auth/mfa` — otherwise the browser drops it on the post-OAuth POST
+  // and every challenge surfaces as `MFA_TEMP_TOKEN_INVALID`. The lib cannot
+  // observe `setGlobalPrefix` at module construction time, so opting in here
+  // is mandatory for apps that combine a global prefix with OAuth + MFA.
   if (resolveDomains) {
-    options.cookies = { refreshCookiePath: '/api/auth', resolveDomains };
+    options.cookies = {
+      refreshCookiePath: '/api/auth',
+      mfaTempCookiePath: '/api/auth/mfa',
+      resolveDomains,
+    };
   } else {
-    options.cookies = { refreshCookiePath: '/api/auth' };
+    options.cookies = {
+      refreshCookiePath: '/api/auth',
+      mfaTempCookiePath: '/api/auth/mfa',
+    };
   }
 
   return options;

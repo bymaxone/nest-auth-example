@@ -1,12 +1,16 @@
 /**
  * @fileoverview E2E: Workspace switcher — admin user with accounts in two
- * tenants selects the other workspace and is redirected through the library's
- * logout endpoint to the destination tenant's login page.
+ * tenants selects the other workspace and stays on the dashboard with a fresh
+ * session for the destination tenant.
  *
  * The seed creates `admin@example.dev` as two distinct `User` rows — one in
  * `acme`, one in `globex` — sharing the same email. The library binds one JWT
- * to one tenant, so "switching" is a Slack-style re-authentication, not a live
- * context swap. This spec verifies that whole flow end-to-end.
+ * to one tenant; selecting a different workspace triggers the **silent switch**
+ * flow added in lib v1.0.10: the API mints a session for the sibling `User`
+ * row without a password and the dashboard re-renders with the new identity
+ * — no logout, no redirect to `/auth/login`. (Pre-v1.0.10 the example used the
+ * Slack-style logout-and-relogin behaviour; that path is now reserved for the
+ * MFA-fallback case only.)
  *
  * Coverage: FCM #20 (multi-tenant workspace switching).
  *
@@ -21,23 +25,27 @@ const SOURCE_TENANT_SLUG = process.env['E2E_TENANT_ID'] ?? 'acme';
 const DEST_TENANT_SLUG = process.env['E2E_SECOND_TENANT_ID'] ?? 'globex';
 
 test.describe('Workspace switcher', () => {
-  test('admin in two tenants can re-auth into the second workspace via the switcher', async ({
+  test('admin in two tenants can silently switch into the second workspace via the switcher', async ({
     page,
   }) => {
     /*
-     * Full re-auth flow (FCM #20).
+     * Silent switch flow (FCM #20, lib v1.0.10+).
      *
      * 1. Login as `admin@example.dev` against the source tenant (acme).
      * 2. Open the workspace switcher in the topbar.
      * 3. The dropdown lists BOTH workspaces (acme + globex) because the seed
-     *    inserts the admin's email in both tenants.
-     * 4. Click the destination workspace (globex). The component POSTs
-     *    /api/auth/logout and assigns window.location to /auth/login?tenantId=globex.
-     * 5. The destination login page must render — confirming the cookies were
-     *    cleared and the redirect followed.
+     *    inserts the admin's email in both tenants, with the ✓ next to the
+     *    active one (derived from `useSession().user.tenantId`).
+     * 4. Click the destination workspace (globex). The component POSTs to
+     *    `/api/account/switch-workspace` — the API mints a session for the
+     *    sibling `User` row in globex, rotates the cookies, and the page
+     *    stays on `/dashboard` (no logout, no redirect to /auth/login).
+     * 5. After the switch settles, `/api/auth/me` reflects the destination
+     *    tenantId and the topbar trigger updates to show the destination
+     *    workspace name — both without a full page reload.
      *
-     * Protects: the library's one-JWT-per-tenant model + the Slack-style UX
-     * the example claims in its README.
+     * Protects: the silent-switch path of `handleSelect` + the
+     * `user.tenantId`-driven active-workspace render branch.
      */
 
     // ── 1. Login at the source tenant. ────────────────────────────────────
@@ -68,19 +76,32 @@ test.describe('Workspace switcher', () => {
     // The current workspace marker (✓) must appear next to the source.
     await expect(sourceItem).toContainText('✓');
 
-    // ── 4. Click the destination workspace — triggers logout + redirect. ──
+    // ── 4. Click the destination workspace — triggers the silent switch. ──
+    // Surface failures of POST /api/account/switch-workspace at the click site
+    // instead of letting them masquerade as a "topbar never updated" timeout.
+    // The endpoint returns 200 with the destination user projection on success.
+    const switchResponsePromise = page.waitForResponse(
+      (r) =>
+        /\/api\/account\/switch-workspace(\?|$)/.test(r.url()) && r.request().method() === 'POST',
+      { timeout: 10_000 },
+    );
     await destItem.click();
+    const switchResponse = await switchResponsePromise;
+    const switchStatus = switchResponse.status();
+    if (switchStatus >= 300) {
+      throw new Error(
+        `POST /api/account/switch-workspace failed: ${switchStatus} ${await switchResponse.text()}`,
+      );
+    }
 
-    // ── 5. Wait until the page lands on the destination login screen. ─────
-    // The switcher uses `window.location.assign`, which is a full navigation —
-    // wait for the URL to include the destination slug.
-    await page.waitForURL(new RegExp(`/auth/login\\?tenantId=${DEST_TENANT_SLUG}`), {
-      timeout: 10_000,
-    });
+    // ── 5. URL stays on /dashboard and the topbar updates without reload. ─
+    await expect(page).toHaveURL(/\/dashboard(\?|$|\/)/, { timeout: 3_000 });
 
-    // The login form must be rendered with the destination context preserved
-    // in the URL — confirms cookies were cleared and the redirect followed.
-    await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible();
+    // The trigger text reflects `useSession().user.tenantId` after the
+    // component's internal `refresh()` resolves. Match the destination
+    // workspace name shown inside the button — `getByRole` selects by accessible
+    // name (the aria-label), so use the inner text via `toContainText`.
+    await expect(trigger).toContainText(new RegExp(DEST_TENANT_SLUG, 'i'), { timeout: 10_000 });
   });
 
   test('the switcher disappears when the user belongs to only one workspace', async ({ page }) => {
