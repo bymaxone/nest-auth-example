@@ -1,6 +1,6 @@
 {
   "name": "nest-auth-example",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "Reference implementation for @bymax-one/nest-auth — demonstrates every library feature in a production-grade multi-tenant NestJS + Next.js application.",
   "keywords": [
     "nest-auth",
@@ -66,7 +66,8 @@
     "infra:nuke": "docker compose down -v",
     "infra:logs": "docker compose logs -f",
     "infra:test:up": "docker compose -f docker-compose.test.yml up -d --wait",
-    "infra:test:down": "docker compose -f docker-compose.test.yml down -v"
+    "infra:test:down": "docker compose -f docker-compose.test.yml down -v",
+    "audit:exports": "node scripts/audit-library-exports.mjs"
   },
   "pnpm": {
     "overrides": {

@@ -51,7 +51,7 @@ cd nest-auth-example
 pnpm install && pnpm infra:up && pnpm dev
 ```
 
-> **Coverage rule:** every public export from `@bymax-one/nest-auth` (server, shared, client, react, nextjs subpaths) is referenced from at least one file in this repository. See the [Feature Coverage Matrix](docs/OVERVIEW.md#6-feature-coverage-matrix) — 32/32 features green.
+> **Coverage rule:** every public export from `@bymax-one/nest-auth` (server, shared, client, react, nextjs subpaths) is referenced from at least one file in this repository — enforced automatically in CI by [`scripts/audit-library-exports.mjs`](#-library-export-audit). See the [Feature Coverage Matrix](docs/OVERVIEW.md#6-feature-coverage-matrix) — 32/32 features green.
 
 ---
 
@@ -473,28 +473,55 @@ This repo is held to a similar bar as the library itself — every demonstrated 
 
 | Suite                                           | Test count           | What it covers                                                                                                                                                                                      |
 | ----------------------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm --filter @nest-auth-example/api test`     | **322** in 28 suites | Unit + integration — repositories, hooks, services, guards composition                                                                                                                              |
-| `pnpm --filter @nest-auth-example/web test`     | **433** in 47 suites | Vitest — auth client, error mapping, components, layout primitives                                                                                                                                  |
-| `pnpm --filter @nest-auth-example/api test:e2e` | **83** in 26 suites  | supertest e2e — every auth flow against real Postgres + Redis (test stack)                                                                                                                          |
-| `pnpm --filter @nest-auth-example/web test:e2e` | **23** (no skips)    | Playwright — login, MFA, invitation, password reset, platform admin, workspace switch, OAuth Google click-through, WS isolation                                                                     |
-| **Total**                                       | **861 tests**        | Every `@bymax-one/nest-auth` subpath (`server`, `shared`, `client`, `react`, `nextjs`) is consumed by real application code, so the typecheck gate breaks immediately if any subpath export changes |
+| `pnpm --filter @nest-auth-example/api test`     | **540** in 34 suites | Unit + integration — repositories, hooks, services, guards, crypto utilities, no-op fallbacks, DTO surface                                                                                          |
+| `pnpm --filter @nest-auth-example/web test`     | **701** in 50 files  | Vitest — auth client, error mapping, components, layout primitives                                                                                                                                  |
+| `pnpm --filter @nest-auth-example/api test:e2e` | **88** in 27 suites  | supertest e2e — every auth flow + security headers against real Postgres + Redis (test stack)                                                                                                       |
+| `pnpm --filter @nest-auth-example/web test:e2e` | **23** (no skips)    | Playwright — login, MFA, invitation, password reset, platform admin, workspace switch, OAuth Google click-through, WS isolation, web security headers                                               |
+| **Total**                                       | **1 352 tests**      | Every `@bymax-one/nest-auth` subpath (`server`, `shared`, `client`, `react`, `nextjs`) is consumed by real application code, so the typecheck gate breaks immediately if any subpath export changes |
 
 ### Verification gates (run before every PR)
 
 ```bash
-pnpm typecheck      # tsc --noEmit across all workspaces  → 0 errors
-pnpm lint           # ESLint flat config                   → 0 errors, no suppressions
-pnpm format:check   # Prettier                             → clean
-pnpm test           # unit + integration                   → 322 + 433 passing
+pnpm typecheck          # tsc --noEmit across all workspaces → 0 errors
+pnpm lint               # ESLint flat config                  → 0 errors, no suppressions
+pnpm format:check       # Prettier                            → clean
+pnpm test               # unit + integration                  → 540 + 701 passing
+pnpm audit:exports      # library export audit                → exit 0 (190 exports covered)
 ```
 
 ### End-to-end gates
 
 ```bash
 pnpm infra:test:up                                   # ephemeral test stack
-pnpm --filter @nest-auth-example/api test:e2e        # 83 supertest e2e
+pnpm --filter @nest-auth-example/api test:e2e        # 88 supertest e2e
 pnpm --filter @nest-auth-example/web test:e2e        # Playwright (auto-starts api + web)
 pnpm infra:test:down                                 # tear down
+```
+
+### 🔎 Library export audit
+
+```bash
+pnpm audit:exports
+# [export-usage-check] ✓ All 190 exports are referenced in apps/ (26 ignored)
+```
+
+Every public symbol exported by `@bymax-one/nest-auth` — across all five subpaths (`server`, `shared`, `client`, `react`, `nextjs`) — must appear at least once in the `apps/` source tree. The script [`scripts/audit-library-exports.mjs`](scripts/audit-library-exports.mjs) enforces this automatically.
+
+**Why it exists.** A reference application is only valuable if it is _complete_. Without enforcement, it is easy to add a new guard, hook, or utility to the library and forget to demonstrate it — leaving users without a working example. The audit closes that gap: a PR that ships a new export without wiring it into the example will fail CI before it can be merged.
+
+**How it works.**
+
+1. Discovers all subpaths dynamically from `node_modules/@bymax-one/nest-auth/dist/`.
+2. Parses each `index.d.ts` with regex to extract every exported symbol name.
+3. Walks the full `apps/api/` and `apps/web/` source trees and checks for a word-boundary occurrence of each name.
+4. Exits `0` when every symbol is found; exits `1` with a diff showing what is missing.
+
+**Intentional suppressions.** Twenty-six symbols — internal injection tokens, structural mock interfaces, and low-level proxy utilities — are excluded via [`.audit-ignore.json`](.audit-ignore.json). Each entry carries a reason string and a link to the tracking issue that records the design decision. The CI job treats any entry without a reason as a build error.
+
+**CI integration.** The `export-usage-check` job in `.github/workflows/ci.yml` runs on every push and pull request:
+
+```yaml
+- run: node scripts/audit-library-exports.mjs
 ```
 
 > [!NOTE]

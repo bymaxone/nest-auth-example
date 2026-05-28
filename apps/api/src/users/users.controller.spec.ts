@@ -17,6 +17,7 @@
 import { jest } from '@jest/globals';
 import { Test } from '@nestjs/testing';
 import { Reflector } from '@nestjs/core';
+import { SelfOrAdminGuard } from '@bymax-one/nest-auth';
 
 import { UsersController } from './users.controller.js';
 import { UsersService } from './users.service.js';
@@ -86,7 +87,12 @@ describe('UsersController', () => {
         },
         Reflector,
       ],
-    }).compile();
+    })
+      // SelfOrAdminGuard requires library DI (BYMAX_AUTH_OPTIONS); override so
+      // the test module compiles without the full auth module.
+      .overrideGuard(SelfOrAdminGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = moduleRef.get(UsersController);
   });
@@ -170,6 +176,64 @@ describe('UsersController', () => {
 
       expect(roles).toBeDefined();
       expect(roles).toContain('ADMIN');
+    });
+  });
+
+  // ─── findById ─────────────────────────────────────────────────────────────
+
+  describe('findById', () => {
+    let findById: jest.Mock<() => Promise<TenantUserRecord>>;
+
+    beforeEach(async () => {
+      findById = jest.fn<() => Promise<TenantUserRecord>>();
+
+      const moduleRef = await Test.createTestingModule({
+        controllers: [UsersController],
+        providers: [
+          {
+            provide: UsersService,
+            useValue: { listByTenant: jest.fn(), updateStatus: jest.fn(), findById },
+          },
+          Reflector,
+        ],
+      })
+        .overrideGuard(SelfOrAdminGuard)
+        .useValue({ canActivate: () => true })
+        .compile();
+
+      controller = moduleRef.get(UsersController);
+    });
+
+    it('delegates to UsersService.findById with the correct id and tenantId', async () => {
+      /**
+       * Scenario: the controller must pass the URL param `id` and the JWT
+       * claim `tenantId` to the service. Swapping arguments would allow
+       * cross-tenant reads (privilege escalation).
+       * Rule: UsersService.findById is called with (id, user.tenantId).
+       */
+      const record = makeUserRecord({ id: 'user-target' });
+      findById.mockResolvedValue(record);
+      const caller = makeAdmin({ sub: 'admin-1', tenantId: 'tenant-7' });
+
+      const result = await controller.findById('user-target', caller as never);
+
+      expect(findById).toHaveBeenCalledWith('user-target', 'tenant-7');
+      expect(result).toBe(record);
+    });
+
+    it('propagates the service result without modification', async () => {
+      /**
+       * Scenario: the controller is a thin delegation layer — it must not
+       * reshape or filter the service result.
+       * Rule: the exact service return value reaches the caller.
+       */
+      const record = makeUserRecord({ id: 'user-42', name: 'Carol' });
+      findById.mockResolvedValue(record);
+      const caller = makeAdmin();
+
+      const result = await controller.findById('user-42', caller as never);
+
+      expect(result).toStrictEqual(record);
     });
   });
 });

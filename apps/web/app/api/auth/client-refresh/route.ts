@@ -9,10 +9,13 @@
  * @layer api/auth
  */
 
-import { createClientRefreshHandler } from '@bymax-one/nest-auth/nextjs';
+import { createClientRefreshHandler, CLIENT_REFRESH_ROUTE } from '@bymax-one/nest-auth/nextjs';
 import { env } from '@/lib/env';
 
 export const runtime = 'nodejs';
+
+/** Canonical path this handler is mounted at — used by `AuthProvider` for token rotation. */
+export const PATH = CLIENT_REFRESH_ROUTE;
 
 /**
  * POST /api/auth/client-refresh

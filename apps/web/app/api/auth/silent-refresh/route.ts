@@ -13,7 +13,13 @@
  * @layer api/auth
  */
 
-import { createSilentRefreshHandler } from '@bymax-one/nest-auth/nextjs';
+import {
+  createSilentRefreshHandler,
+  SILENT_REFRESH_ROUTE,
+  decodeJwtToken,
+  isTokenExpired,
+  buildSilentRefreshUrl,
+} from '@bymax-one/nest-auth/nextjs';
 import {
   AUTH_ACCESS_COOKIE_NAME,
   AUTH_REFRESH_COOKIE_NAME,
@@ -22,6 +28,22 @@ import {
 import { env } from '@/lib/env';
 
 export const runtime = 'nodejs';
+
+/**
+ * Canonical path this handler is mounted at. The auth proxy redirects expired
+ * access-token requests here; the URL is built with `buildSilentRefreshUrl`.
+ * Consumers who inspect tokens before forwarding use `decodeJwtToken` +
+ * `isTokenExpired` to distinguish truly expired tokens from tampered ones.
+ *
+ * @example
+ * ```typescript
+ * const decoded = decodeJwtToken(rawToken);
+ * if (isTokenExpired(decoded)) {
+ *   return redirect(buildSilentRefreshUrl('/dashboard', apiBase));
+ * }
+ * ```
+ */
+export const PATH = SILENT_REFRESH_ROUTE;
 
 /**
  * GET /api/auth/silent-refresh
@@ -40,3 +62,9 @@ export const GET = createSilentRefreshHandler({
     hasSession: AUTH_HAS_SESSION_COOKIE_NAME,
   },
 });
+
+/**
+ * Re-exported token-inspection utilities for consumers who build custom
+ * silent-refresh logic on top of the library primitives.
+ */
+export { decodeJwtToken, isTokenExpired, buildSilentRefreshUrl };

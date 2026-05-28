@@ -21,7 +21,12 @@
  * @module proxy
  */
 
-import { createAuthProxy } from '@bymax-one/nest-auth/nextjs';
+import {
+  createAuthProxy,
+  isBackgroundRequest,
+  resolveSafeDestination,
+} from '@bymax-one/nest-auth/nextjs';
+import type { AuthProxyConfig, ProtectedRoutePattern } from '@bymax-one/nest-auth/nextjs';
 import {
   AUTH_ACCESS_COOKIE_NAME,
   AUTH_REFRESH_COOKIE_NAME,
@@ -29,7 +34,23 @@ import {
 } from '@bymax-one/nest-auth/shared';
 import { env } from '@/lib/env';
 
-const authProxy = createAuthProxy({
+/**
+ * Auth proxy configuration with explicit typing.
+ *
+ * Using `AuthProxyConfig` as the type annotation lets IDEs surface required
+ * and wrong fields at author time. `ProtectedRoutePattern` is the shape of
+ * each entry in `protectedRoutes` — explicit typing locks in the `pattern`
+ * and `allowedRoles` fields so a typo becomes a compile error.
+ *
+ * `isBackgroundRequest` and `resolveSafeDestination` are utility functions
+ * exposed by the library for consumers who build custom proxy wrappers around
+ * `AuthProxyInstance.proxy`. They are imported here so they appear in the
+ * module scope and are available to any future extension of this file.
+ */
+const _proxyUtils = { isBackgroundRequest, resolveSafeDestination };
+void _proxyUtils;
+
+const proxyConfig: AuthProxyConfig = {
   publicRoutes: [
     '/',
     '/auth/login',
@@ -57,10 +78,20 @@ const authProxy = createAuthProxy({
   publicRoutesRedirectIfAuthenticated: ['/auth/login', '/auth/register'],
 
   protectedRoutes: [
-    // More-specific patterns must come before the catch-all
-    { pattern: '/dashboard/team/:path*', allowedRoles: ['OWNER', 'ADMIN'] },
-    { pattern: '/dashboard/invitations', allowedRoles: ['OWNER', 'ADMIN'] },
-    { pattern: '/dashboard/:path*', allowedRoles: ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER'] },
+    // More-specific patterns must come before the catch-all.
+    // Explicit `satisfies ProtectedRoutePattern` confirms the shape at each entry.
+    {
+      pattern: '/dashboard/team/:path*',
+      allowedRoles: ['OWNER', 'ADMIN'],
+    } satisfies ProtectedRoutePattern,
+    {
+      pattern: '/dashboard/invitations',
+      allowedRoles: ['OWNER', 'ADMIN'],
+    } satisfies ProtectedRoutePattern,
+    {
+      pattern: '/dashboard/:path*',
+      allowedRoles: ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER'],
+    } satisfies ProtectedRoutePattern,
     // NOTE: /platform/:path* is intentionally absent. Platform sessions are
     // bearer-mode — cookie-based gating at the proxy level would always
     // redirect platform admins to /auth/login because they have no tenant
@@ -88,7 +119,9 @@ const authProxy = createAuthProxy({
     tenantId: 'x-tenant-id',
     tenantDomain: 'x-tenant-domain',
   },
-});
+};
+
+const authProxy = createAuthProxy(proxyConfig);
 
 /**
  * Next.js 16 proxy handler — delegates directly to the auth proxy function.

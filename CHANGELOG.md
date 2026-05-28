@@ -5,6 +5,72 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] — 2026-05-28
+
+> Initial reference app tracking `@bymax-one/nest-auth@1.0.0`.
+
+### Added
+
+All 32 Feature Coverage Matrix rows from `docs/OVERVIEW.md §6` are implemented
+and demonstrable end-to-end in this release:
+
+- **Authentication core** — JWT-based login/logout (`LoginDto`, `RegisterDto`),
+  access + refresh token rotation, HttpOnly cookie delivery, `@CurrentUser()`
+  decorator, `JwtAuthGuard` global guard, `UserStatusGuard`, `MfaRequiredGuard`.
+- **MFA (TOTP)** — full setup → challenge → disable → recovery-code regeneration
+  cycle; `MfaChallengeDto`, `MfaDisableDto`, `MfaVerifyDto`, `MfaRegenerateRecoveryCodesDto`.
+- **OAuth (Google)** — `OAuthService`, OAuth plugin, `onOAuthLogin` hook, MFA
+  redirect for OAuth + MFA users.
+- **Password management** — token-based and OTP-based resets; `ForgotPasswordDto`,
+  `ResetPasswordDto`, `VerifyOtpDto`, `ResendOtpDto`.
+- **Email verification** — `VerifyEmailDto`, `ResendVerificationDto`;
+  `IEmailProvider` wired for both Mailpit (dev) and Resend (prod).
+- **Invitations** — `CreateInvitationDto`, `AcceptInvitationDto` ; `IAuthHooks.afterInvitationAccepted`.
+- **RBAC** — `@Roles()` / `RolesGuard`, `@PlatformRoles()` / `PlatformRolesGuard`,
+  `SelfOrAdminGuard`, `OptionalAuthGuard`, role hierarchy configuration.
+- **Multi-tenancy** — `tenantIdResolver` reading `X-Tenant-Id`; every query
+  scoped by `tenantId`; `BymaxAuthModule.registerAsync` wired with
+  `BYMAX_AUTH_USER_REPOSITORY`, `BYMAX_AUTH_EMAIL_PROVIDER`, `BYMAX_AUTH_HOOKS`,
+  `BYMAX_AUTH_REDIS_CLIENT`.
+- **Platform admin** — `JwtPlatformGuard`, `PlatformLoginDto`, `@PlatformRoles()`,
+  `BYMAX_AUTH_PLATFORM_USER_REPOSITORY`; separate bearer-mode session lifecycle.
+- **Sessions** — `SessionService`, session list / revoke / revoke-all; FIFO
+  session limit; `SessionInfo` on `IEmailProvider.sendNewSessionAlert`.
+- **Brute-force protection** — `AUTH_THROTTLE_CONFIGS` on login/registration/MFA
+  endpoints; `ThrottlerGuard` demo endpoint at `GET /api/health/throttle-demo`.
+- **Silent refresh** — `createSilentRefreshHandler` at `SILENT_REFRESH_ROUTE`;
+  `decodeJwtToken`, `isTokenExpired`, `buildSilentRefreshUrl` documented.
+- **Client refresh** — `createClientRefreshHandler` at `CLIENT_REFRESH_ROUTE`.
+- **Proxy** — `createAuthProxy` with `AuthProxyConfig`, `ProtectedRoutePattern`,
+  `isBackgroundRequest`, `resolveSafeDestination`.
+- **Logout** — `createLogoutHandler` at `LOGOUT_ROUTE`; full revocation via
+  Redis blacklist.
+- **WebSocket auth** — `WsJwtGuard` on `NotificationsGateway`.
+- **Crypto utilities** — `encrypt`, `decrypt`, `hmacSha256`, `sha256`,
+  `timingSafeCompare`, `generateSecureToken`, `sleep` (round-trip tested in
+  `apps/api/test/crypto-roundtrip.spec.ts`).
+- **No-op fallbacks** — `NoOpAuthHooks`, `NoOpEmailProvider` contract-tested
+  in `apps/api/src/auth/noop-fallbacks.spec.ts`.
+- **Library export audit** — `scripts/audit-library-exports.mjs` verifies every
+  public export is referenced; runs in CI as `export-usage-check`.
+- **Security hardening** — Helmet on the API; `sanitizeHeaders` in Pino logger;
+  anti-enumeration on login / forgot-password; web security headers via
+  `next.config.mjs`.
+- **CI / CD** — GitHub Actions (lint, typecheck, unit, e2e, mutation, export
+  audit, Docker build, release); Renovate.
+
+### Release procedure
+
+For future releases:
+
+1. Land all gating work on `main`.
+2. Run `node scripts/audit-library-exports.mjs` — must exit 0.
+3. Update `## [Unreleased]` in this file with the new version and date.
+4. Update `docs/RELEASES.md` with the new row.
+5. Create an annotated tag: `git tag -a vX.Y.Z -m "vX.Y.Z — <one-line summary>"`
+6. A human operator runs: `git push origin vX.Y.Z`
+7. The `.github/workflows/release.yml` workflow handles Docker images and the GitHub Release.
+
 ## [Unreleased]
 
 ### Added

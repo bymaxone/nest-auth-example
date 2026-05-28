@@ -11,8 +11,8 @@
  * @see docs/guidelines/nest-auth-guidelines.md
  */
 
-import { Body, Controller, Get, Headers, Ip, Param, Patch } from '@nestjs/common';
-import { CurrentUser, Roles } from '@bymax-one/nest-auth';
+import { Body, Controller, Get, Headers, Ip, Param, Patch, UseGuards } from '@nestjs/common';
+import { CurrentUser, Roles, SelfOrAdminGuard } from '@bymax-one/nest-auth';
 import type { DashboardJwtPayload, SafeAuthUser } from '@bymax-one/nest-auth';
 
 import { UsersService } from './users.service.js';
@@ -46,6 +46,28 @@ export class UsersController {
   @Get()
   listByTenant(@CurrentUser() user: DashboardJwtPayload): Promise<TenantUserRecord[]> {
     return this.usersService.listByTenant(user.tenantId);
+  }
+
+  /**
+   * Returns a single user within the authenticated user's tenant.
+   *
+   * Gated by `SelfOrAdminGuard`: the caller must either be the requested user
+   * themselves (self) or hold a role at or above `ADMIN` in the role hierarchy.
+   * Cross-tenant access is prevented at the service layer via `tenantId` scoping.
+   *
+   * GET /api/users/:id
+   *
+   * @param id - Target user ID from the URL parameter.
+   * @param user - Authenticated user injected by `@CurrentUser()`.
+   * @returns Safe (credential-free) representation of the requested user.
+   */
+  @Get(':id')
+  @UseGuards(SelfOrAdminGuard)
+  findById(
+    @Param('id') id: string,
+    @CurrentUser() user: DashboardJwtPayload,
+  ): Promise<TenantUserRecord> {
+    return this.usersService.findById(id, user.tenantId);
   }
 
   /**

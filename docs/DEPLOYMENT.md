@@ -72,7 +72,17 @@ Cookie strategy by deployment shape:
 ## HTTPS & HSTS
 
 - Terminate TLS in front of both services. The env schema **rejects a non-`https://` `WEB_ORIGIN` in production**.
-- `apps/api` sends security headers via Helmet ([`main.ts`](../apps/api/src/main.ts)) — `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, etc. — before any route responds.
+- `apps/api` sends security headers via Helmet ([`main.ts`](../apps/api/src/main.ts)) — `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `hidePoweredBy` — before any route responds. `Strict-Transport-Security` is enabled automatically by Helmet when `NODE_ENV=production`.
+- `apps/web` sends security headers via the `headers()` block in [`next.config.mjs`](../apps/web/next.config.mjs):
+
+| Header                      | Value                                                                                                                                                                                   |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `X-Content-Type-Options`    | `nosniff`                                                                                                                                                                               |
+| `X-Frame-Options`           | `DENY`                                                                                                                                                                                  |
+| `Referrer-Policy`           | `strict-origin-when-cross-origin`                                                                                                                                                       |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` (production only)                                                                                                                                 |
+| `Content-Security-Policy`   | `default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' <API> <WS>; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; frame-ancestors 'none'` |
+
 - Serve `apps/web` over HTTPS too, and set `NEXT_PUBLIC_WS_URL` to `wss://…`.
 
 ---

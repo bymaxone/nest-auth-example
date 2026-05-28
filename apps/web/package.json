@@ -1,6 +1,6 @@
 {
   "name": "@nest-auth-example/web",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "Next.js 16 frontend for nest-auth-example — demonstrates @bymax-one/nest-auth React and Next.js integrations.",
   "license": "MIT",
   "author": {

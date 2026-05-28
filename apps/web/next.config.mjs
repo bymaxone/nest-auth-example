@@ -47,6 +47,43 @@ const nextConfig = {
       }
     : {}),
 
+  async headers() {
+    const isProduction = process.env['NODE_ENV'] === 'production';
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          // Prevent MIME-type sniffing — required by browsers to honour declared Content-Type.
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          // Deny embedding in <iframe>, <embed>, or <object> to block clickjacking.
+          { key: 'X-Frame-Options', value: 'DENY' },
+          // Restrict Referer header to origin only on cross-origin requests.
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          // Force HTTPS for 1 year in production; disabled in dev to avoid breaking localhost.
+          ...(isProduction
+            ? [{ key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' }]
+            : []),
+          // Basic CSP: allow same-origin resources; restrict inline scripts to dev only.
+          {
+            key: 'Content-Security-Policy',
+            value: [
+              "default-src 'self'",
+              // Unsafe-inline is required for RSC streaming and React hydration in Next.js
+              "script-src 'self' 'unsafe-inline'",
+              `connect-src 'self' ${process.env['NEXT_PUBLIC_API_URL'] ?? ''} ${process.env['NEXT_PUBLIC_WS_URL'] ?? ''}`,
+              "img-src 'self' data:",
+              "style-src 'self' 'unsafe-inline'",
+              "font-src 'self'",
+              "frame-ancestors 'none'",
+            ]
+              .join('; ')
+              .trim(),
+          },
+        ],
+      },
+    ];
+  },
+
   async rewrites() {
     const internalApiUrl = process.env['INTERNAL_API_URL'] ?? 'http://localhost:4000';
     return [

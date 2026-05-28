@@ -9,7 +9,7 @@
  * @layer api/auth
  */
 
-import { createLogoutHandler } from '@bymax-one/nest-auth/nextjs';
+import { createLogoutHandler, LOGOUT_ROUTE } from '@bymax-one/nest-auth/nextjs';
 import {
   AUTH_ACCESS_COOKIE_NAME,
   AUTH_REFRESH_COOKIE_NAME,
@@ -18,6 +18,9 @@ import {
 import { env } from '@/lib/env';
 
 export const runtime = 'nodejs';
+
+/** Canonical path this handler is mounted at — called by the sign-out flow. */
+export const PATH = LOGOUT_ROUTE;
 
 /**
  * POST /api/auth/logout

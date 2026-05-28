@@ -369,6 +369,56 @@ describe('UsersService', () => {
     });
   });
 
+  // ─── findById ─────────────────────────────────────────────────────────────
+
+  describe('findById', () => {
+    it('returns a TenantUserRecord when the user exists in the tenant', async () => {
+      /**
+       * Scenario: a caller with a valid tenantId requests their own profile.
+       * The service must return a safe, credential-free user record.
+       * Rule: findById(id, tenantId) → TenantUserRecord when the user exists.
+       */
+      const safeUser = makeSafeUser({ id: 'user-3', tenantId: 'acme' });
+      findById.mockResolvedValue(safeUser);
+
+      const result = await service.findById('user-3', 'acme');
+
+      expect(result.id).toBe('user-3');
+      expect(result.email).toBe(safeUser.email);
+      expect(result.name).toBe(safeUser.name);
+      expect(result.role).toBe(safeUser.role);
+      expect(result.status).toBe(safeUser.status);
+      expect(result.emailVerified).toBe(safeUser.emailVerified);
+      expect(result.mfaEnabled).toBe(safeUser.mfaEnabled);
+      expect(result.createdAt).toBe(safeUser.createdAt);
+    });
+
+    it('throws NotFoundException when the user is not found in the tenant', async () => {
+      /**
+       * Scenario: the requested user does not exist in the caller's tenant (either
+       * a wrong id or a cross-tenant probe). The service must return 404 rather
+       * than leaking cross-tenant existence via a 403.
+       * Rule: findById returns NotFoundException (not ForbiddenException) on miss.
+       */
+      findById.mockResolvedValue(null);
+
+      await expect(service.findById('missing-user', 'acme')).rejects.toThrow(NotFoundException);
+    });
+
+    it('calls the repository with the correct id and tenantId', async () => {
+      /**
+       * Scenario: the repository must receive the exact id and tenantId passed
+       * by the controller so cross-tenant queries are impossible.
+       * Rule: PrismaUserRepository.findById is called with (id, tenantId).
+       */
+      findById.mockResolvedValue(makeSafeUser({ tenantId: 'beta' }));
+
+      await service.findById('user-9', 'beta');
+
+      expect(findById).toHaveBeenCalledWith('user-9', 'beta');
+    });
+  });
+
   // ─── listByTenant ─────────────────────────────────────────────────────────
 
   describe('listByTenant', () => {

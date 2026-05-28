@@ -268,9 +268,37 @@ The example implements `IEmailProvider` twice (Mailpit for dev, Resend for prod)
 
 ---
 
-## Appendix — library exports not yet demonstrated
+## Appendix — intentionally not demonstrated exports
 
-The Phase 20 audit ([`scripts/audit-library-exports.mjs`](./DEVELOPMENT_PLAN.md)) enforces that every public export is referenced somewhere. Any export that is intentionally **not** wired into a user-facing flow is listed here with a tracking issue. As of this writing none are deferred — the fallbacks `NoOpAuthHooks` / `NoOpEmailProvider` and the crypto helpers are exercised in unit tests rather than the UI (see [Appendix B](./DEVELOPMENT_PLAN.md#appendix-b--library-export--example-file-map)).
+The Phase 20 audit (`node scripts/audit-library-exports.mjs`) enforces that every public export from `@bymax-one/nest-auth` is referenced at least once in the `apps/` tree. The 26 symbols below are suppressed in `.audit-ignore.json` because wiring them in application code would be artificial or misleading — they are internal types, advanced-use tokens, or structural interfaces intended for library-plugin authors rather than consumer apps.
+
+Each entry links to the tracking issue that records the rationale.
+
+### Suppressed from `server` subpath
+
+| Symbol                         | Why suppressed                                                                                                                                              |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BYMAX_AUTH_OPTIONS`           | Module-options injection token; consumer apps read config via `ConfigService`, not this token. [#1](https://github.com/bymaxone/nest-auth-example/issues/1) |
+| `ROLES_KEY`                    | Internal metadata key used by `RolesGuard`; apps use `@Roles()` decorator instead. [#1](https://github.com/bymaxone/nest-auth-example/issues/1)             |
+| `PLATFORM_ROLES_KEY`           | Same pattern as `ROLES_KEY` for platform guards. [#1](https://github.com/bymaxone/nest-auth-example/issues/1)                                               |
+| `AuthenticatedRequest`         | Apps use `@CurrentUser() user: DashboardJwtPayload` instead of extending Express `Request`. [#2](https://github.com/bymaxone/nest-auth-example/issues/2)    |
+| `PlatformAuthenticatedRequest` | Same rationale for platform routes. [#2](https://github.com/bymaxone/nest-auth-example/issues/2)                                                            |
+| `OAuthProviderPlugin`          | Extension point for custom OAuth providers; this app uses the built-in Google plugin. [#2](https://github.com/bymaxone/nest-auth-example/issues/2)          |
+| `ResolvedOptions`              | Internal resolved-options type; only relevant when building library plugins. [#2](https://github.com/bymaxone/nest-auth-example/issues/2)                   |
+
+### Suppressed from `nextjs` subpath
+
+| Symbol                                                                                             | Why suppressed                                                                                                                                                                  |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AuthProxyInstance`                                                                                | Return type of `createAuthProxy`; destructured as `const { proxy } = createAuthProxy(...)`. [#3](https://github.com/bymaxone/nest-auth-example/issues/3)                        |
+| `ResolvedAuthProxyConfig`                                                                          | Internal resolved proxy config; not exposed to consumer apps. [#3](https://github.com/bymaxone/nest-auth-example/issues/3)                                                      |
+| `HeadersLike`, `RequestWithHeaders`, `RequestWithUrl`                                              | Structural interfaces for mocking in library tests; not needed in application code. [#3](https://github.com/bymaxone/nest-auth-example/issues/3)                                |
+| `JwtHeader`, `DecodedToken`                                                                        | Internal JWT-shape types used by `decodeJwtToken`; covered by inference. [#3](https://github.com/bymaxone/nest-auth-example/issues/3)                                           |
+| `ClientRefreshHandler`, `ClientRefreshHandlerConfig`                                               | Return type and config for `createClientRefreshHandler`; covered by type inference. [#3](https://github.com/bymaxone/nest-auth-example/issues/3)                                |
+| `LogoutHandler`, `LogoutHandlerConfig`, `LogoutHandlerRedirectConfig`, `LogoutHandlerStatusConfig` | Handler type aliases for `createLogoutHandler`. [#3](https://github.com/bymaxone/nest-auth-example/issues/3)                                                                    |
+| `SilentRefreshHandler`, `SilentRefreshHandlerConfig`                                               | Handler type aliases for `createSilentRefreshHandler`. [#3](https://github.com/bymaxone/nest-auth-example/issues/3)                                                             |
+| `ParsedSetCookie`                                                                                  | Internal cookie-parsing result type; used only inside the proxy. [#3](https://github.com/bymaxone/nest-auth-example/issues/3)                                                   |
+| `dedupeSetCookieHeaders`, `getSetCookieHeaders`, `parseSetCookieHeader`                            | Low-level Set-Cookie utilities used internally by the proxy; consumer apps do not process cookie headers directly. [#3](https://github.com/bymaxone/nest-auth-example/issues/3) |
 
 ---
 

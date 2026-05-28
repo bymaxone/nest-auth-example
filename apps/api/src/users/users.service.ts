@@ -162,6 +162,36 @@ export class UsersService {
   }
 
   /**
+   * Returns a single user by ID, scoped to the caller's tenant.
+   *
+   * Tenant isolation is enforced by passing `tenantId` to the repository query —
+   * a user in a different tenant returns `null`, which surfaces as a `404`.
+   *
+   * @param id - Target user's internal identifier.
+   * @param tenantId - Tenant scope from the authenticated caller's JWT claim.
+   * @returns Safe user record (no credential fields).
+   * @throws `NotFoundException` when the user is absent from the caller's tenant.
+   */
+  async findById(id: string, tenantId: string): Promise<TenantUserRecord> {
+    const user = await this.userRepository.findById(id, tenantId);
+
+    if (user === null) {
+      throw new NotFoundException(`User '${id}' not found`);
+    }
+
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      status: user.status,
+      emailVerified: user.emailVerified,
+      mfaEnabled: user.mfaEnabled,
+      createdAt: user.createdAt,
+    };
+  }
+
+  /**
    * Returns all users belonging to `tenantId`, ordered by creation date.
    *
    * Results are scoped by tenantId in the WHERE clause — cross-tenant enumeration

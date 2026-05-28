@@ -32,7 +32,37 @@
  */
 
 import { createAuthClient, createAuthFetch, AuthClientError } from '@bymax-one/nest-auth/client';
-import type { AuthErrorResponse, AuthFetch, AuthErrorCode } from '@bymax-one/nest-auth/client';
+import type {
+  AuthClient,
+  AuthClientConfig,
+  AuthErrorResponse,
+  AuthFetch,
+  AuthFetchConfig,
+  AuthErrorCode,
+  LoginInput,
+  RegisterInput,
+} from '@bymax-one/nest-auth/client';
+
+// ── Shared route constants (re-exported for consumer convenience) ─────────────
+
+/**
+ * Re-export the library's canonical route constants so consumer code can
+ * reference path strings without hard-coding them or importing from the
+ * library subpath directly.
+ */
+export {
+  AUTH_ROUTES,
+  AUTH_DASHBOARD_ROUTES,
+  AUTH_MFA_ROUTES,
+  AUTH_SESSION_ROUTES,
+  AUTH_PASSWORD_ROUTES,
+  AUTH_INVITATION_ROUTES,
+  AUTH_PLATFORM_ROUTES,
+  AUTH_PROXY_ROUTES,
+  AUTH_REFRESH_COOKIE_PATH,
+  AUTH_REFRESH_SKIP_PATH_SUFFIXES,
+  buildAuthRefreshSkipSuffixes,
+} from '@bymax-one/nest-auth/shared';
 
 // ── Tenant cookie utility ─────────────────────────────────────────────────────
 
@@ -61,11 +91,12 @@ function getCookie(name: string): string | undefined {
  * Inner fetch: handles 401 auto-refresh, single-flight dedup, and cookie
  * credentials. All API requests originate from this wrapper.
  */
-const innerAuthFetch = createAuthFetch({
+const authFetchConfig: AuthFetchConfig = {
   baseUrl: '/api',
   routePrefix: 'auth',
   credentials: 'include',
-});
+};
+const innerAuthFetch = createAuthFetch(authFetchConfig);
 
 /**
  * Wraps `innerAuthFetch` and injects the `X-Tenant-Id` header from the
@@ -93,18 +124,22 @@ const tenantAwareFetch: AuthFetch = (input, init) => {
 /**
  * Module-level singleton — shared across every page and hook in apps/web.
  * Uses `tenantAwareFetch` so every auth call carries `X-Tenant-Id` automatically.
+ *
+ * Typed as `AuthClient` so TypeScript enforces the full library interface and
+ * consumers can annotate local variables with `AuthClient` rather than `typeof authClient`.
  */
-export const authClient = createAuthClient({
+const clientConfig: AuthClientConfig = {
   // Empty baseUrl: createAuthClient.buildUrl generates paths like '/auth/login'.
   // innerAuthFetch (baseUrl '/api') then prepends '/api' → '/api/auth/login'.
   // Using '/api' here would cause '/api' to be prepended twice.
   baseUrl: '',
   routePrefix: 'auth',
   authFetch: tenantAwareFetch,
-});
+};
+export const authClient: AuthClient = createAuthClient(clientConfig);
 
 export { AuthClientError };
-export type { AuthErrorCode };
+export type { AuthErrorCode, LoginInput, RegisterInput };
 
 // ── Error mapping ─────────────────────────────────────────────────────────────
 

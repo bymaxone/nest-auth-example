@@ -17,6 +17,14 @@
 import { type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { AuthProvider } from '@bymax-one/nest-auth/react';
+import type {
+  AuthProviderProps,
+  AuthContextValue,
+  UseSessionResult,
+  UseAuthResult,
+  UseAuthStatusResult,
+  AuthStatus,
+} from '@bymax-one/nest-auth/react';
 import { Toaster } from '@/components/ui/sonner';
 import { authClient } from '@/lib/auth-client';
 
@@ -34,6 +42,19 @@ interface ProvidersProps {
  *
  * @param children - Page or nested layout content.
  */
+/**
+ * Re-exported auth types for components that need to annotate hook return values
+ * without a direct import from the library subpath.
+ */
+export type {
+  AuthProviderProps,
+  AuthContextValue,
+  UseSessionResult,
+  UseAuthResult,
+  UseAuthStatusResult,
+  AuthStatus,
+};
+
 export default function Providers({ children }: ProvidersProps) {
   const router = useRouter();
 

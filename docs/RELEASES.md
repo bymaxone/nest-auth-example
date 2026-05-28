@@ -12,11 +12,9 @@ Which version of `@bymax-one/nest-auth` each tag of this example tracks. This ex
 - **Notes** — one-line summary; deeper detail in [`CHANGELOG.md`](../CHANGELOG.md).
 - **Upgrade** — link to the per-version upgrade notes.
 
-| Example tag | Library version              | Date                           | Notes                 | Upgrade                      |
-| ----------- | ---------------------------- | ------------------------------ | --------------------- | ---------------------------- |
-| `v1.0.0`    | `@bymax-one/nest-auth@1.0.0` | — _(pending the Phase 20 tag)_ | Initial reference app | [CHANGELOG](../CHANGELOG.md) |
-
-> The `v1.0.0` row is seeded ahead of the first tag. It is finalised when `v1.0.0` is cut at the end of Phase 20 (coverage audit & hardening). The linked library version is confirmed at runtime by the API `/api/health` endpoint, which currently reports `library: 1.0.0`.
+| Example tag | Library version              | Date       | Notes                 | Upgrade                      |
+| ----------- | ---------------------------- | ---------- | --------------------- | ---------------------------- |
+| `v1.0.0`    | `@bymax-one/nest-auth@1.0.0` | 2026-05-28 | Initial reference app | [CHANGELOG](../CHANGELOG.md) |
 
 ---
 

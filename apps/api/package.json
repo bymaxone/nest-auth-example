@@ -1,6 +1,6 @@
 {
   "name": "@nest-auth-example/api",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "NestJS 11 API for nest-auth-example — wires @bymax-one/nest-auth with Prisma, Redis, and Mailpit.",
   "license": "MIT",
   "author": {
