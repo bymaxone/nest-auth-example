@@ -261,8 +261,23 @@ jobs:
       - name: Start test infrastructure
         run: docker compose -f docker-compose.test.yml up -d --wait
 
-      - name: Install Playwright browsers
+      # Cache Playwright browser binaries by lockfile hash to avoid re-downloading
+      # ~400 MB on every run.  System dependencies (apt packages) are still
+      # installed on cache hit because they are OS-level, not cacheable.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+
+      - name: Install Playwright browsers (with system deps)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: pnpm --filter @nest-auth-example/web exec playwright install --with-deps chromium
+
+      - name: Install Playwright system deps only (browsers cached)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter @nest-auth-example/web exec playwright install-deps chromium
 
       - name: Run Playwright tests
         run: pnpm --filter @nest-auth-example/web run test:e2e
