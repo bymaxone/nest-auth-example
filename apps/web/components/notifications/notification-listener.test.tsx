@@ -113,11 +113,17 @@ describe('NotificationListener', () => {
     expect(toast).toHaveBeenCalledWith('Hello', { description: 'This is a test.' });
   });
 
-  it('does not subscribe when the user is unauthenticated', () => {
+  it('does not subscribe and does not call ws.off when the user is unauthenticated from the start', () => {
     /*
-     * Scenario: when user === null the component must not open the WS or
-     * subscribe — prevents pointless backoff loops before sign-in.
-     * Protects: P16-2 — guard against unauthenticated WS connections.
+     * Scenario: when user === null on first render the component must not
+     * subscribe AND must not call ws.off (handlerRef.current is null, so the
+     * inner `if` body is skipped).
+     * Protects:
+     * - guard against unauthenticated WS connections,
+     * - ConditionalExpression `true` mutant on `handlerRef.current !== null`
+     *   (always-true would enter the if block and call ws.off with null),
+     * - EqualityOperator `!==` → `===` (with null ref, `=== null` would be
+     *   true and trigger ws.off).
      */
     vi.mocked(useSession).mockReturnValue(makeSession(null) as ReturnType<typeof useSession>);
 
@@ -125,6 +131,7 @@ describe('NotificationListener', () => {
 
     const ws = getWsClient();
     expect(ws.on).not.toHaveBeenCalled();
+    expect(ws.off).not.toHaveBeenCalled();
   });
 
   it('unsubscribes on unmount', () => {
@@ -146,14 +153,23 @@ describe('NotificationListener', () => {
     expect(ws.off).toHaveBeenCalledWith('notification:new', registeredHandler);
   });
 
-  it('calls ws.off when user transitions from authenticated to null (sign-out)', () => {
+  it('calls ws.off TWICE with the verbatim event name on sign-out (cleanup + inner if-branch)', () => {
     /*
      * Scenario: when the user transitions from authenticated to null (sign-out
-     * without a full page reload) the component must call ws.off with the
-     * stored handlerRef so the stale listener is removed.
-     * Protects: P16-2 — lines 55-57 (handlerRef.current !== null branch).
+     * without a full page reload) the effect cleanup runs once and then the
+     * new effect enters the `handlerRef.current !== null` branch and calls
+     * ws.off again with the stored handler — so ws.off is invoked TWICE.
+     * Asserting only "ws.off was called" passes for both the original and an
+     * empty-block / flipped-equality mutant because the cleanup alone
+     * accounts for one of the calls; counting them is what kills the inner
+     * branch's mutants.
+     * Protects:
+     * - ConditionalExpression / EqualityOperator / BlockStatement on
+     *   `if (handlerRef.current !== null) { … }` — flipped branch leaves the
+     *   inner ws.off call out, so total count drops from 2 → 1,
+     * - StringLiteral on the inner `ws.off('notification:new', …)` — the
+     *   second call's first arg must be the verbatim event name.
      */
-    // Start authenticated.
     vi.mocked(useSession).mockReturnValue(makeSession('user-1') as ReturnType<typeof useSession>);
 
     const { rerender } = render(<NotificationListener />);
@@ -162,11 +178,12 @@ describe('NotificationListener', () => {
     const registeredHandler = vi.mocked(ws.on).mock.calls[0]?.[1];
     expect(registeredHandler).toBeDefined();
 
-    // Transition to signed-out — triggers the user === null branch in useEffect.
     vi.mocked(useSession).mockReturnValue(makeSession(null) as ReturnType<typeof useSession>);
     rerender(<NotificationListener />);
 
-    // ws.off must have been called with the previously registered handler.
-    expect(ws.off).toHaveBeenCalledWith('notification:new', registeredHandler);
+    // Two ws.off calls — one from effect cleanup, one from the inner if-branch.
+    expect(ws.off).toHaveBeenCalledTimes(2);
+    expect(ws.off).toHaveBeenNthCalledWith(1, 'notification:new', registeredHandler);
+    expect(ws.off).toHaveBeenNthCalledWith(2, 'notification:new', registeredHandler);
   });
 });

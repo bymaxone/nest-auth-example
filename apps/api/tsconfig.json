@@ -15,6 +15,7 @@
     "test/**/*",
     "jest.config.ts",
     "jest.e2e.config.ts",
+    "jest.stryker.config.ts",
     "prisma.config.ts",
     "prisma/**/*"
   ]

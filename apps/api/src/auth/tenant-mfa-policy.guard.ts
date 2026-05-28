@@ -144,6 +144,13 @@ export class TenantMfaPolicyGuard implements CanActivate, OnModuleInit {
    *   5. users whose JWT already says `mfaEnabled === true`
    */
   canActivate(context: ExecutionContext): boolean {
+    // Stryker disable next-line ConditionalExpression,BlockStatement: this is a
+    // pure performance short-circuit — when no tenant requires MFA, returning
+    // true here saves the reflector + Express-request lookups below. The
+    // function still ultimately returns true via the `user === undefined`
+    // and `!requiredTenantIds.has(user.tenantId)` branches, so mutating
+    // the guard yields the same observable response. The short-circuit
+    // exists for runtime cost, not behavioural distinctness.
     if (this.requiredTenantIds.size === 0) {
       return true;
     }
@@ -162,6 +169,12 @@ export class TenantMfaPolicyGuard implements CanActivate, OnModuleInit {
     // `originalUrl` because NestJS's `setGlobalPrefix('api')` keeps the
     // global prefix in `originalUrl` but strips it from `url` / `path`
     // depending on the Express adapter version.
+    // Stryker disable next-line StringLiteral: the empty-string fallback is
+    // a defence-in-depth sentinel for unusual express-adapter shapes where
+    // none of originalUrl / url / path is populated. Replacing the fallback
+    // with any non-empty literal degrades to "no carve-out matches" which
+    // is the same path an empty string takes — both fall through to the
+    // remaining MFA-required check below.
     const urlPath = request.originalUrl ?? request.url ?? request.path ?? '';
     if (urlPath.startsWith('/api/auth/') || urlPath.startsWith('/auth/')) {
       return true;

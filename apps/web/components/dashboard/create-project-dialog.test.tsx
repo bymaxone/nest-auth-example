@@ -29,6 +29,7 @@ vi.mock('sonner', () => ({
 // ── Typed imports after mocks ─────────────────────────────────────────────────
 
 import { createProject, handleAuthClientError } from '@/lib/auth-client';
+import { toast } from 'sonner';
 import { CreateProjectDialog } from './create-project-dialog.js';
 
 beforeEach(() => {
@@ -60,11 +61,18 @@ describe('CreateProjectDialog rendering', () => {
 });
 
 describe('CreateProjectDialog submission', () => {
-  it('calls createProject with the project name and invokes onSuccess', async () => {
+  it('calls createProject with the project name, shows the verbatim success toast, closes the dialog and invokes onSuccess', async () => {
     /*
      * Scenario: typing a project name and clicking "Create" must call
-     * createProject with the name and then invoke the onSuccess callback.
-     * Protects: successful form submit calls the API and parent callback.
+     * createProject with the name, surface the verbatim success toast,
+     * close the dialog, and invoke the onSuccess callback so the parent
+     * can refresh its list.
+     * Protects: successful submit path end-to-end —
+     * - createProject called with the typed name,
+     * - verbatim `Project "My App" created.` toast (StringLiteral kill),
+     * - setOpen(false) closes the dialog (BooleanLiteral kill — a `true`
+     *   mutant would keep the dialog open or reopen it),
+     * - onSuccess invoked so the parent can refresh.
      */
     vi.mocked(createProject).mockResolvedValue({
       id: 'proj-new',
@@ -87,14 +95,24 @@ describe('CreateProjectDialog submission', () => {
     await waitFor(() => {
       expect(createProject).toHaveBeenCalledWith('My App');
       expect(onSuccess).toHaveBeenCalledOnce();
+      expect(toast.success).toHaveBeenCalledWith('Project "My App" created.');
+    });
+    // Dialog closed — the input is no longer in the document.
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText(/my project/i)).toBeNull();
     });
   });
 
-  it('shows a validation error when the project name is empty', async () => {
+  it('shows a validation error and marks the input with the red error border when the project name is empty', async () => {
     /*
      * Scenario: clicking "Create" without a project name must trigger the
-     * required validation error.
-     * Protects: Zod min(1) validation shows error on empty name.
+     * required-validation error AND mark the input with the
+     * `border-red-500/60` token so the failed field is visually distinguishable.
+     * Protects:
+     * - Zod min(1) validation shows error on empty name,
+     * - className StringLiteral `border-red-500/60` applied on the error
+     *   branch (only branch — the other arm is now `false` via the
+     *   `cn(errors.name && '…')` refactor).
      */
     render(<CreateProjectDialog onSuccess={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: /new project/i }));
@@ -103,6 +121,22 @@ describe('CreateProjectDialog submission', () => {
       expect(screen.getByText(/project name is required/i)).toBeDefined();
     });
     expect(createProject).not.toHaveBeenCalled();
+    const nameInput = screen.getByPlaceholderText(/my project/i);
+    expect(nameInput.className).toContain('border-red-500/60');
+  });
+
+  it('renders the name input WITHOUT the red error border before validation runs', () => {
+    /*
+     * Scenario: before any validation runs the input must NOT carry the
+     * `border-red-500/60` error token so the field looks neutral.
+     * Protects: the `cn(errors.name && 'border-red-500/60')` falsy branch
+     * resolves to empty — no error border. A mutant that always applies the
+     * red border (or a mutant that flips the AND operand) would fail this.
+     */
+    render(<CreateProjectDialog onSuccess={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /new project/i }));
+    const nameInput = screen.getByPlaceholderText(/my project/i);
+    expect(nameInput.className).not.toContain('border-red-500/60');
   });
 
   it('closes the dialog when the Cancel button is clicked', () => {
@@ -137,11 +171,17 @@ describe('CreateProjectDialog submission', () => {
     });
   });
 
-  it('calls handleAuthClientError when createProject rejects', async () => {
+  it('forwards createProject failures to handleAuthClientError and re-enables the submit button (finally → setIsPending(false))', async () => {
     /*
      * Scenario: when createProject throws the error must be forwarded to
-     * handleAuthClientError so it can surface a toast to the user.
-     * Protects: line 70 — catch block calls handleAuthClientError on API failure.
+     * handleAuthClientError, the dialog must stay open (so the user can
+     * retry), and the submit button must return to "Create" (not stuck on
+     * "Creating…") so retry is possible.
+     * Protects:
+     * - catch block calls handleAuthClientError on API failure,
+     * - finally { setIsPending(false) } in onSubmit — empty-block mutant
+     *   would leave isPending=true forever, locking the button on
+     *   "Creating…".
      */
     const err = new Error('API error');
     vi.mocked(createProject).mockRejectedValue(err);
@@ -157,6 +197,12 @@ describe('CreateProjectDialog submission', () => {
         err,
         expect.objectContaining({ toast: expect.anything() }),
       );
+    });
+    // Submit button restored to "Create" — kills the empty-finally mutant
+    // and the BooleanLiteral `setIsPending(false)` → `setIsPending(true)` mutant.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^create$/i })).toBeDefined();
+      expect(screen.queryByText('Creating…')).toBeNull();
     });
   });
 });

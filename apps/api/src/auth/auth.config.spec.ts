@@ -358,3 +358,170 @@ describe('envSchema — Google OAuth cross-field refinements', () => {
     expect(result.success).toBe(true);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Refinement messages and entropy boundary
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('envSchema — refinement error messages (verbatim)', () => {
+  /*
+   * Each refinement attaches a literal `message` that the boot-time error
+   * handler surfaces to the operator. Deviating from the documented text
+   * would silently break runbooks and the inline diagnostics our
+   * environment-config script prints when refusing to start.
+   */
+  it('rejects a production WEB_ORIGIN without https:// with the documented message', () => {
+    const result = envSchema.safeParse({
+      ...VALID_ENV,
+      NODE_ENV: 'production',
+      WEB_ORIGIN: 'http://app.example.com',
+      EMAIL_PROVIDER: 'resend',
+      RESEND_API_KEY: 're_live_abc',
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issue = result.error.issues.find((i) => i.path.join('.') === 'WEB_ORIGIN');
+      expect(issue?.message).toBe('WEB_ORIGIN must use https:// in production');
+    }
+  });
+
+  it('accepts a production https:// WEB_ORIGIN — confirms startsWith is the right anchor', () => {
+    /*
+     * Scenario: a properly configured production deployment uses
+     * https. The refinement MUST validate the SCHEME PREFIX, not any
+     * other position — a substring-based check would let attacker
+     * URLs like `http://malicious.tld?next=https://safe.example`
+     * pass. Anchoring at the start protects the CORS allowlist
+     * downstream.
+     */
+    const result = envSchema.safeParse({
+      ...VALID_ENV,
+      NODE_ENV: 'production',
+      WEB_ORIGIN: 'https://app.example.com',
+      EMAIL_PROVIDER: 'resend',
+      RESEND_API_KEY: 're_live_abc',
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects production EMAIL_PROVIDER=mailpit with the documented message', () => {
+    const result = envSchema.safeParse({
+      ...VALID_ENV,
+      NODE_ENV: 'production',
+      WEB_ORIGIN: 'https://app.example.com',
+      EMAIL_PROVIDER: 'mailpit',
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issue = result.error.issues.find((i) => i.path.join('.') === 'EMAIL_PROVIDER');
+      expect(issue?.message).toBe(
+        'EMAIL_PROVIDER=mailpit is not allowed in production — use resend',
+      );
+    }
+  });
+
+  it('accepts EMAIL_PROVIDER=mailpit in non-production environments', () => {
+    /*
+     * Scenario: every developer running the app locally uses
+     * Mailpit. The mailpit-in-production refinement must NOT fire
+     * when NODE_ENV is anything other than production, otherwise
+     * `pnpm dev` would refuse to start.
+     */
+    const result = envSchema.safeParse({
+      ...VALID_ENV,
+      NODE_ENV: 'development',
+      EMAIL_PROVIDER: 'mailpit',
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects EMAIL_PROVIDER=resend without RESEND_API_KEY with the documented message', () => {
+    const result = envSchema.safeParse({
+      ...VALID_ENV,
+      EMAIL_PROVIDER: 'resend',
+      // RESEND_API_KEY deliberately omitted
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issue = result.error.issues.find((i) => i.path.join('.') === 'RESEND_API_KEY');
+      expect(issue?.message).toBe('RESEND_API_KEY is required when EMAIL_PROVIDER=resend');
+    }
+  });
+
+  it('rejects OAUTH_GOOGLE_CLIENT_ID set without OAUTH_GOOGLE_CLIENT_SECRET with the documented message', () => {
+    const result = envSchema.safeParse({
+      ...VALID_ENV,
+      OAUTH_GOOGLE_CLIENT_ID: 'gid.apps.googleusercontent.com',
+      // secret deliberately omitted
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issue = result.error.issues.find((i) => i.path.join('.') === 'OAUTH_GOOGLE_CLIENT_ID');
+      expect(issue?.message).toBe(
+        'OAUTH_GOOGLE_CLIENT_ID and OAUTH_GOOGLE_CLIENT_SECRET must both be set or both be unset',
+      );
+    }
+  });
+
+  it('rejects OAUTH_GOOGLE_CLIENT_ID+SECRET without OAUTH_GOOGLE_CALLBACK_URL with the documented message', () => {
+    const result = envSchema.safeParse({
+      ...VALID_ENV,
+      OAUTH_GOOGLE_CLIENT_ID: 'gid.apps.googleusercontent.com',
+      OAUTH_GOOGLE_CLIENT_SECRET: 'GOCSPX-secret',
+      // callback URL deliberately omitted
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issue = result.error.issues.find(
+        (i) => i.path.join('.') === 'OAUTH_GOOGLE_CALLBACK_URL',
+      );
+      expect(issue?.message).toBe('OAUTH_GOOGLE_CALLBACK_URL is required when OAuth is enabled');
+    }
+  });
+});
+
+describe('envSchema — JWT_SECRET entropy boundary', () => {
+  it('accepts a 64-character secret with exactly 16 unique characters (boundary value)', () => {
+    /*
+     * Scenario: the entropy refinement counts distinct characters
+     * via `new Set(v).size >= 16`. A secret sitting EXACTLY at the
+     * boundary (16 unique characters across 64 positions) must
+     * pass — testing the boundary keeps the comparison anchored at
+     * the documented threshold rather than drifting to `> 16` or
+     * `< 16`.
+     */
+    // Build a 64-char secret using exactly 16 distinct characters.
+    const sixteenChars = '0123456789abcdef';
+    const boundary = sixteenChars.repeat(4); // 16 * 4 = 64 chars, 16 unique.
+    const result = envSchema.safeParse({ ...VALID_ENV, JWT_SECRET: boundary });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a 64-character secret with only 15 unique characters (one below the boundary)', () => {
+    /*
+     * Scenario: a secret one step below the entropy threshold
+     * must be rejected with the entropy-specific message. This
+     * pins the lower side of the boundary so the comparison
+     * cannot loosen to `> 15` without a test failure.
+     */
+    // 15 unique characters padded to length 64.
+    const fifteenChars = '0123456789abcde';
+    // 15 * 4 = 60, then pad with one of the existing chars to reach 64.
+    const belowBoundary = fifteenChars.repeat(4) + '0000';
+    const result = envSchema.safeParse({ ...VALID_ENV, JWT_SECRET: belowBoundary });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issue = result.error.issues.find((i) => i.path.join('.') === 'JWT_SECRET');
+      expect(issue?.message).toContain('low-entropy');
+    }
+  });
+});

@@ -42,6 +42,7 @@ If the library is **what** to use, this repository is **how** to use it.
 - **🎯 Live demo of every library feature** — registration, login, JWT refresh rotation, MFA (TOTP + recovery codes), Google OAuth, sessions with FIFO eviction, password reset (token & OTP modes), email verification, invitations, RBAC, multi-tenant isolation, platform admin context, brute-force lockout, WebSocket auth — all wired and runnable in under five minutes.
 - **🧱 Copy-paste friendly** — module organization, repository implementations (Prisma), email providers (Mailpit / Resend), proxy & route handlers (Next.js App Router), React hook usage. The folder names are deliberately generic so you can lift them directly into your codebase.
 - **🧪 Production-grade test harness** — 75 unit/integration suites (755 tests) + 26 API e2e suites (83 tests) + 23 Playwright specs (23 passing, no skips). Used by the library's maintainers to gate releases.
+- **🧬 100 % mutation score** — Stryker mutation testing on both `apps/api` and `apps/web`. 2120 mutants killed, **zero behavioural survivors**. CI gates every PR on `thresholds.break = 100` so no regression can land — see [docs/stryker/HISTORY.md](docs/stryker/HISTORY.md) and [docs/stryker/IMPLEMENTATION_PLAN.md](docs/stryker/IMPLEMENTATION_PLAN.md).
 - **🔄 Always tracking latest** — `main` is pinned to the latest `@bymax-one/nest-auth` minor; when the library ships a new release, this repo is updated alongside.
 
 ```bash

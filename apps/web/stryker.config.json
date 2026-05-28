@@ -1,0 +1,39 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "packageManager": "pnpm",
+  "plugins": ["@stryker-mutator/vitest-runner"],
+  "testRunner": "vitest",
+  "vitest": {
+    "configFile": "vitest.config.ts"
+  },
+  "coverageAnalysis": "perTest",
+  "ignoreStatic": true,
+  "mutate": [
+    "lib/**/*.ts",
+    "components/**/*.tsx",
+    "!**/*.test.ts",
+    "!**/*.test.tsx",
+    "!**/*.d.ts",
+    "!**/index.ts",
+    "!**/*.config.ts",
+    "!components/ui/alert-dialog.tsx",
+    "!components/ui/avatar.tsx",
+    "!components/ui/card.tsx",
+    "!components/ui/dialog.tsx",
+    "!components/ui/input.tsx",
+    "!components/ui/sonner.tsx",
+    "!components/ui/table.tsx",
+    "!components/ui/tabs.tsx",
+    "!components/ui/tooltip.tsx"
+  ],
+  "ignorePatterns": [".next", "coverage", "e2e", "playwright-report", "app", ".stryker-tmp"],
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+  "concurrency": 4,
+  "timeoutMS": 30000,
+  "incremental": true,
+  "incrementalFile": "reports/stryker-incremental.json",
+  "reporters": ["progress", "clear-text", "html"],
+  "htmlReporter": { "fileName": "reports/mutation/web.html" },
+  "tempDirName": ".stryker-tmp",
+  "cleanTempDir": true
+}

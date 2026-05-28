@@ -49,6 +49,7 @@ interface AuthExceptionBody {
  */
 function isAuthExceptionBody(body: unknown): body is AuthExceptionBody {
   return (
+    // Stryker disable next-line ConditionalExpression: collapsing the first three conjuncts to `true` is an equivalent mutant — when body is a non-object, null, or has no `error` key, the downstream `body['error']` access yields `undefined`, which `typeof undefined === 'object'` already rejects on the next line. The first three conjuncts exist for TypeScript narrowing and to short-circuit cheaply, not for runtime distinctness.
     typeof body === 'object' &&
     body !== null &&
     'error' in body &&
@@ -96,14 +97,17 @@ export class AuthExceptionFilter implements ExceptionFilter<AuthException> {
 
     // Extract the code from the body; fall back to a generic unknown-error sentinel
     // when the exception body does not match the expected shape (forward-compat guard).
+    // The inner property access on `error` is non-optional because the
+    // `isAuthExceptionBody` guard above narrows `body.error` to a non-null object
+    // — a redundant optional chain would only invite an equivalent mutant.
     const code: AuthErrorCode =
-      body?.error?.code ?? (AUTH_ERROR_CODES.TOKEN_INVALID as AuthErrorCode);
+      body?.error.code ?? (AUTH_ERROR_CODES.TOKEN_INVALID as AuthErrorCode);
 
     // Prefer the message carried by the exception body; fall back to the static map.
     // AUTH_ERROR_MESSAGES is a readonly Record<AuthErrorCode, string> — code is a string
     // literal union, not user input, so bracket access here is safe.
     const message: string =
-      body?.error?.message ??
+      body?.error.message ??
       (AUTH_ERROR_MESSAGES as Record<string, string | undefined>)[code] ??
       code;
 

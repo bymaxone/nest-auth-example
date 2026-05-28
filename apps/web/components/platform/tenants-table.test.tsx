@@ -33,6 +33,8 @@ vi.mock('@/lib/auth-errors', () => ({
   translateAuthError: vi.fn().mockReturnValue('Error'),
 }));
 
+const ONE_DAY_MS = 86_400_000;
+
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
@@ -48,14 +50,15 @@ const mockTenants: PlatformTenantInfo[] = [
     id: 'tid-1',
     name: 'Acme Corp',
     slug: 'acme',
-    createdAt: new Date().toISOString(),
+    // Past offset so date-fns suffix wording is deterministically "1 day ago".
+    createdAt: new Date(Date.now() - ONE_DAY_MS).toISOString(),
     updatedAt: new Date().toISOString(),
   },
   {
     id: 'tid-2',
     name: 'Beta Ltd',
     slug: 'beta',
-    createdAt: new Date().toISOString(),
+    createdAt: new Date(Date.now() - ONE_DAY_MS).toISOString(),
     updatedAt: new Date().toISOString(),
   },
 ];
@@ -103,11 +106,46 @@ describe('TenantsTable states', () => {
     });
   });
 
-  it('navigates to the users page when "View users" is clicked', async () => {
+  it('button onClick invokes e.stopPropagation() so the row onClick does NOT also fire', async () => {
     /*
-     * Scenario: clicking the "View users" button for a tenant must navigate to
-     * /platform/users?tenantId=<id>.
-     * Protects: View users button onClick calls router.push with the correct URL.
+     * Scenario: when the "View users" button is clicked the button's onClick
+     * must call `e.stopPropagation()` so the surrounding row's onClick does
+     * NOT also fire. The button and row both push the SAME URL, so the
+     * mockPush count is 1 either way — the only observable for the missing
+     * stopPropagation is the call on the event itself.
+     * Protects: BlockStatement mutant on the button's onClick body — an
+     * empty-block mutant drops both stopPropagation AND the inner
+     * router.push, allowing the click to bubble to the row handler. The
+     * URL would still be pushed (by the row), so a "called with URL"
+     * assertion would pass — only the stopPropagation spy distinguishes
+     * the original from the mutant.
+     */
+    vi.mocked(listPlatformTenants).mockResolvedValue(mockTenants);
+    render(<TenantsTable />);
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /view users/i })).toHaveLength(2);
+    });
+    const button = screen.getAllByRole('button', { name: /view users/i })[0]!;
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+    const stopSpy = vi.spyOn(event, 'stopPropagation');
+    button.dispatchEvent(event);
+    expect(stopSpy).toHaveBeenCalled();
+  });
+
+  it('navigates to the users page when "View users" is clicked AND stops the click from bubbling to the row handler', async () => {
+    /*
+     * Scenario: clicking the "View users" button must navigate to
+     * /platform/users?tenantId=<id> EXACTLY ONCE — the button's onClick must
+     * call e.stopPropagation() so the row's onClick does NOT also fire.
+     * Without stopPropagation the click bubbles up and router.push is called
+     * a second time with the same URL.
+     * Protects:
+     * - View users button onClick calls router.push with the correct URL,
+     * - the BlockStatement on the button's onClick handler — an empty-block
+     *   mutant drops both stopPropagation AND the inner router.push, so
+     *   only the row handler would fire (still 1 call, same URL — but the
+     *   count assertion paired with the row-click test exposes the missing
+     *   inner call when combined with the next test).
      */
     vi.mocked(listPlatformTenants).mockResolvedValue(mockTenants);
     render(<TenantsTable />);
@@ -115,6 +153,7 @@ describe('TenantsTable states', () => {
       expect(screen.getAllByRole('button', { name: /view users/i })).toHaveLength(2);
     });
     fireEvent.click(screen.getAllByRole('button', { name: /view users/i })[0]!);
+    expect(mockPush).toHaveBeenCalledTimes(1);
     expect(mockPush).toHaveBeenCalledWith('/platform/users?tenantId=tid-1');
   });
 
@@ -132,6 +171,71 @@ describe('TenantsTable states', () => {
     // Click on the tenant name cell (inside the row).
     fireEvent.click(screen.getByText('Acme Corp'));
     expect(mockPush).toHaveBeenCalledWith('/platform/users?tenantId=tid-1');
+  });
+
+  it('renders Created cell with the date-fns "ago" suffix from addSuffix: true', async () => {
+    /*
+     * Scenario: each tenant's Created column must render the date-fns relative
+     * wording with the "ago" suffix so the human-readable direction of the
+     * timestamp is clear.
+     * Protects: DATE_FORMAT_OPTIONS { addSuffix: true } passed to
+     * formatDistanceToNow — kills the ObjectLiteral `{}` mutant and the
+     * BooleanLiteral `false` mutant which would emit "1 day" / "about 1 day"
+     * without the trailing " ago".
+     */
+    vi.mocked(listPlatformTenants).mockResolvedValue(mockTenants);
+    render(<TenantsTable />);
+    await waitFor(() => expect(screen.getByText('Acme Corp')).toBeDefined());
+    // Each row contains a "… ago" cell.
+    const created = screen.getAllByText(/.+\sago$/i);
+    expect(created.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('passes empty string to translateAuthError when the mapped code is UNKNOWN', async () => {
+    /*
+     * Scenario: when mapAuthClientError returns `code: 'UNKNOWN'` the
+     * `code === 'UNKNOWN' ? '' : code` ternary must take the truthy arm and
+     * pass an empty string to translateAuthError so the translator can fall
+     * back to its default unknown-error wording rather than echoing
+     * "UNKNOWN".
+     * Protects: ConditionalExpression / EqualityOperator / StringLiteral
+     * mutants on the `code === 'UNKNOWN' ? '' : code` ternary — flipping
+     * any of them would pass `'UNKNOWN'` (or `code` for any string) instead
+     * of the verbatim empty string.
+     */
+    const { mapAuthClientError } = await import('@/lib/auth-client');
+    const { translateAuthError } = await import('@/lib/auth-errors');
+    vi.mocked(mapAuthClientError).mockReturnValue({
+      code: 'UNKNOWN',
+      message: 'Unknown error',
+    });
+    vi.mocked(listPlatformTenants).mockRejectedValue(new Error('Boom'));
+    render(<TenantsTable />);
+    await waitFor(() => {
+      expect(vi.mocked(translateAuthError)).toHaveBeenCalledWith('');
+    });
+  });
+
+  it('passes the actual error code to translateAuthError when the mapped code is NOT UNKNOWN', async () => {
+    /*
+     * Scenario: when mapAuthClientError returns a real error code (e.g.
+     * `auth.forbidden`) the ternary must take the falsy arm and pass the
+     * verbatim code so the translator can surface a specific message.
+     * Protects: ConditionalExpression / EqualityOperator mutants — flipping
+     * any of them would pass `''` (the truthy arm) instead of the verbatim
+     * code.
+     */
+    const { mapAuthClientError } = await import('@/lib/auth-client');
+    const { translateAuthError } = await import('@/lib/auth-errors');
+    vi.mocked(mapAuthClientError).mockReturnValue({
+      code: 'auth.forbidden',
+      message: 'Forbidden',
+    });
+    vi.mocked(listPlatformTenants).mockRejectedValue(new Error('Forbidden'));
+    render(<TenantsTable />);
+    await waitFor(() => {
+      expect(vi.mocked(translateAuthError)).toHaveBeenCalledWith('auth.forbidden');
+    });
   });
 
   it('shows an error toast when listPlatformTenants rejects', async () => {

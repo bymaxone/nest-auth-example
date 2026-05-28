@@ -63,6 +63,7 @@ const SALT_BYTES = 16;
  */
 async function verifyScrypt(plain: string, hash: string): Promise<boolean> {
   const parts = hash.split(':');
+  // Stryker disable next-line ConditionalExpression,LogicalOperator: dropping either disjunct or swapping `||` for `&&` produces equivalent observable behaviour — every malformed hash that the original early-returns at this gate is also rejected downstream by the empty-segment check or the SCRYPT_KEY_LEN check, all returning `false` without invoking scrypt. The disjunct exists for clarity, not for distinct externally-observable behaviour.
   if (parts.length !== 3 || parts[0] !== 'scrypt') return false;
 
   const saltHex = parts[1];

@@ -45,9 +45,26 @@ interface MailOptions {
  */
 const mockSendMail = jest.fn<(opts: MailOptions) => Promise<void>>().mockResolvedValue(undefined);
 
+/** Options shape Nodemailer's `createTransport` accepts (subset we assert on). */
+interface SmtpTransportOptions {
+  host: string;
+  port: number;
+  secure: boolean;
+  ignoreTLS: boolean;
+}
+
+/**
+ * Shared mock for `nodemailer.createTransport`. Exposed at module scope so
+ * tests can assert on the SMTP transport options the provider hands in.
+ * Typed so `.mock.calls[i]?.[0]` carries the right tuple shape.
+ */
+const mockCreateTransport = jest
+  .fn<(opts: SmtpTransportOptions) => { sendMail: typeof mockSendMail }>()
+  .mockImplementation(() => ({ sendMail: mockSendMail }));
+
 jest.unstable_mockModule('nodemailer', () => ({
   default: {
-    createTransport: jest.fn(() => ({ sendMail: mockSendMail })),
+    createTransport: mockCreateTransport,
   },
 }));
 
@@ -113,6 +130,7 @@ describe('MailpitEmailProvider', () => {
   beforeEach(() => {
     // Reset call records but keep the mock implementation in place.
     mockSendMail.mockClear();
+    mockCreateTransport.mockClear();
     mockSendMail.mockResolvedValue(undefined);
     provider = new MailpitEmailProvider(makeConfigService() as never, makePrismaService() as never);
   });
@@ -249,8 +267,15 @@ describe('MailpitEmailProvider', () => {
   // ─── CRLF injection protection ───────────────────────────────────────────
 
   it('sendInvitation — strips CRLF from tenantName to prevent SMTP header injection', async () => {
-    // Security: a malicious tenant name containing CR+LF characters could inject
-    // extra SMTP headers (e.g. Bcc:) if included verbatim in the subject line.
+    /*
+     * Security: a malicious tenant name containing CR+LF characters could
+     * inject extra SMTP headers (e.g. Bcc:) if included verbatim in the
+     * subject line. The CRLF characters MUST be REMOVED (replaced with an
+     * empty string), not replaced with any other content — a replacement
+     * that inserted any non-empty value into the subject would corrupt
+     * the canonical "You've been invited to join <name>" template that
+     * the invitation email recipients expect.
+     */
     await provider.sendInvitation('target@example.test', {
       inviterName: 'Attacker',
       tenantName: 'Evil\r\nBcc: victim@example.test',
@@ -261,6 +286,10 @@ describe('MailpitEmailProvider', () => {
     const subject = lastMailOptions().subject ?? '';
     expect(subject).not.toContain('\r');
     expect(subject).not.toContain('\n');
+    // The replacement must remove the CRLF, not substitute another value —
+    // pin the exact resulting subject so any replacement string other than
+    // '' would surface as a test failure.
+    expect(subject).toBe("You've been invited to join EvilBcc: victim@example.test");
   });
 
   // ─── HTML injection protection ───────────────────────────────────────────
@@ -333,5 +362,153 @@ describe('MailpitEmailProvider', () => {
     expect(() => providerInternal.render('password-reset-otp', { otp: '123456' })).toThrow(
       'was not preloaded at startup',
     );
+  });
+
+  // ─── Transport, logging, and HTML-escape contract ────────────────────────
+
+  describe('transport configuration and observability', () => {
+    it('builds the SMTP transport with secure=false, ignoreTLS=true, and the env-configured host and port', () => {
+      /*
+       * Scenario: Mailpit is a local development server that does NOT
+       * support TLS. The provider MUST disable secure mode and ignore
+       * the STARTTLS upgrade; turning either on would make every dev
+       * email fail before reaching the inbox. Pinning the four fields
+       * also catches a swap to a remote SMTP host that DOES require
+       * TLS — the test would surface the misconfiguration immediately.
+       */
+      expect(mockCreateTransport).toHaveBeenCalledTimes(1);
+      const opts = mockCreateTransport.mock.calls[0]?.[0];
+      expect(opts).toEqual({
+        host: 'localhost',
+        port: 1025,
+        secure: false,
+        ignoreTLS: true,
+      });
+    });
+
+    it('logs the subject and recipient on a successful send (no body or secrets)', async () => {
+      /*
+       * Scenario: every successful email must surface in operator logs
+       * with the subject and the `to` address — and ONLY those — so
+       * support can verify which user received which template without
+       * the log entry leaking OTPs, reset tokens, or session hashes.
+       */
+      const logSpy = jest
+        .spyOn((provider as unknown as { logger: { log: (m: unknown) => void } }).logger, 'log')
+        .mockImplementation(() => undefined);
+
+      await provider.sendPasswordResetOtp('alice@example.test', '123456');
+
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      const arg = logSpy.mock.calls[0]?.[0] as { msg?: string; subject?: string; to?: string };
+      expect(arg.msg).toBe('Email sent');
+      expect(arg.subject).toBe('Your password reset code');
+      expect(arg.to).toBe('alice@example.test');
+    });
+
+    it('logs SMTP failures with the subject, recipient, and error message before rethrowing', async () => {
+      /*
+       * Scenario: the SMTP transport rejects the send (connection
+       * refused, host unreachable). The provider re-throws so the
+       * caller can retry, AND it logs the failure with the subject,
+       * recipient, and root cause so support can correlate user
+       * reports with the transport outage. An empty payload would
+       * leave operators guessing which template / user was affected.
+       */
+      const errorSpy = jest
+        .spyOn((provider as unknown as { logger: { error: (m: unknown) => void } }).logger, 'error')
+        .mockImplementation(() => undefined);
+      mockSendMail.mockRejectedValueOnce(new Error('SMTP down'));
+
+      await expect(provider.sendPasswordResetOtp('bob@example.test', '999999')).rejects.toThrow(
+        'SMTP down',
+      );
+
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const arg = errorSpy.mock.calls[0]?.[0] as {
+        msg?: string;
+        subject?: string;
+        to?: string;
+        error?: string;
+      };
+      expect(arg.msg).toBe('SMTP delivery failed');
+      expect(arg.subject).toBe('Your password reset code');
+      expect(arg.to).toBe('bob@example.test');
+      expect(arg.error).toBe('SMTP down');
+    });
+
+    it('escapes the five HTML-significant characters in attacker-controlled template variables', () => {
+      /*
+       * Scenario: an invitee accepts an invitation from a tenant whose
+       * inviter name contains every HTML metacharacter. The template
+       * must render each one as its named/numeric entity so no
+       * variant of the input can break out of the surrounding text
+       * context — & must become &amp;, < must become &lt;, > must
+       * become &gt;, double quotes must become &quot;, and single
+       * quotes must become &#039;. Missing any of the five would
+       * leave one injection path open.
+       */
+      const escape = (MailpitEmailProvider as unknown as { escapeHtml: (s: string) => string })
+        .escapeHtml;
+
+      const out = escape(`& < > " ' `);
+
+      // Each metacharacter must map to its specific entity — pinning all five.
+      expect(out).toContain('&amp;');
+      expect(out).toContain('&lt;');
+      expect(out).toContain('&gt;');
+      expect(out).toContain('&quot;');
+      expect(out).toContain('&#039;');
+      // The raw characters must NOT survive the escape step.
+      expect(out).not.toMatch(/(?:^| )(&)(?: |$)/);
+      expect(out).not.toContain('<');
+      expect(out).not.toContain('>');
+      expect(out).not.toContain('"');
+      expect(out).not.toContain("'");
+    });
+
+    it('looks up the reset-token tenant by lowercased email with a narrow {tenantId} projection', async () => {
+      /*
+       * Scenario: an admin types a user's email with inconsistent
+       * casing into the password-reset trigger. The lookup MUST
+       * normalise to lower case so the email's canonical row is
+       * found — Postgres collation is case-sensitive by default.
+       * The select MUST stay narrow to {tenantId} so the lookup
+       * never reads the password hash or MFA secret as a side
+       * effect of resolving the workspace.
+       */
+      const prisma = makePrismaService();
+      provider = new MailpitEmailProvider(makeConfigService() as never, prisma as never);
+
+      await provider.sendPasswordResetToken('Mixed@Example.TEST', 'tok');
+
+      expect(prisma.user.findFirst).toHaveBeenCalledTimes(1);
+      const call = (prisma.user.findFirst as unknown as jest.Mock).mock.calls[0]?.[0] as {
+        where: { email: string };
+        select: { tenantId: boolean };
+      };
+      expect(call.where.email).toBe('mixed@example.test');
+      expect(call.select).toEqual({ tenantId: true });
+    });
+
+    it('embeds the URI-encoded inviteToken in the accept URL on the invitation email', async () => {
+      /*
+       * Scenario: the invitation accept URL carries the raw token
+       * URI-encoded so reserved characters (`+`, `=`, `&`) survive
+       * the trip through the mail client. A drift that dropped the
+       * encoding or the token entirely would break every invitation
+       * link in production.
+       */
+      await provider.sendInvitation('invite@example.test', {
+        inviterName: 'Alice',
+        tenantName: 'Acme',
+        inviteToken: 'token with +special &chars',
+        expiresAt: new Date('2026-12-31T23:59:59Z'),
+      });
+
+      const html = lastSentHtml();
+      expect(html).toContain('/auth/accept-invitation?token=');
+      expect(html).toContain(encodeURIComponent('token with +special &chars'));
+    });
   });
 });

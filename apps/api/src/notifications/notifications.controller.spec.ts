@@ -223,5 +223,73 @@ describe('NotificationsController', () => {
 
       expect(result).toEqual({ delivered: 0 });
     });
+
+    it('surfaces "Not available in production" verbatim on notifySelf', () => {
+      /*
+       * Scenario: a misconfigured deployment leaves the debug
+       * notification routes mounted in production. The 403
+       * response must carry the literal "Not available in
+       * production" so support immediately spots the gate's
+       * intent in logs and the UI can show the right message.
+       */
+      const { gateway, prisma, config } = makeDeps('production');
+      const controller = new NotificationsController(gateway, prisma, config);
+
+      expect(() => controller.notifySelf(makeUser(), { title: 'x', body: 'y' })).toThrow(
+        'Not available in production',
+      );
+    });
+
+    it('surfaces "Not available in production" verbatim on notify', async () => {
+      /*
+       * Scenario: same production gate, but on the admin-targeted
+       * notify route. The same literal message keeps the 403
+       * surface consistent across both notification endpoints.
+       */
+      const { gateway, prisma, config } = makeDeps('production');
+      const controller = new NotificationsController(gateway, prisma, config);
+
+      await expect(
+        controller.notify('any-user', makeUser(), { title: 'x', body: 'y' }),
+      ).rejects.toThrow('Not available in production');
+    });
+
+    it('notify scopes the target lookup by (id, admin.tenantId) with a narrow {id} projection', async () => {
+      /*
+       * Scenario: the target lookup MUST scope by the admin's
+       * tenantId so a user id from another tenant cannot receive
+       * pushes from this tenant's admin. The select MUST stay
+       * narrow to {id} so the lookup never reads credential
+       * columns (passwordHash, mfaSecret) as a side effect.
+       */
+      const { gateway, prisma, config } = makeDeps('test', { id: 'target-1' });
+      const controller = new NotificationsController(gateway, prisma, config);
+      const admin = makeUser({ tenantId: 'tenant-acme' });
+
+      await controller.notify('target-1', admin, { title: 't', body: 'b' });
+
+      const findFirst = (prisma as unknown as { user: { findFirst: jest.Mock } }).user.findFirst;
+      const calls = findFirst.mock.calls as unknown as Array<
+        [{ where: { id: string; tenantId: string }; select: { id: boolean } }]
+      >;
+      expect(calls[0]?.[0].where).toEqual({ id: 'target-1', tenantId: 'tenant-acme' });
+      expect(calls[0]?.[0].select).toEqual({ id: true });
+    });
+
+    it('notify surfaces "User \'<id>\' not found" verbatim when the target row is missing', async () => {
+      /*
+       * Scenario: the target user id does not exist in the
+       * admin's tenant. The 404 message names the specific user
+       * id so the audit trail and UI surface exactly which
+       * target failed — matching the same pattern as the
+       * tenant-scoped status update.
+       */
+      const { gateway, prisma, config } = makeDeps('test', null);
+      const controller = new NotificationsController(gateway, prisma, config);
+
+      await expect(
+        controller.notify('ghost-user', makeUser(), { title: 't', body: 'b' }),
+      ).rejects.toThrow("User 'ghost-user' not found");
+    });
   });
 });

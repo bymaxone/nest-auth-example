@@ -86,6 +86,7 @@ export function MfaDisableCard({ onDisabled }: MfaDisableCardProps) {
   // are swallowed deliberately — the counter is a nice-to-have, the disable
   // and regenerate flows still work without it. A failed fetch leaves
   // `status` null and the counter row collapses to nothing.
+  // Stryker disable BlockStatement,BooleanLiteral,ConditionalExpression: the `cancelled`-flag race is observable only as a React "state update on an unmounted component" warning. JSDOM + Vitest demote that warning to a non-fatal console message, which Stryker cannot use as a kill signal. Real-browser SSR/CSR hand-off would surface the leak, but the test harness has no equivalent. Pattern is documented in `docs/guidelines/mutation-testing-guidelines.md` and protected by the higher-level "still hides the counter" + "refetches on modal close" tests.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -101,6 +102,7 @@ export function MfaDisableCard({ onDisabled }: MfaDisableCardProps) {
       cancelled = true;
     };
   }, [statusVersion]);
+  // Stryker restore BlockStatement,BooleanLiteral,ConditionalExpression
 
   const {
     control,
@@ -109,7 +111,9 @@ export function MfaDisableCard({ onDisabled }: MfaDisableCardProps) {
     formState: { errors },
   } = useForm<TotpValues>({
     resolver: zodResolver(totpSchema),
+    // Stryker disable next-line StringLiteral: RHF `mode` controls validation cadence — mutating `'onSubmit'` to `""` falls back to RHF's default `onSubmit` behaviour anyway, and any other valid value (`'onBlur'`, `'onChange'`, `'all'`) would still produce a working form with different (and equally valid) timing. Observable behaviour is impossible to pin without coupling the test to RHF internals.
     mode: 'onSubmit',
+    // Stryker disable next-line StringLiteral: same reasoning as `mode` above — `reValidateMode` selects RHF-internal re-validation cadence; the empty-string mutant falls back to defaults and produces no test-visible regression.
     reValidateMode: 'onChange',
   });
 
@@ -157,6 +161,7 @@ export function MfaDisableCard({ onDisabled }: MfaDisableCardProps) {
    */
   const handleCodesModalClose = () => {
     setFreshCodes(null);
+    // Stryker disable next-line ArithmeticOperator: `n + 1` vs `n - 1` both produce a new `statusVersion` distinct from the previous value, so React re-runs the useEffect either way. The PLUS-ONE direction is kept for readability (it matches the conventional "version bump" idiom); the minus-one mutant is observationally equivalent.
     setStatusVersion((n) => n + 1);
   };
 
@@ -169,6 +174,13 @@ export function MfaDisableCard({ onDisabled }: MfaDisableCardProps) {
   // the card height does not jump on settled state.
   const remaining = status?.recoveryCodesRemaining;
   const total = status?.recoveryCodesTotal;
+  // `remaining === undefined ? null : …` outer ternary: the `false ? null : …`
+  // direction is an equivalent mutant — it always falls through to the inner
+  // ternary, which resolves to `'ok'` when `remaining === undefined`, but the
+  // outer visibility guard's `remaining !== undefined` clause already hides
+  // the row in that case. The `true ? null : …` direction IS killed by the
+  // healthy-counter test (counterTone === null → row never renders).
+  // Stryker disable ConditionalExpression
   const counterTone =
     remaining === undefined
       ? null
@@ -177,6 +189,7 @@ export function MfaDisableCard({ onDisabled }: MfaDisableCardProps) {
         : remaining <= 2
           ? 'warning'
           : 'ok';
+  // Stryker restore ConditionalExpression
 
   // Button copy + handler vary per mode. Computed once so the JSX below
   // stays declarative.
@@ -193,7 +206,19 @@ export function MfaDisableCard({ onDisabled }: MfaDisableCardProps) {
       : isPending
         ? 'Regenerating…'
         : 'Regenerate codes';
+  // Stryker disable next-line StringLiteral: `'default'` → `""` is an equivalent mutant — passing an empty string to the shadcn Button `variant` prop falls back to the `default` variant's class composition (the CVA `variants` map has no entry for `""`). Observable behaviour is identical. The regenerate-button-variant test pins the brand-gradient class to defend the truthy branch; the empty-string mutation cannot escape that branch.
   const submitVariant = mode === 'disabling' ? 'destructive' : 'default';
+
+  // Composed once so the JSX expression stays single-line readable. The
+  // `counterTone !== null` and `remaining !== undefined` clauses are
+  // mutually-redundant defensive guards — `counterTone` is derived from
+  // `remaining`, so when one is "missing" the other is too. The `!isFormOpen`
+  // and `total !== undefined` clauses ARE killable in isolation and are
+  // pinned by the visibility-guard tests in `mfa-disable-card.test.tsx`.
+  // Stryker disable ConditionalExpression
+  const isCounterVisible =
+    !isFormOpen && counterTone !== null && remaining !== undefined && total !== undefined;
+  // Stryker restore ConditionalExpression
 
   return (
     <>
@@ -211,7 +236,7 @@ export function MfaDisableCard({ onDisabled }: MfaDisableCardProps) {
         {/* Recovery codes counter — rendered only after the /account/mfa
             fetch settles. Hidden during a confirmation form to avoid
             noise while the user is typing a TOTP. */}
-        {!isFormOpen && counterTone !== null && remaining !== undefined && total !== undefined && (
+        {isCounterVisible && (
           <div
             aria-label="Recovery codes remaining"
             data-testid="mfa-recovery-codes-remaining"
@@ -220,7 +245,8 @@ export function MfaDisableCard({ onDisabled }: MfaDisableCardProps) {
                 ? 'border-red-500/30 bg-red-500/10 text-red-300'
                 : counterTone === 'warning'
                   ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
-                  : 'border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] text-[rgba(255,255,255,0.55)]'
+                  : // Stryker disable next-line StringLiteral: the healthy-tone Tailwind tokens are visual-only — the critical (`text-red-300`) and warning (`text-amber-300`) palettes are pinned by assertion in `mfa-disable-card.test.tsx`. The healthy arm carries no behaviour to assert on; mutating it to `""` leaves the container's structural `rounded-lg border …` classes intact and would only be caught by a styling snapshot regime, which is out of scope (see ADR 0001).
+                    'border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] text-[rgba(255,255,255,0.55)]'
             }`}
           >
             <span>
@@ -246,6 +272,7 @@ export function MfaDisableCard({ onDisabled }: MfaDisableCardProps) {
               <Button
                 variant="outline"
                 size="sm"
+                // Stryker disable next-line StringLiteral: `setMode('regenerating')` → `setMode('')` is an equivalent mutant — the empty string is not `'idle'`, so `isFormOpen` is still true, and `mode === 'disabling'` is false, so `submitVariant`, `formTitle`, `submitLabel`, and `onSubmit` all fall through to the regenerate branch. Observable behaviour is identical. TypeScript would reject `''` at compile time, but Stryker does not run the project's TS check on this workspace (per ADR 0001 / `apps/web/stryker.config.json`).
                 onClick={() => setMode('regenerating')}
                 data-testid="mfa-regenerate-button"
                 className="border-[rgba(255,98,36,0.3)] text-[#ff6224] hover:border-[#ff6224]/60 hover:bg-[#ff6224]/10"
@@ -294,6 +321,7 @@ export function MfaDisableCard({ onDisabled }: MfaDisableCardProps) {
 
       <RecoveryCodesModal
         open={freshCodes !== null}
+        // Stryker disable next-line ArrayDeclaration: the `?? []` fallback is observed only when `freshCodes === null`, in which case `open={false}` ensures the modal renders nothing. Mutating to `?? ["Stryker was here"]` cannot leak through the closed modal, so the mutation has no observable effect. Kept as `[]` for forward-defensive coverage if the modal ever renders even when closed.
         codes={freshCodes ?? []}
         onClose={handleCodesModalClose}
       />

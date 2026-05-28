@@ -264,3 +264,244 @@ describe('PlatformMfaDisableCard regenerate flow', () => {
     expect(platformMfaRegenerateRecoveryCodes).not.toHaveBeenCalled();
   });
 });
+
+// ── Verbatim copy + per-mode variant ─────────────────────────────────────────
+
+import { toast } from 'sonner';
+
+describe('PlatformMfaDisableCard surfaces verbatim copy + variant choices', () => {
+  /** Helper — fill all 6 OTP boxes with digits "1"-"6" so the form is valid. */
+  function fillOtpInputs(): void {
+    const inputs = screen.getAllByRole('textbox');
+    inputs.forEach((input, i) => {
+      fireEvent.change(input, { target: { value: String(i + 1) } });
+    });
+  }
+
+  it('toasts the verbatim "Platform MFA has been disabled." message after disable success', async () => {
+    /*
+     * Scenario: the success toast is the only confirmation the operator
+     * receives that the platform-level MFA was disabled (the surrounding
+     * card also swaps via onDisabled, but the toast is what audit
+     * dashboards and support docs pattern-match on). Pinned word-for-word.
+     */
+    vi.mocked(platformMfaDisable).mockResolvedValue(undefined);
+    render(<PlatformMfaDisableCard onDisabled={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('platform-mfa-disable-button'));
+    fillOtpInputs();
+    fireEvent.click(screen.getByRole('button', { name: /confirm disable/i }));
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith('Platform MFA has been disabled.');
+    });
+  });
+
+  it('toasts the verbatim "codes regenerated" warning after a rotation succeeds', async () => {
+    /*
+     * Scenario: the rotate toast doubles as a warning ("old codes no
+     * longer work") — truncating the second clause would erase the
+     * warning that anchors the recovery-code rotation UX.
+     */
+    vi.mocked(platformMfaRegenerateRecoveryCodes).mockResolvedValue({
+      recoveryCodes: ['CODE-1'],
+    });
+    render(<PlatformMfaDisableCard onDisabled={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('platform-mfa-regenerate-button'));
+    fillOtpInputs();
+    fireEvent.click(screen.getByRole('button', { name: /^regenerate codes$/i }));
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith(
+        'Recovery codes regenerated. Save them now — old codes no longer work.',
+      );
+    });
+  });
+
+  it('renders the disable form title verbatim (no "rotation" clause)', () => {
+    /*
+     * Scenario: the disable form title MUST end with "to confirm." not
+     * "to confirm the rotation." Pinned to defend against a copy swap
+     * with the regenerate variant.
+     */
+    render(<PlatformMfaDisableCard onDisabled={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('platform-mfa-disable-button'));
+    expect(screen.getByText('Enter a code from your authenticator app to confirm.')).toBeDefined();
+  });
+
+  it('renders the regenerate form title verbatim with the rotation clause', () => {
+    /*
+     * Scenario: counterpart to the disable title — the rotation form
+     * must include "the rotation." so the user understands they are
+     * regenerating, not disabling.
+     */
+    render(<PlatformMfaDisableCard onDisabled={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('platform-mfa-regenerate-button'));
+    expect(
+      screen.getByText('Enter a code from your authenticator app to confirm the rotation.'),
+    ).toBeDefined();
+  });
+
+  it('renders the disable submit button with the destructive Tailwind variant class', () => {
+    /*
+     * Scenario: the disable action is destructive — once executed, the
+     * platform admin loses second-factor coverage. The submit button
+     * must visually surface this risk via the `destructive` shadcn
+     * variant (red palette), not the neutral `default` brand gradient.
+     */
+    render(<PlatformMfaDisableCard onDisabled={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('platform-mfa-disable-button'));
+    const submit = screen.getByRole('button', { name: /confirm disable/i });
+    expect(submit.className).toMatch(/bg-destructive/);
+  });
+
+  it('renders the regenerate submit button with the default (brand-gradient) variant', () => {
+    /*
+     * Scenario: routine maintenance — the regenerate submit button must
+     * use the neutral `default` variant, not the destructive palette.
+     * Pinning `from-brand-500` because that fragment is unique to the
+     * default Button variant.
+     */
+    render(<PlatformMfaDisableCard onDisabled={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('platform-mfa-regenerate-button'));
+    const submit = screen.getByRole('button', { name: /^regenerate codes$/i });
+    expect(submit.className).not.toMatch(/bg-destructive/);
+    expect(submit.className).toMatch(/from-brand-500/);
+  });
+});
+
+// ── Idle restoration + isPending reset ───────────────────────────────────────
+
+describe('PlatformMfaDisableCard recovers idle UI after each terminal state', () => {
+  /** Same helper as above. */
+  function fillOtpInputs(): void {
+    const inputs = screen.getAllByRole('textbox');
+    inputs.forEach((input, i) => {
+      fireEvent.change(input, { target: { value: String(i + 1) } });
+    });
+  }
+
+  it('returns to the idle UI after a successful regenerate (form hidden, regenerate button visible)', async () => {
+    /*
+     * Scenario: after `platformMfaRegenerateRecoveryCodes` resolves, the
+     * form must collapse (no Cancel button) and the idle regenerate
+     * button must reappear so the admin can rotate again later without
+     * a reload. Pins the `setMode('idle')` literal in the regenerate
+     * success arm — a regression to `setMode('')` would keep
+     * `isFormOpen` true and the form would remain on screen alongside
+     * the open modal.
+     */
+    vi.mocked(platformMfaRegenerateRecoveryCodes).mockResolvedValue({
+      recoveryCodes: ['NEW-CODE-1'],
+    });
+    render(<PlatformMfaDisableCard onDisabled={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('platform-mfa-regenerate-button'));
+    fillOtpInputs();
+    fireEvent.click(screen.getByRole('button', { name: /^regenerate codes$/i }));
+
+    await screen.findByText('NEW-CODE-1');
+    expect(screen.queryByRole('button', { name: /^cancel$/i })).toBeNull();
+    expect(screen.getByTestId('platform-mfa-regenerate-button')).toBeDefined();
+  });
+
+  it('re-enables the submit button after a failed disable so the admin can retry', async () => {
+    /*
+     * Scenario: when platformMfaDisable rejects, the `finally` block
+     * must flip `isPending` back to `false` so the submit button is
+     * clickable again. Pinning the `finally { setIsPending(false) }`
+     * block — removing it leaves the button permanently disabled, and
+     * flipping the literal to `true` does the same.
+     */
+    vi.mocked(platformMfaDisable).mockRejectedValue(new Error('Invalid TOTP'));
+    render(<PlatformMfaDisableCard onDisabled={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('platform-mfa-disable-button'));
+    fillOtpInputs();
+    fireEvent.click(screen.getByRole('button', { name: /confirm disable/i }));
+
+    await waitFor(() => {
+      expect(handleAuthClientError).toHaveBeenCalled();
+    });
+    const submit = screen.getByRole<HTMLButtonElement>('button', { name: /confirm disable/i });
+    expect(submit.disabled).toBe(false);
+  });
+
+  it('re-enables the submit button after a failed regenerate so the admin can retry', async () => {
+    /*
+     * Scenario: same retry-affordance contract on the regenerate path.
+     * Pinned independently so a future refactor cannot branch the
+     * finally cleanup per mode.
+     */
+    vi.mocked(platformMfaRegenerateRecoveryCodes).mockRejectedValue(new Error('Invalid TOTP'));
+    render(<PlatformMfaDisableCard onDisabled={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('platform-mfa-regenerate-button'));
+    fillOtpInputs();
+    fireEvent.click(screen.getByRole('button', { name: /^regenerate codes$/i }));
+
+    await waitFor(() => {
+      expect(handleAuthClientError).toHaveBeenCalled();
+    });
+    const submit = screen.getByRole<HTMLButtonElement>('button', {
+      name: /^regenerate codes$/i,
+    });
+    expect(submit.disabled).toBe(false);
+  });
+
+  it('returns to the idle UI after a successful disable (Cancel gone, disable button visible)', async () => {
+    /*
+     * Scenario: after `platformMfaDisable` resolves the card must swap
+     * `mode` back to `'idle'` so the parent can re-render the setup
+     * card. Pinning the `setMode('idle')` literal in the disable
+     * success arm — a regression to `setMode('')` would leave the form
+     * visible underneath the parent swap.
+     */
+    vi.mocked(platformMfaDisable).mockResolvedValue(undefined);
+    render(<PlatformMfaDisableCard onDisabled={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('platform-mfa-disable-button'));
+    fillOtpInputs();
+    fireEvent.click(screen.getByRole('button', { name: /confirm disable/i }));
+
+    await waitFor(() => {
+      expect(platformMfaDisable).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /^cancel$/i })).toBeNull();
+    });
+    expect(screen.getByTestId('platform-mfa-disable-button')).toBeDefined();
+  });
+
+  it('passes the empty OTP value to the inner OtpInput when the form field is undefined', () => {
+    /*
+     * Scenario: React Hook Form initialises the `code` field as undefined.
+     * The Controller's render must coerce that undefined to the empty
+     * string before handing it to OtpInput, so the boxes start empty
+     * rather than displaying the literal string "undefined" (or
+     * "Stryker"). Pins the `field.value ?? ''` fallback.
+     */
+    render(<PlatformMfaDisableCard onDisabled={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('platform-mfa-disable-button'));
+    const inputs = screen.getAllByRole<HTMLInputElement>('textbox');
+    for (const input of inputs) {
+      expect(input.value).toBe('');
+    }
+  });
+
+  it('passes the freshly-issued codes to the RecoveryCodesModal without padding or substituting', async () => {
+    /*
+     * Scenario: the regenerate API returns the brand-new recovery codes
+     * exactly once — if the modal renders anything other than the API's
+     * verbatim array (an empty array, a placeholder, a duplicated
+     * entry) the operator permanently loses the only window in which
+     * those codes are recoverable.
+     */
+    const newCodes = ['ALPHA-1', 'BRAVO-2', 'CHARLIE-3'];
+    vi.mocked(platformMfaRegenerateRecoveryCodes).mockResolvedValue({ recoveryCodes: newCodes });
+    render(<PlatformMfaDisableCard onDisabled={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('platform-mfa-regenerate-button'));
+    fillOtpInputs();
+    fireEvent.click(screen.getByRole('button', { name: /^regenerate codes$/i }));
+
+    for (const code of newCodes) {
+      await screen.findByText(code);
+    }
+    expect(screen.queryByText('Stryker was here')).toBeNull();
+  });
+});

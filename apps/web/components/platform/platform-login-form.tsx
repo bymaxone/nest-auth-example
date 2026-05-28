@@ -56,7 +56,9 @@ export function PlatformLoginForm() {
     formState: { errors },
   } = useForm<PlatformLoginFormValues>({
     resolver: zodResolver(platformLoginSchema),
+    // Stryker disable next-line StringLiteral: RHF validation cadence — `""` falls back to RHF's default `onSubmit`. Documented equivalent in `docs/guidelines/mutation-testing-guidelines.md` § "Equivalent mutants — known patterns in this repo".
     mode: 'onSubmit',
+    // Stryker disable next-line StringLiteral: same reasoning as `mode` above.
     reValidateMode: 'onChange',
   });
 

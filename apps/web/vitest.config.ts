@@ -22,7 +22,7 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./vitest.setup.ts'],
     include: ['**/*.test.ts', '**/*.test.tsx'],
-    exclude: ['node_modules', '.next', 'e2e'],
+    exclude: ['node_modules', '.next', 'e2e', '.stryker-tmp', 'reports'],
     coverage: {
       provider: 'v8',
       // Exclude Next.js pages, layouts, and route handlers — they are server-only

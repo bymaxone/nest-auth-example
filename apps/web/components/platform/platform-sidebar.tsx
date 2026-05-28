@@ -34,29 +34,40 @@ const PLATFORM_NAV_ITEMS: PlatformNavItem[] = [
   { label: 'Security', href: '/platform/security', icon: Shield, exact: true },
 ];
 
+// Stryker disable StringLiteral
+const LINK_BASE_CLASS =
+  'flex items-center gap-3 rounded-lg border-l-2 px-3 py-[10px] text-sm transition-all duration-150';
+const ICON_BASE_CLASS = 'h-4 w-4 shrink-0';
+const NAV_CONTAINER_CLASSES = [
+  'flex w-[250px] shrink-0 flex-col border-r border-[rgba(239,68,68,0.2)] bg-[rgba(10,0,0,0.98)]',
+  'sticky top-16 h-[calc(100vh-64px)] overflow-y-auto',
+] as const;
+// Stryker restore StringLiteral
+
+// Branch-specific classes live OUTSIDE the block — each one is killable via a
+// per-branch className assertion (active link contains `text-red-300`,
+// inactive contains `text-[rgba(255,200,200,0.55)]`, etc.).
+const LINK_ACTIVE_CLASS = 'border-l-red-500 bg-[rgba(239,68,68,0.15)] font-semibold text-red-300';
+const LINK_INACTIVE_CLASS =
+  'border-l-transparent font-normal text-[rgba(255,200,200,0.55)] hover:bg-[rgba(239,68,68,0.08)] hover:text-red-200';
+const ICON_ACTIVE_CLASS = 'text-red-400';
+const ICON_INACTIVE_CLASS = 'text-[rgba(255,200,200,0.4)]';
+
 /** Single nav item — extracted so the active-state check stays component-scoped. */
 function PlatformNavItem({ item }: { item: PlatformNavItem }) {
   const pathname = usePathname();
-  const isActive = item.exact ? pathname === item.href : pathname.startsWith(item.href);
+  const matchesExact = pathname === item.href;
+  const matchesPrefix = pathname.startsWith(item.href);
+  const isActive = item.exact ? matchesExact : matchesPrefix;
   const Icon = item.icon;
 
   return (
     <Link
       href={item.href}
-      className={cn(
-        'flex items-center gap-3 rounded-lg border-l-2 px-3 py-[10px] text-sm transition-all duration-150',
-        isActive
-          ? 'border-l-red-500 bg-[rgba(239,68,68,0.15)] font-semibold text-red-300'
-          : 'border-l-transparent font-normal text-[rgba(255,200,200,0.55)] hover:bg-[rgba(239,68,68,0.08)] hover:text-red-200',
-      )}
+      className={cn(LINK_BASE_CLASS, isActive ? LINK_ACTIVE_CLASS : LINK_INACTIVE_CLASS)}
       aria-current={isActive ? 'page' : undefined}
     >
-      <Icon
-        className={cn(
-          'h-4 w-4 shrink-0',
-          isActive ? 'text-red-400' : 'text-[rgba(255,200,200,0.4)]',
-        )}
-      />
+      <Icon className={cn(ICON_BASE_CLASS, isActive ? ICON_ACTIVE_CLASS : ICON_INACTIVE_CLASS)} />
       {item.label}
     </Link>
   );
@@ -71,13 +82,7 @@ function PlatformNavItem({ item }: { item: PlatformNavItem }) {
  */
 export function PlatformSidebar() {
   return (
-    <nav
-      aria-label="Platform admin navigation"
-      className={cn(
-        'flex w-[250px] shrink-0 flex-col border-r border-[rgba(239,68,68,0.2)] bg-[rgba(10,0,0,0.98)]',
-        'sticky top-16 h-[calc(100vh-64px)] overflow-y-auto',
-      )}
-    >
+    <nav aria-label="Platform admin navigation" className={cn(...NAV_CONTAINER_CLASSES)}>
       <div className="flex h-full flex-col gap-0 px-4 py-6">
         <div className="flex flex-1 flex-col gap-1">
           {PLATFORM_NAV_ITEMS.map((item) => (

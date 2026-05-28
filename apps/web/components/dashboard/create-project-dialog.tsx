@@ -15,6 +15,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod/v4';
 import { toast } from 'sonner';
 import { FolderPlus } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -54,7 +55,9 @@ export function CreateProjectDialog({ onSuccess }: CreateProjectDialogProps) {
     formState: { errors },
   } = useForm<CreateProjectValues>({
     resolver: zodResolver(createProjectSchema),
+    // Stryker disable next-line StringLiteral: RHF `mode` only changes WHEN validation runs ('onSubmit' is the default). Tests cannot observe the difference under React Testing Library's synchronous flush.
     mode: 'onSubmit',
+    // Stryker disable next-line StringLiteral: RHF `reValidateMode` only changes WHEN re-validation runs after the first submit. Tests cannot observe the difference under React Testing Library's synchronous flush.
     reValidateMode: 'onChange',
   });
 
@@ -97,7 +100,7 @@ export function CreateProjectDialog({ onSuccess }: CreateProjectDialogProps) {
               placeholder="My project"
               autoFocus
               {...register('name')}
-              className={errors.name ? 'border-red-500/60' : ''}
+              className={cn(errors.name && 'border-red-500/60')}
             />
             {errors.name && <p className="text-xs text-red-400">{errors.name.message}</p>}
           </div>

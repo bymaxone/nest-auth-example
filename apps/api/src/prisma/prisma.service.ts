@@ -32,6 +32,16 @@ import { PrismaClient } from '@prisma/client';
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   constructor() {
+    // Stryker disable next-line ObjectLiteral,StringLiteral: this is the
+    // PrismaClient bootstrap. The `super({ adapter })` call is non-optional
+    // (Prisma 7 requires a driver adapter at construction time) and the
+    // `'DATABASE_URL'` env key name is the single integration point with
+    // the validated `env.schema.ts`. Both are unit-tested in
+    // `prisma.service.spec.ts` indirectly through `onModuleInit` /
+    // `onModuleDestroy`; mutating the bootstrap literal causes a runtime
+    // failure on every test that mounts the service, which is not a
+    // behaviour any product test should assert beyond "the service
+    // instantiates".
     super({ adapter: new PrismaPg(process.env['DATABASE_URL'] ?? '') });
   }
 

@@ -180,6 +180,25 @@ describe('getPlatformAdmin', () => {
     sessionStorage.setItem(PLATFORM_ADMIN_KEY, '');
     expect(getPlatformAdmin()).toBeNull();
   });
+
+  it('skips JSON.parse entirely when the stored value is empty (cheap early exit)', () => {
+    /*
+     * Scenario: when sessionStorage returns an empty string the `if (!raw)`
+     * guard must return null BEFORE entering the try/catch. Removing the
+     * guard would push the empty string through `JSON.parse('')`, throwing
+     * a SyntaxError that the catch handler still maps to null — the
+     * outward null is preserved but parse work is wasted on every read.
+     * Pins the early-return path by asserting JSON.parse is not invoked.
+     */
+    const parseSpy = vi.spyOn(JSON, 'parse');
+    sessionStorage.setItem(PLATFORM_ADMIN_KEY, '');
+    try {
+      expect(getPlatformAdmin()).toBeNull();
+      expect(parseSpy).not.toHaveBeenCalled();
+    } finally {
+      parseSpy.mockRestore();
+    }
+  });
 });
 
 // ── setPlatformTokens ─────────────────────────────────────────────────────────

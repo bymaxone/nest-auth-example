@@ -210,3 +210,145 @@ describe('SessionsTable states', () => {
     });
   });
 });
+
+// ── Verbatim toast + Current badge + per-row revoking + time fallbacks ──────
+
+describe('SessionsTable verbatim copy + per-row revoking + time format', () => {
+  it('toasts the verbatim "Session revoked." message after a successful revoke', async () => {
+    /*
+     * Scenario: support docs link to the exact "Session revoked."
+     * message. Pin the verbatim string so a regression that truncates
+     * or rewrites the toast is caught before it ships.
+     */
+    vi.mocked(listSessions).mockResolvedValue(mockSessions);
+    vi.mocked(revokeSession).mockResolvedValue(undefined);
+    const { toast } = await import('sonner');
+
+    render(<SessionsTable />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /revoke session/i })).toBeDefined(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /revoke session/i }));
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith('Session revoked.');
+    });
+  });
+
+  it('renders the "Current" badge in the SAME row as the current session, not the other row', async () => {
+    /*
+     * Scenario: the badge must appear on the CURRENT session's row,
+     * not on a different row. A mutated `||` would short-circuit on
+     * the truthy `<span>` value for non-current rows (rendering the
+     * badge on the WRONG row) while the current row would render
+     * `true` (no badge) — total count stays at 1 either way, so a
+     * count-only assertion misses this defect. Pins the badge's row
+     * by reading the surrounding TableCell text and asserting the
+     * Chrome (current) row contains "Current" and the Firefox (non-
+     * current) row does NOT.
+     */
+    vi.mocked(listSessions).mockResolvedValue(mockSessions);
+    render(<SessionsTable />);
+    await screen.findByText('Chrome on macOS');
+
+    const chromeCell = screen.getByText('Chrome on macOS').closest('div');
+    expect(chromeCell?.textContent ?? '').toContain('Current');
+
+    const firefoxCell = screen.getByText('Firefox on Windows').closest('div');
+    expect(firefoxCell?.textContent ?? '').not.toContain('Current');
+  });
+
+  it('renders both time cells ("Last active" and "Started") with the "ago" suffix', async () => {
+    /*
+     * Scenario: both time cells render `formatDistanceToNow(date, {
+     * addSuffix: true })` — pinning the " ago" suffix defends BOTH the
+     * `{ addSuffix: true }` ObjectLiteral options object AND the
+     * BooleanLiteral on the `true` value, on BOTH date columns. Uses
+     * distinct day-scale offsets so date-fns produces distinguishable
+     * strings ("1 day ago", "3 days ago") each containing " ago".
+     */
+    const dayAgoSessions: SessionInfo[] = [
+      {
+        ...mockSessions[0]!,
+        createdAt: NOW - 86400_000 * 3, // 3 days ago
+        lastActivityAt: NOW - 86400_000, // 1 day ago
+      },
+    ];
+    vi.mocked(listSessions).mockResolvedValue(dayAgoSessions);
+    render(<SessionsTable />);
+    await screen.findByText('Chrome on macOS');
+    // The "Started" cell holds 3 days ago, the "Last active" cell holds
+    // 1 day ago. Each must render the " ago" suffix — a regression on
+    // `{ addSuffix: true }` on EITHER cell would drop one match.
+    expect(screen.getByText(/^1 day ago$/)).toBeDefined();
+    expect(screen.getByText(/^3 days ago$/)).toBeDefined();
+  });
+
+  it("disables ONLY the toggled row's revoke button while the API call is pending", async () => {
+    /*
+     * Scenario: the per-row `revoking === session.sessionHash` guard
+     * must lock only the row whose button was clicked. With a three-
+     * session fixture (one current, two revokable) we can click one
+     * and assert the OTHER stays clickable. Pins the ConditionalExpression
+     * AND the EqualityOperator on the per-row guard.
+     */
+    const threeSessions: SessionInfo[] = [
+      mockSessions[0]!, // current — no button
+      mockSessions[1]!, // Firefox — revokable
+      {
+        ...mockSessions[1]!,
+        id: 'sess-3',
+        sessionHash: 'hash-3',
+        device: 'Safari on iOS',
+        isCurrent: false,
+      },
+    ];
+    vi.mocked(listSessions).mockResolvedValue(threeSessions);
+    // Never resolve so the in-flight state stays observable.
+    vi.mocked(revokeSession).mockReturnValueOnce(new Promise(() => undefined));
+
+    render(<SessionsTable />);
+    await screen.findByText('Safari on iOS');
+
+    const revokeButtons = screen.getAllByRole<HTMLButtonElement>('button', {
+      name: /revoke session/i,
+    });
+    expect(revokeButtons).toHaveLength(2);
+    fireEvent.click(revokeButtons[0]!);
+
+    await waitFor(() => {
+      const disabled = screen
+        .getAllByRole<HTMLButtonElement>('button', { name: /revoke session/i })
+        .filter((b) => b.disabled);
+      expect(disabled).toHaveLength(1);
+    });
+    const stillEnabled = screen
+      .getAllByRole<HTMLButtonElement>('button', { name: /revoke session/i })
+      .filter((b) => !b.disabled);
+    expect(stillEnabled).toHaveLength(1);
+  });
+
+  it('restores the revoke button (no longer disabled) after the API call settles', async () => {
+    /*
+     * Scenario: pins the `finally { setRevoking(null) }` cleanup — when
+     * revokeSession resolves and the table reloads, the per-row
+     * disabled state must lift so the user can revoke the next session
+     * without a page reload.
+     */
+    vi.mocked(listSessions).mockResolvedValue(mockSessions);
+    vi.mocked(revokeSession).mockResolvedValue(undefined);
+
+    render(<SessionsTable />);
+    await screen.findByRole('button', { name: /revoke session/i });
+    fireEvent.click(screen.getByRole('button', { name: /revoke session/i }));
+
+    await waitFor(() => {
+      expect(revokeSession).toHaveBeenCalled();
+    });
+    // After the reload, the surviving non-current button must be clickable.
+    await waitFor(() => {
+      const btn = screen.getByRole<HTMLButtonElement>('button', { name: /revoke session/i });
+      expect(btn.disabled).toBe(false);
+    });
+  });
+});

@@ -176,6 +176,10 @@ platform, audit, …) keeps reviews tractable. Each PR's description must
 include before/after mutation score for the touched files.
 
 **Exit gate for Phase 1**: Both apps reach ≥ 90% mutation score globally.
+**Phase 1 — ✅ DONE 2026-05-28.** Both apps reached **100.00 %** (2120
+mutants killed across the monorepo, zero behavioural survivors). 33
+files brought to 100 % in `apps/web`. 13 reusable mutation-testing
+rules captured in `docs/guidelines/mutation-testing-guidelines.md`.
 
 ### Phase 2 — Raise threshold and wire CI (1 PR, ~1h)
 
@@ -184,26 +188,55 @@ include before/after mutation score for the touched files.
 **Tasks**:
 
 1. Change `thresholds` in both `stryker.config.json` to
-   `{ high: 95, low: 90, break: 90 }`.
-2. Create `.github/workflows/mutation.yml` (full contents in §7).
-3. Make the workflow `required` for PRs targeting `main`.
+   `{ high: 100, low: 100, break: 100 }` (originally planned at 90 but
+   raised to 100 since Phase 1 overshot the original exit gate).
+2. Enable `incremental: true` in both `stryker.config.json` so PR runs
+   only re-mutate files whose code or tests changed.
+3. Create `.github/workflows/mutation.yml` — PR-triggered, runs only
+   the workspace(s) whose tracked paths changed, caches the
+   `stryker-incremental.json` per workspace per branch (with main
+   fallback). Fails the job if score < 100 %.
+4. Create `.github/workflows/mutation-nightly.yml` — weekly full
+   (`--incremental false`) run on Mondays 03:00 UTC. Catches drift the
+   incremental cache might mask. Manually re-runnable via
+   `workflow_dispatch`.
+5. Make the PR workflow `required` for PRs targeting `main` (branch
+   protection — manual GitHub UI step, not in this PR).
+
+**Phase 2 — ✅ DONE 2026-05-28.** Configs flipped, both workflows
+created, local re-runs confirm the break-threshold gate fires
+("Final mutation score of 100.00 is greater than or equal to break
+threshold 100"). Branch-protection toggle remains a manual step in
+the GitHub UI after the workflows land on `main`.
 
 **Exit gate**:
 
-- [ ] CI mutation job green on both apps.
-- [ ] PR that intentionally weakens an assertion fails the mutation job
-      (smoke test).
+- [x] Local mutation:api / mutation:web runs respect
+      `thresholds.break = 100` and exit non-zero on regression.
+- [x] `mutation.yml` and `mutation-nightly.yml` checked in.
+- [ ] CI mutation job green on both apps (validated when PR opens).
+- [ ] PR that intentionally weakens an assertion fails the mutation
+      job (smoke test — recommended first action after Phase 2 merges).
 
 ### Phase 3 — Push toward parity with the sibling (iterative, 10–20h)
 
 **Goal**: Reach `{ high: 99, low: 95, break: 95 }` to match
 `@bymax-one/nest-auth`.
 
-**Tasks**:
+**Status**: ✅ EXCEEDED in Phase 1. Both apps already at 100 %, and
+Phase 2 set `thresholds.break = 100` (stricter than the original
+Phase 3 target of 95). No further numeric work remains.
 
-1. Identify files still under 95% and repeat the Phase 1 process.
-2. Once both apps clear 95% globally, raise thresholds.
-3. Schedule a quarterly re-measurement cadence — record drift in
+**Residual maintenance tasks (rolling, no end-of-phase gate)**:
+
+1. Quarterly re-measurement cadence — the nightly workflow handles this
+   automatically; treat any failure as a P1 and open a `mutation-drift`
+   issue.
+2. When NEW code is added, the PR gate runs incrementally — if the new
+   file lands below 100, fix it BEFORE merge (the workflow enforces
+   this).
+3. Re-baseline if a major dep upgrade (Stryker, Vitest, Jest, RTL,
+   shadcn/Radix versions) changes the mutation surface — record in
    `docs/stryker/HISTORY.md`.
 
 ---

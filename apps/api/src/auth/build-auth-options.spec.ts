@@ -355,6 +355,181 @@ describe('buildAuthOptions', () => {
     });
   });
 
+  // ── Time-window constants ──────────────────────────────────────────────────
+
+  describe('time-window option values', () => {
+    it('encodes the brute-force window as 900 seconds (15-minute sliding throttle)', () => {
+      /*
+       * Scenario: the brute-force throttle protects the credential endpoint
+       * from password-spray attacks by counting failed attempts over a
+       * sliding window. The window is configured as `15 * 60` so the
+       * intent reads cleanly in source. The expected value is 900 seconds —
+       * a much shorter window would let an attacker iterate faster, a much
+       * longer one would lock out legitimate users on a typo streak.
+       */
+      const config = makeConfig();
+
+      const options = buildAuthOptions(config as never);
+
+      expect(options.bruteForce?.windowSeconds).toBe(900);
+    });
+
+    it('encodes the password-reset token TTL as 600 seconds (10 minutes)', () => {
+      /*
+       * Scenario: a user requests a password-reset link. The link must
+       * expire fast enough that an attacker who briefly accessed the inbox
+       * (e.g. shared computer) cannot use it later, but long enough that
+       * the user can click it from a phone after switching tabs. Ten
+       * minutes is the long-standing industry sweet spot — pinning the
+       * value catches any future refactor that silently doubles or halves it.
+       */
+      const config = makeConfig();
+
+      const options = buildAuthOptions(config as never);
+
+      expect(options.passwordReset?.tokenTtlSeconds).toBe(600);
+    });
+
+    it('encodes the password-reset OTP TTL as 600 seconds (10 minutes)', () => {
+      /*
+       * Scenario: the OTP-based password-reset flow sends a 6-digit code
+       * instead of a magic link. The TTL must match the token TTL above
+       * so the user sees a single consistent "10 minutes" deadline
+       * regardless of which delivery method admin has configured.
+       */
+      const config = makeConfig();
+
+      const options = buildAuthOptions(config as never);
+
+      expect(options.passwordReset?.otpTtlSeconds).toBe(600);
+    });
+
+    it('encodes the email-verification OTP TTL as 600 seconds (10 minutes)', () => {
+      /*
+       * Scenario: after registration, the user receives a 6-digit code by
+       * email and must verify within 10 minutes. A longer window would
+       * let stolen verification codes linger; a shorter one would force
+       * re-sends for users distracted by another tab. Pinning the value
+       * preserves the documented UX contract.
+       */
+      const config = makeConfig();
+
+      const options = buildAuthOptions(config as never);
+
+      expect(options.emailVerification?.otpTtlSeconds).toBe(600);
+    });
+
+    it('encodes the invitation token TTL as 172800 seconds (48 hours)', () => {
+      /*
+       * Scenario: an admin invites a colleague to the workspace. The
+       * invitation link must remain valid through the next business day
+       * so the invitee has time to act, but must expire before the link
+       * is forgotten in a buried email. 48 hours is the documented value
+       * (see auth.config.ts comment) — this assertion keeps the
+       * documentation and the runtime contract aligned.
+       */
+      const config = makeConfig();
+
+      const options = buildAuthOptions(config as never);
+
+      expect(options.invitations?.tokenTtlSeconds).toBe(172_800);
+    });
+  });
+
+  // ── Role hierarchy ─────────────────────────────────────────────────────────
+
+  describe('roles.hierarchy (tenant role graph)', () => {
+    it('declares the exact tenant hierarchy: OWNER → ADMIN → MEMBER → VIEWER', () => {
+      /*
+       * Scenario: the role hierarchy is denormalised — every role lists
+       * ALL roles it transitively subsumes. The library's `hasRole()` does
+       * a single-level lookup, not recursive traversal, so a missing
+       * entry silently downgrades a user. If an OWNER no longer lists
+       * MEMBER among its subsumed roles, every member-only endpoint would
+       * 403 OWNERs — a workspace-wide outage with no obvious cause.
+       * The deep-equality assertion pins the full graph so any drift
+       * surfaces immediately.
+       */
+      const config = makeConfig();
+
+      const options = buildAuthOptions(config as never);
+
+      expect(options.roles?.hierarchy).toEqual({
+        OWNER: ['ADMIN', 'MEMBER', 'VIEWER'],
+        ADMIN: ['MEMBER', 'VIEWER'],
+        MEMBER: ['VIEWER'],
+        VIEWER: [],
+      });
+    });
+
+    it('declares the exact platform hierarchy: SUPER_ADMIN → SUPPORT, SUPPORT → ∅', () => {
+      /*
+       * Scenario: platform-admin roles live in a separate hierarchy from
+       * tenant roles — they govern the /api/auth/platform/* endpoints
+       * that operate across tenants. A drop of SUPPORT from
+       * SUPER_ADMIN's subsumed list would lock super admins out of every
+       * support-only query (e.g. user impersonation). The assertion pins
+       * the platform graph independently of the tenant graph above.
+       */
+      const config = makeConfig();
+
+      const options = buildAuthOptions(config as never);
+
+      expect(options.roles?.platformHierarchy).toEqual({
+        SUPER_ADMIN: ['SUPPORT'],
+        SUPPORT: [],
+      });
+    });
+  });
+
+  // ── Cookie paths (both branches) ───────────────────────────────────────────
+
+  describe('cookies path configuration', () => {
+    it('sets refreshCookiePath="/api/auth" and mfaTempCookiePath="/api/auth/mfa" in the default branch', () => {
+      /*
+       * Scenario: every request to `/api/auth/refresh` must carry the
+       * `refresh_token` cookie so the access-token rotation completes.
+       * Per RFC 6265 the browser only attaches a cookie when the request
+       * Path attribute prefix-matches the cookie Path. Because `main.ts`
+       * calls `app.setGlobalPrefix('api')` the cookie MUST be planted at
+       * `/api/auth`, not the library's default `/auth`. Same logic
+       * applies to the MFA temp cookie used during the post-OAuth MFA
+       * challenge. An empty path would break refresh-rotation entirely.
+       */
+      const config = makeConfig();
+
+      const options = buildAuthOptions(config as never);
+
+      expect(options.cookies?.refreshCookiePath).toBe('/api/auth');
+      expect(options.cookies?.mfaTempCookiePath).toBe('/api/auth/mfa');
+    });
+
+    it('sets the same two cookie paths in the production + PUBLIC_DOMAIN branch (alongside resolveDomains)', () => {
+      /*
+       * Scenario: a production deployment with a public apex domain
+       * activates the cookie sub-domain widening (`resolveDomains`), and
+       * the two cookie-path settings live inside the same `cookies`
+       * literal. The factory has separate object literals for the two
+       * branches (production vs default) so both paths must be preserved
+       * independently. If the production branch dropped the paths and
+       * relied on the library default, every refresh-rotation on the
+       * production deployment would silently break.
+       */
+      const config = makeConfig({
+        NODE_ENV: 'production',
+        PUBLIC_DOMAIN: 'example.com',
+      });
+
+      const options = buildAuthOptions(config as never);
+
+      expect(options.cookies?.refreshCookiePath).toBe('/api/auth');
+      expect(options.cookies?.mfaTempCookiePath).toBe('/api/auth/mfa');
+      // resolveDomains must also be present on this branch — proves the
+      // production code path was genuinely exercised, not the default fallback.
+      expect(typeof options.cookies?.resolveDomains).toBe('function');
+    });
+  });
+
   // ── blockedStatuses ────────────────────────────────────────────────────────
 
   describe('blockedStatuses', () => {

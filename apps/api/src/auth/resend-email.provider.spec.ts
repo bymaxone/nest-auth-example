@@ -255,7 +255,7 @@ describe('ResendEmailProvider', () => {
 
   // ─── CRLF injection protection ───────────────────────────────────────────
 
-  it('sendInvitation — strips CRLF from tenantName to prevent SMTP header injection', async () => {
+  it('sendInvitation — strips CRLF from tenantName and produces the canonical subject verbatim', async () => {
     // Security: a malicious tenant name containing CR+LF characters could inject
     // extra headers if included verbatim in the subject line.
     await provider.sendInvitation('target@example.test', {
@@ -268,6 +268,10 @@ describe('ResendEmailProvider', () => {
     const subject = lastMailOptions().subject ?? '';
     expect(subject).not.toContain('\r');
     expect(subject).not.toContain('\n');
+    // The replacement must remove the CRLF, not substitute another value —
+    // pin the exact resulting subject so any replacement string other than
+    // '' would surface as a test failure.
+    expect(subject).toBe("You've been invited to join EvilBcc: victim@example.test");
   });
 
   // ─── HTML injection protection ───────────────────────────────────────────
@@ -345,5 +349,137 @@ describe('ResendEmailProvider', () => {
     expect(() => providerInternal.render('password-reset-otp', { otp: '123456' })).toThrow(
       'was not preloaded at startup',
     );
+  });
+
+  // ─── Logging, escape, and Prisma call-shape contract ─────────────────────
+
+  describe('logging, escape, and Prisma call shape', () => {
+    it('logs the subject and recipient on a successful send (no body or secrets)', async () => {
+      /*
+       * Scenario: every successful email through Resend must surface
+       * in operator logs with the subject and `to` address — and ONLY
+       * those — so support can confirm delivery without leaking OTPs,
+       * reset tokens, session hashes, or the API key.
+       */
+      const logSpy = jest
+        .spyOn((provider as unknown as { logger: { log: (m: unknown) => void } }).logger, 'log')
+        .mockImplementation(() => undefined);
+
+      await provider.sendPasswordResetOtp('alice@example.test', '123456');
+
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      const arg = logSpy.mock.calls[0]?.[0] as { msg?: string; subject?: string; to?: string };
+      expect(arg.msg).toBe('Email sent via Resend');
+      expect(arg.subject).toBe('Your password reset code');
+      expect(arg.to).toBe('alice@example.test');
+    });
+
+    it('logs the failure with the error class name (not message) and rethrows when Resend returns an error', async () => {
+      /*
+       * Scenario: Resend returns an `error` object on the response
+       * (rate limit, invalid recipient, suppressed address). The
+       * provider must log the error's CLASS name only — never the
+       * message — because Resend's error messages can carry
+       * account-specific details that should not reach log
+       * aggregators or exception serialisers.
+       */
+      const errorSpy = jest
+        .spyOn((provider as unknown as { logger: { error: (m: unknown) => void } }).logger, 'error')
+        .mockImplementation(() => undefined);
+      mockEmailsSend.mockResolvedValueOnce({
+        data: null,
+        // Cast to the SendResult.error shape so additional fields the SDK
+        // carries at runtime do not trip TS's excess-property checking.
+        error: {
+          name: 'rate_limit_exceeded',
+          message: 'detailed reason — must not be logged',
+        } as unknown as { name: string },
+      });
+
+      await expect(provider.sendPasswordResetOtp('bob@example.test', '999999')).rejects.toThrow(
+        'Email delivery failed',
+      );
+
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const arg = errorSpy.mock.calls[0]?.[0] as {
+        msg?: string;
+        subject?: string;
+        to?: string;
+        error?: string;
+      };
+      expect(arg.msg).toBe('Email delivery failed');
+      expect(arg.subject).toBe('Your password reset code');
+      expect(arg.to).toBe('bob@example.test');
+      expect(arg.error).toBe('rate_limit_exceeded');
+      // The detailed message must never reach the log entry.
+      expect(JSON.stringify(arg)).not.toContain('detailed reason');
+    });
+
+    it('escapes the five HTML-significant characters in attacker-controlled template variables', () => {
+      /*
+       * Scenario: an invitee accepts an invitation from a tenant
+       * whose inviter name contains every HTML metacharacter. The
+       * template must render each one as its named/numeric entity
+       * so no variant of the input can break out of its text
+       * context. Missing any of the five would leave one injection
+       * path open in production email.
+       */
+      const escape = (ResendEmailProvider as unknown as { escapeHtml: (s: string) => string })
+        .escapeHtml;
+
+      const out = escape(`& < > " ' `);
+
+      expect(out).toContain('&amp;');
+      expect(out).toContain('&lt;');
+      expect(out).toContain('&gt;');
+      expect(out).toContain('&quot;');
+      expect(out).toContain('&#039;');
+      expect(out).not.toContain('<');
+      expect(out).not.toContain('>');
+      expect(out).not.toContain('"');
+      expect(out).not.toContain("'");
+    });
+
+    it('looks up the reset-token tenant by lowercased email with a narrow {tenantId} projection', async () => {
+      /*
+       * Scenario: the lib calls password reset with whatever casing
+       * the user typed. The lookup MUST normalise to lower case so
+       * the canonical row is found regardless of input casing. The
+       * select MUST stay narrow to {tenantId} so the lookup never
+       * reads the password hash or MFA secret as a side effect of
+       * resolving the tenant.
+       */
+      const prisma = makePrismaService();
+      provider = new ResendEmailProvider(makeConfigService() as never, prisma as never);
+
+      await provider.sendPasswordResetToken('Mixed@Example.TEST', 'tok');
+
+      expect(prisma.user.findFirst).toHaveBeenCalledTimes(1);
+      const call = (prisma.user.findFirst as unknown as jest.Mock).mock.calls[0]?.[0] as {
+        where: { email: string };
+        select: { tenantId: boolean };
+      };
+      expect(call.where.email).toBe('mixed@example.test');
+      expect(call.select).toEqual({ tenantId: true });
+    });
+
+    it('embeds the URI-encoded inviteToken in the accept URL on the invitation email', async () => {
+      /*
+       * Scenario: the invitation accept URL carries the raw token
+       * URI-encoded so reserved characters survive transit through
+       * mail clients. A drift that dropped the encoding or the
+       * token would break every invitation link in production.
+       */
+      await provider.sendInvitation('invite@example.test', {
+        inviterName: 'Alice',
+        tenantName: 'Acme',
+        inviteToken: 'token with +special &chars',
+        expiresAt: new Date('2026-12-31T23:59:59Z'),
+      });
+
+      const html = lastSentHtml();
+      expect(html).toContain('/auth/accept-invitation?token=');
+      expect(html).toContain(encodeURIComponent('token with +special &chars'));
+    });
   });
 });

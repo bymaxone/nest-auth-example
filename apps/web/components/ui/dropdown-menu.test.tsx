@@ -180,13 +180,17 @@ describe('DropdownMenu primitives', () => {
     expect(screen.getByText('Sub item A')).toBeDefined();
   });
 
-  it('renders DropdownMenuSubTrigger with inset=true adds pl-8 class', () => {
+  it('adds the pl-8 class to DropdownMenuSubTrigger when inset=true (and omits it when inset=false)', () => {
     /*
-     * Scenario: when inset=true is passed to DropdownMenuSubTrigger the `inset && 'pl-8'`
-     * branch must evaluate to true and add the pl-8 padding class.
-     * Protects: line 33 — `inset && 'pl-8'` truthy branch.
+     * Scenario: the `inset && 'pl-8'` conditional on DropdownMenuSubTrigger
+     * adds left padding so sub-triggers visually align with the leading
+     * indicator slot on regular items. Both arms are pinned here — the
+     * truthy arm by asserting `pl-8` is present, the falsy arm by
+     * asserting it's absent when the prop is omitted. This kills the
+     * ConditionalExpression mutants on the `&&` (both directions) and
+     * the LogicalOperator (`&&` → `||`) without needing a snapshot.
      */
-    render(
+    const { rerender } = render(
       <DropdownMenu open>
         <DropdownMenuTrigger>
           <button type="button">Menu</button>
@@ -201,35 +205,62 @@ describe('DropdownMenu primitives', () => {
         </DropdownMenuContent>
       </DropdownMenu>,
     );
-    expect(screen.getByText('Inset sub trigger')).toBeDefined();
-  });
+    expect(screen.getByText('Inset sub trigger').className).toContain('pl-8');
 
-  it('renders DropdownMenuItem with inset=true adds pl-8 class', () => {
-    /*
-     * Scenario: when inset=true is passed to DropdownMenuItem the `inset && 'pl-8'`
-     * branch must evaluate to true and add the pl-8 padding class.
-     * Protects: line 103 — `inset && 'pl-8'` truthy branch in DropdownMenuItem.
-     */
-    render(
+    rerender(
       <DropdownMenu open>
         <DropdownMenuTrigger>
           <button type="button">Menu</button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
-          <DropdownMenuItem inset>Inset menu item</DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>Plain sub trigger</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuItem>Sub item</DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
         </DropdownMenuContent>
       </DropdownMenu>,
     );
-    expect(screen.getByText('Inset menu item')).toBeDefined();
+    expect(screen.getByText('Plain sub trigger').className).not.toContain('pl-8');
   });
 
-  it('renders DropdownMenuLabel with inset=true adds pl-8 class', () => {
+  it('adds the pl-8 class to DropdownMenuItem when inset=true (and omits it when inset=false)', () => {
     /*
-     * Scenario: when inset=true is passed to DropdownMenuLabel the `inset && 'pl-8'`
-     * branch must evaluate to true and add the pl-8 padding class.
-     * Protects: line 166 — `inset && 'pl-8'` truthy branch in DropdownMenuLabel.
+     * Scenario: counterpart to the SubTrigger test for DropdownMenuItem.
+     * Same kill strategy — assert pl-8 present with inset, absent
+     * without. Pins both arms of the `inset && 'pl-8'` conditional.
      */
-    render(
+    const { rerender } = render(
+      <DropdownMenu open>
+        <DropdownMenuTrigger>
+          <button type="button">Menu</button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuItem inset>Inset item</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>,
+    );
+    expect(screen.getByText('Inset item').className).toContain('pl-8');
+
+    rerender(
+      <DropdownMenu open>
+        <DropdownMenuTrigger>
+          <button type="button">Menu</button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuItem>Plain item</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>,
+    );
+    expect(screen.getByText('Plain item').className).not.toContain('pl-8');
+  });
+
+  it('adds the pl-8 class to DropdownMenuLabel when inset=true (and omits it when inset=false)', () => {
+    /*
+     * Scenario: counterpart for DropdownMenuLabel. Same kill strategy.
+     */
+    const { rerender } = render(
       <DropdownMenu open>
         <DropdownMenuTrigger>
           <button type="button">Menu</button>
@@ -239,6 +270,52 @@ describe('DropdownMenu primitives', () => {
         </DropdownMenuContent>
       </DropdownMenu>,
     );
-    expect(screen.getByText('Inset label')).toBeDefined();
+    expect(screen.getByText('Inset label').className).toContain('pl-8');
+
+    rerender(
+      <DropdownMenu open>
+        <DropdownMenuTrigger>
+          <button type="button">Menu</button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuLabel>Plain label</DropdownMenuLabel>
+        </DropdownMenuContent>
+      </DropdownMenu>,
+    );
+    expect(screen.getByText('Plain label').className).not.toContain('pl-8');
+  });
+
+  it('renders DropdownMenuCheckboxItem unchecked when the checked prop is omitted (default false)', () => {
+    /*
+     * Scenario: the `checked = false` default-prop value must drive the
+     * underlying Radix CheckboxItem into the unchecked state when no
+     * explicit `checked` prop is passed. Pinning the `aria-checked="false"`
+     * attribute defends the literal default — a regression that swapped
+     * it to `true` would silently render every uncontrolled checkbox in
+     * the checked state.
+     */
+    render(
+      <DropdownMenu open>
+        <DropdownMenuTrigger>
+          <button type="button">Menu</button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuCheckboxItem>Default checkbox</DropdownMenuCheckboxItem>
+        </DropdownMenuContent>
+      </DropdownMenu>,
+    );
+    const item = screen.getByRole('menuitemcheckbox', { name: 'Default checkbox' });
+    expect(item.getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('renders DropdownMenuShortcut as a span (not a div) so it does not break inline flow', () => {
+    /*
+     * Scenario: DropdownMenuShortcut is a side decoration inside a menu
+     * item — it must be a `<span>` so it composes inside the item's
+     * inline flex layout. Pinning `tagName === 'SPAN'` defends against
+     * a regression that swapped the element type.
+     */
+    render(<DropdownMenuShortcut data-testid="shortcut">⌘K</DropdownMenuShortcut>);
+    expect(screen.getByTestId('shortcut').tagName).toBe('SPAN');
   });
 });

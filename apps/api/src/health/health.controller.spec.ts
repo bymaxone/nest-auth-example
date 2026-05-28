@@ -170,4 +170,71 @@ describe('HealthController', () => {
       expect(() => new Date(result.at)).not.toThrow();
     });
   });
+
+  // ─── Probe SQL and degraded-log payload pinning ──────────────────────────
+
+  describe('probe SQL and degraded-log payloads', () => {
+    it('runs exactly "SELECT 1" against Postgres on the readiness probe', async () => {
+      /*
+       * Scenario: the readiness probe must execute the cheapest
+       * possible query against Postgres. A drift to `SELECT *` or a
+       * non-trivial query would inflate the cost of every liveness
+       * check (called every few seconds by orchestrators) and could
+       * even introduce a data read where none was intended.
+       */
+      prismaQueryRaw.mockResolvedValue([{ '?column?': 1 }]);
+      redisPing.mockResolvedValue('PONG');
+
+      await controller.check();
+
+      expect(prismaQueryRaw).toHaveBeenCalledTimes(1);
+      // Prisma's $queryRaw tagged-template binding produces a single
+      // TemplateStringsArray whose first cooked entry is the literal SQL text.
+      // The mock is declared with no-arg generics, so reach through `unknown`
+      // to recover the recorded argument shape at runtime.
+      const recordedCalls = prismaQueryRaw.mock.calls as unknown as Array<[TemplateStringsArray]>;
+      const callArg = recordedCalls[0]?.[0] ?? ([] as unknown as TemplateStringsArray);
+      expect(callArg[0]).toBe('SELECT 1');
+    });
+
+    it('logs the Postgres degradation with event name "health.postgres.degraded" and carries the error object', async () => {
+      /*
+       * Scenario: Postgres becomes unreachable. The probe must emit
+       * exactly one warning whose event name is
+       * `health.postgres.degraded` (consumed by ops alerting rules)
+       * and carry the raw error so support can correlate the
+       * warning to the underlying connection failure.
+       */
+      prismaQueryRaw.mockRejectedValue(new Error('pg down'));
+      redisPing.mockResolvedValue('PONG');
+
+      await controller.check();
+
+      expect(loggerWarn).toHaveBeenCalledTimes(1);
+      const [payload, msg] = loggerWarn.mock.calls[0] as unknown as [{ err: Error }, string];
+      expect(msg).toBe('health.postgres.degraded');
+      expect(payload.err).toBeInstanceOf(Error);
+      expect(payload.err.message).toBe('pg down');
+    });
+
+    it('logs the Redis degradation with event name "health.redis.degraded" and carries the error object', async () => {
+      /*
+       * Scenario: Redis becomes unreachable. The probe must emit
+       * exactly one warning whose event name is
+       * `health.redis.degraded` and carry the raw error so support
+       * can correlate the warning to the Redis connection failure.
+       * Same observability contract as the Postgres path above.
+       */
+      prismaQueryRaw.mockResolvedValue([{ '?column?': 1 }]);
+      redisPing.mockRejectedValue(new Error('redis down'));
+
+      await controller.check();
+
+      expect(loggerWarn).toHaveBeenCalledTimes(1);
+      const [payload, msg] = loggerWarn.mock.calls[0] as unknown as [{ err: Error }, string];
+      expect(msg).toBe('health.redis.degraded');
+      expect(payload.err).toBeInstanceOf(Error);
+      expect(payload.err.message).toBe('redis down');
+    });
+  });
 });

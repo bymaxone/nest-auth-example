@@ -111,4 +111,47 @@ describe('SendTestNotificationButton click behaviour', () => {
       );
     });
   });
+
+  it('disables the button while notifySelf is in flight', async () => {
+    /*
+     * Scenario: between clicking the button and notifySelf resolving, the
+     * button must be disabled so the operator cannot trigger multiple
+     * notifications back-to-back.
+     * Protects: BooleanLiteral mutant on `setPending(true)` — a `false`
+     * mutant would leave the button enabled mid-flight.
+     */
+    let resolveNotify: (value: { delivered: number }) => void = () => undefined;
+    vi.mocked(notifySelf).mockImplementation(
+      () =>
+        new Promise<{ delivered: number }>((resolve) => {
+          resolveNotify = resolve;
+        }),
+    );
+
+    render(<SendTestNotificationButton />);
+    const button = screen.getByRole('button', { name: /send test notification/i });
+    fireEvent.click(button);
+
+    await waitFor(() => expect(notifySelf).toHaveBeenCalled());
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(true));
+    resolveNotify({ delivered: 1 });
+  });
+
+  it('re-enables the button after notifySelf settles (finally → setPending(false))', async () => {
+    /*
+     * Scenario: after a successful notifySelf the button must be enabled
+     * again so the operator can trigger another test notification.
+     * Protects: BlockStatement empty-block mutant on the `finally` block
+     * AND BooleanLiteral mutant on `setPending(false)` — both would leave
+     * pending stuck on true, keeping the button disabled forever.
+     */
+    vi.mocked(notifySelf).mockResolvedValue({ delivered: 1 });
+
+    render(<SendTestNotificationButton />);
+    const button = screen.getByRole('button', { name: /send test notification/i });
+    fireEvent.click(button);
+
+    await waitFor(() => expect(notifySelf).toHaveBeenCalled());
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+  });
 });

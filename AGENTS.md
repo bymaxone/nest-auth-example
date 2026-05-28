@@ -553,6 +553,24 @@ pnpm format:check
 pnpm test
 ```
 
+**For changes touching `apps/api/src/`, `apps/web/lib/`, or
+`apps/web/components/`, also run the mutation suite for the affected
+workspace.** The repo enforces a 100 % mutation score gate in CI
+(`.github/workflows/mutation.yml`) — any surviving mutant on a touched
+file blocks the merge.
+
+```bash
+pnpm mutation:api          # 3-6 min cold, <1 min incremental
+pnpm mutation:web          # 5-6 min cold, <1 min incremental
+```
+
+See [docs/guidelines/mutation-testing-guidelines.md](docs/guidelines/mutation-testing-guidelines.md)
+for the 13 hard-won rules (AST placement, count-only trap, Radix
+teardown, HTMLInputElement normalisation, Math.random pairing,
+side-effect spies, block-form disables, etc.). The thresholds and CI
+policy are documented in
+[docs/stryker/IMPLEMENTATION_PLAN.md](docs/stryker/IMPLEMENTATION_PLAN.md).
+
 Manual sweep on diff:
 
 - [ ] No `console.log` / `console.warn` / `console.error`.

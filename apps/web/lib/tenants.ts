@@ -72,6 +72,7 @@ export const DEFAULT_TENANT_SLUG = 'acme';
  *   which is `null` when the query param is absent.
  */
 export function resolveDefaultTenantSlug(urlSlug: string | null): string {
+  // Stryker disable next-line ConditionalExpression: the `urlSlug !== null` clause is a defensive narrowing for readers — `TENANT_OPTIONS.some((opt) => opt.value === null)` is already false because every option holds a non-null string slug, so dropping the null check produces an equivalent program.
   if (urlSlug !== null && TENANT_OPTIONS.some((opt) => opt.value === urlSlug)) {
     return urlSlug;
   }

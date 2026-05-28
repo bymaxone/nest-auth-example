@@ -321,5 +321,79 @@ describe('AppJwtAuthGuard', () => {
       expect(result).toBe(true);
       expect(jwtCanActivate).toHaveBeenCalledWith(ctx);
     });
+
+    it('passes through a properly formed platform Bearer JWT on a JwtPlatformGuard-protected route', async () => {
+      /*
+       * Scenario: a request to the platform admin routes carries a
+       * Bearer token whose payload is `{ type: 'platform' }`. The
+       * guard MUST short-circuit to `true` so the request reaches
+       * `JwtPlatformGuard` (which performs the authoritative
+       * signature, expiry, and revocation checks). The lib's
+       * cookie-based `JwtAuthGuard` must NOT be invoked on this
+       * path — calling it would 401 a legitimate platform-admin
+       * request that has no dashboard cookie.
+       */
+      getAllAndOverride.mockReturnValue(undefined);
+      const handler = {};
+      const cls = {};
+      markAsPlatformRoute(handler, cls);
+      const ctx = makeContext(handler, cls, {
+        headers: { authorization: `Bearer ${encodeFakeJwt({ type: 'platform', sub: 'p-1' })}` },
+      });
+
+      const result = await Promise.resolve(guard.canActivate(ctx));
+
+      expect(result).toBe(true);
+      expect(jwtCanActivate).not.toHaveBeenCalled();
+    });
+
+    it('rejects a Bearer header that does not start with the literal "Bearer " prefix', async () => {
+      /*
+       * Scenario: a misconfigured client sends `Bearer<space-less>` or
+       * `Token ...` in the Authorization header. The guard's
+       * platform-token detection must require the exact
+       * `'Bearer '` literal (with trailing space) and ignore
+       * anything else — otherwise an attacker could craft a
+       * header that confuses the prefix check and bypasses the
+       * downstream platform guard's chain.
+       */
+      getAllAndOverride.mockReturnValue(undefined);
+      jwtCanActivate.mockResolvedValue(true);
+      const handler = {};
+      const cls = {};
+      markAsPlatformRoute(handler, cls);
+      const ctx = makeContext(handler, cls, {
+        headers: { authorization: `Token ${encodeFakeJwt({ type: 'platform' })}` },
+      });
+
+      await Promise.resolve(guard.canActivate(ctx));
+
+      // No platform pass-through: the cookie-based guard handles the request.
+      expect(jwtCanActivate).toHaveBeenCalledWith(ctx);
+    });
+
+    it('rejects a JWT whose payload segment is the empty string', async () => {
+      /*
+       * Scenario: the Authorization header carries `Bearer ..`
+       * with three dot-separated segments where the middle
+       * (payload) segment is empty. JSON.parse('') would throw,
+       * but the guard short-circuits earlier on the empty-string
+       * check — pinning that guard so the pass-through cannot
+       * accept an unparseable token.
+       */
+      getAllAndOverride.mockReturnValue(undefined);
+      jwtCanActivate.mockResolvedValue(true);
+      const handler = {};
+      const cls = {};
+      markAsPlatformRoute(handler, cls);
+      const ctx = makeContext(handler, cls, {
+        headers: { authorization: 'Bearer header..signature' },
+      });
+
+      await Promise.resolve(guard.canActivate(ctx));
+
+      // Cookie-based guard takes over.
+      expect(jwtCanActivate).toHaveBeenCalledWith(ctx);
+    });
   });
 });

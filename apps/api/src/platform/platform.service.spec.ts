@@ -365,5 +365,94 @@ describe('PlatformService', () => {
         updated,
       );
     });
+
+    it('listUsers orders results by createdAt ascending', async () => {
+      /*
+       * Scenario: the platform admin UI displays the user list in
+       * creation order so the oldest accounts appear first
+       * (signup chronology). A drift that dropped the orderBy
+       * clause would let Prisma return rows in indeterminate
+       * order — visibly broken on every page load.
+       */
+      userFindMany.mockResolvedValue([]);
+
+      await service.listUsers('tenant-acme');
+
+      const calls = userFindMany.mock.calls as unknown as Array<
+        [{ orderBy: { createdAt: string } }]
+      >;
+      expect(calls[0]?.[0].orderBy).toEqual({ createdAt: 'asc' });
+    });
+
+    it('updateUserStatus pre-read select restricts the projection to {id, status}', async () => {
+      /*
+       * Scenario: the pre-update read inside the SERIALIZABLE
+       * transaction only needs the previous status (for the
+       * audit row) and the id (to confirm the row exists).
+       * Widening the select would leak credential columns
+       * through the platform admin path; a regression that
+       * dropped `status` from the select would make the audit
+       * row record `undefined` as the previous state.
+       */
+      const existing = { id: 'user-1', status: UserStatus.ACTIVE };
+      const updated = makeSafeUser({ status: UserStatus.SUSPENDED });
+      userFindUnique.mockResolvedValue(existing);
+      userUpdate.mockResolvedValue(updated);
+
+      await service.updateUserStatus('user-1', dto, actorId, ip, userAgent);
+
+      const calls = userFindUnique.mock.calls as unknown as Array<
+        [{ where: { id: string }; select: { id: boolean; status: boolean } }]
+      >;
+      expect(calls[0]?.[0].select).toEqual({ id: true, status: true });
+    });
+
+    it('surfaces "User \'<id>\' not found" verbatim when the target row is missing', async () => {
+      /*
+       * Scenario: the platform admin attempts to suspend a user
+       * id that does not exist. The 404 message MUST name the
+       * specific user id so the audit trail and UI surface
+       * exactly which action missed — the same pattern as the
+       * tenant-scoped status update.
+       */
+      userFindUnique.mockResolvedValue(null);
+
+      await expect(
+        service.updateUserStatus('ghost-id', dto, actorId, ip, userAgent),
+      ).rejects.toThrow("User 'ghost-id' not found");
+    });
+
+    it('logs the documented audit-write failure payload when prisma.auditLog.create rejects', async () => {
+      /*
+       * Scenario: the status mutation succeeds but the audit row
+       * insert briefly fails (transient DB issue). The service
+       * MUST NOT abort the response — losing the audit row is
+       * preferable to refusing a successful platform admin
+       * action — but the failure must surface in operator logs
+       * with the canonical event message, the target user id,
+       * and the underlying error so support can investigate
+       * the audit-trail gap.
+       */
+      const existing = { id: 'user-1', status: UserStatus.ACTIVE };
+      const updated = makeSafeUser({ status: UserStatus.SUSPENDED });
+      userFindUnique.mockResolvedValue(existing);
+      userUpdate.mockResolvedValue(updated);
+      auditLogCreate.mockRejectedValueOnce(new Error('Postgres down'));
+      const errorSpy = jest
+        .spyOn((service as unknown as { logger: { error: (m: unknown) => void } }).logger, 'error')
+        .mockImplementation(() => undefined);
+
+      await service.updateUserStatus('user-1', dto, actorId, ip, userAgent);
+
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const arg = errorSpy.mock.calls[0]?.[0] as {
+        msg?: string;
+        targetUserId?: string;
+        error?: string;
+      };
+      expect(arg.msg).toBe('AuditLog write failed for platform.user.status_changed');
+      expect(arg.targetUserId).toBe('user-1');
+      expect(arg.error).toBe('Postgres down');
+    });
   });
 });

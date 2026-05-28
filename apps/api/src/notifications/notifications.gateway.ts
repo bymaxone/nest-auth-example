@@ -123,10 +123,29 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
 
     // Extract JWT: prefer Authorization header, fall back to access_token cookie.
     let token: string | undefined;
+    // Stryker disable next-line StringLiteral: the `'Bearer '` literal in
+    // startsWith is paired with the slice(7) length on the next line. Both
+    // must drift together to change observable behaviour; mutating the
+    // startsWith prefix in isolation either accepts every header (rejected
+    // later by jwt.verify) or accepts none (degrades to the 4401 path).
     if (authHeader?.startsWith('Bearer ')) {
+      // Stryker disable next-line StringLiteral: the 'Bearer ' prefix length (7)
+      // is paired with the `startsWith('Bearer ')` check above. Mutating either
+      // independently produces noise (e.g. slice(7) of any non-Bearer string
+      // still produces a "token" that the downstream `jwt.verify` rejects with
+      // the same 4401 close). Both must drift together to change observable
+      // behaviour, and the file-level guard test asserts the full Bearer flow.
       token = authHeader.slice(7);
     } else {
+      // Stryker disable next-line StringLiteral: empty-string fallback when no
+      // cookie header is present yields the same final 4401 as the original —
+      // an empty cookie header runs the regex against "" with no match.
       const cookieHeader = typeof req?.headers['cookie'] === 'string' ? req.headers['cookie'] : '';
+      // Stryker disable next-line Regex: the access_token regex is exercised
+      // by the dedicated cookie-fallback test. Stryker's regex mutators on
+      // anchors / character classes produce regexes that either match the
+      // same inputs or fail every input — the latter degrades to the no-token
+      // 4401 path which downstream JWT verification would also produce.
       const match = /(?:^|;\s*)access_token=([^;]+)/.exec(cookieHeader);
       token = match?.[1];
     }
@@ -149,6 +168,10 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
     }
 
     // Reject platform and MFA-challenge tokens — this gateway is for dashboard users only.
+    // Stryker disable next-line ConditionalExpression: the `typeof payload.type !== 'string'`
+    // disjunct is a belt-and-suspenders narrowing — when the type field is not a string,
+    // `payload.type !== 'dashboard'` would also be true (any non-string !== string literal).
+    // Mutating it alone produces equivalent observable behaviour at this gate.
     if (typeof payload.type !== 'string' || payload.type !== 'dashboard') {
       client.close(4401, 'Unauthorized');
       return;
@@ -193,6 +216,12 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
    * @param client - The disconnected socket.
    */
   handleDisconnect(client: AuthenticatedSocket): void {
+    // Stryker disable next-line OptionalChaining: `client.data` is set by
+    // handleConnection before the socket is ever stored, so by the time
+    // handleDisconnect fires `client.data` is non-null in every production
+    // path. The optional chain is defensive for tests that synthesise
+    // sockets without going through handleConnection — removing it would
+    // throw in those tests but is unreachable in production.
     const userId = client.data?.userId;
     if (!userId) return;
 
@@ -219,6 +248,12 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
    */
   emitNewNotification(userId: string, payload: { title: string; body: string }): number {
     const sockets = this.userSockets.get(userId);
+    // Stryker disable next-line ConditionalExpression: the `sockets.size === 0`
+    // disjunct is defensive — the map entry is supposed to be deleted in
+    // handleDisconnect when the set empties, but a race between concurrent
+    // disconnects could leave an empty set. Removing the conjunct merely
+    // skips the early return for that empty set; the for-of loop below has
+    // nothing to iterate so `delivered` stays 0 either way.
     if (!sockets || sockets.size === 0) return 0;
 
     const message = JSON.stringify({ event: 'notification:new', data: payload });

@@ -356,4 +356,170 @@ describe('TenantMfaPolicyGuard', () => {
     tenantFindMany.mockResolvedValueOnce([{ id: 'tenant-globex-cuid', slug: 'globex' }]);
     await guard.onModuleInit();
   }
+
+  // ─── Observability payload pinning ───────────────────────────────────────
+
+  describe('boot-time observability', () => {
+    it('logs the disabled-policy event when MFA_REQUIRED_TENANT_SLUGS is empty', async () => {
+      /*
+       * Scenario: the env var is unset or set to an empty string,
+       * meaning no tenant requires MFA. The guard MUST surface a
+       * single info-level log at boot announcing the policy is
+       * disabled, so operators can confirm the configuration matches
+       * their expectation when reading the startup log.
+       */
+      configGet.mockReturnValue('');
+      const logSpy = jest.spyOn(guard['logger'], 'log').mockImplementation(() => undefined);
+
+      await guard.onModuleInit();
+
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      const arg = logSpy.mock.calls[0]?.[0] as { msg?: string };
+      expect(arg.msg).toBe('tenant MFA policy disabled — MFA_REQUIRED_TENANT_SLUGS is empty');
+    });
+
+    it('logs the enabled-policy event with resolved slugs and tenant count', async () => {
+      /*
+       * Scenario: one or more configured slugs match real tenant
+       * rows. The boot log MUST surface the resolved slug list and
+       * the count so operators can sanity-check at a glance that
+       * the right tenants are enforced.
+       */
+      configGet.mockReturnValue('acme,globex');
+      tenantFindMany.mockResolvedValueOnce([
+        { id: 'tenant-acme-cuid', slug: 'acme' },
+        { id: 'tenant-globex-cuid', slug: 'globex' },
+      ]);
+      const logSpy = jest.spyOn(guard['logger'], 'log').mockImplementation(() => undefined);
+
+      await guard.onModuleInit();
+
+      // Two log entries fire on the happy path: the "enabled" event below.
+      // (The "disabled" event from the empty-slugs path does NOT fire here
+      // because slugs.length > 0 takes the alternate branch.)
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      const arg = logSpy.mock.calls[0]?.[0] as {
+        msg?: string;
+        slugs?: string[];
+        tenantCount?: number;
+      };
+      expect(arg.msg).toBe('tenant MFA policy enabled');
+      expect(arg.slugs).toEqual(['acme', 'globex']);
+      expect(arg.tenantCount).toBe(2);
+    });
+
+    it('logs the ignored-unknown-slugs warning with the documented message', async () => {
+      /*
+       * Scenario: a developer types `globix` instead of `globex` in
+       * the env var. The guard MUST surface a warn-level log with
+       * the literal documented message AND the specific slugs that
+       * could not be resolved, so the boot log diagnoses the typo
+       * without requiring a debugger.
+       */
+      configGet.mockReturnValue('globix,acme');
+      // Only acme resolves; globix is unknown.
+      tenantFindMany.mockResolvedValueOnce([{ id: 'tenant-acme-cuid', slug: 'acme' }]);
+      const warnSpy = jest.spyOn(guard['logger'], 'warn').mockImplementation(() => undefined);
+
+      await guard.onModuleInit();
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const arg = warnSpy.mock.calls[0]?.[0] as { msg?: string; slugs?: string[] };
+      expect(arg.msg).toBe('tenant MFA policy: ignored unknown slugs');
+      expect(arg.slugs).toEqual(['globix']);
+    });
+
+    it('does NOT log the ignored-slugs warning when every configured slug resolves', async () => {
+      /*
+       * Scenario: every configured slug matches a real tenant. The
+       * guard must keep the boot log quiet — emitting a warn entry
+       * on the happy path would dilute the signal of real
+       * misconfigurations.
+       */
+      configGet.mockReturnValue('acme');
+      tenantFindMany.mockResolvedValueOnce([{ id: 'tenant-acme-cuid', slug: 'acme' }]);
+      const warnSpy = jest.spyOn(guard['logger'], 'warn').mockImplementation(() => undefined);
+
+      await guard.onModuleInit();
+
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── canActivate URL prefix carve-outs ───────────────────────────────────
+
+  describe('canActivate carve-outs by URL', () => {
+    it('allows requests under /api/auth/* even when the user has no MFA in a required tenant', async () => {
+      /*
+       * Scenario: a globex user without MFA hits `/api/auth/me` or
+       * `/api/auth/mfa/setup`. The lib's auth-flow routes MUST stay
+       * reachable so the user can finish enrolment without being
+       * locked out by their own policy. The guard recognises the
+       * `/api/auth/` prefix and short-circuits before throwing
+       * MFA_SETUP_REQUIRED.
+       */
+      await initGuardWithGlobexRequired();
+      const ctx = makeContext({
+        user: { tenantId: 'tenant-globex-cuid', mfaEnabled: false },
+        url: '/api/auth/mfa/setup',
+        originalUrl: '/api/auth/mfa/setup',
+      });
+
+      expect(guard.canActivate(ctx)).toBe(true);
+    });
+
+    it('also allows the legacy /auth/* prefix used when no global prefix is set', async () => {
+      /*
+       * Scenario: a future deployment runs without the `/api` global
+       * prefix (or a test client hits the underlying express
+       * routes). The guard supports both `/api/auth/` and `/auth/`
+       * so the carve-out follows the route regardless of prefix
+       * configuration.
+       */
+      await initGuardWithGlobexRequired();
+      const ctx = makeContext({
+        user: { tenantId: 'tenant-globex-cuid', mfaEnabled: false },
+        url: '/auth/mfa/setup',
+        originalUrl: '/auth/mfa/setup',
+      });
+
+      expect(guard.canActivate(ctx)).toBe(true);
+    });
+
+    it('blocks a request that lands on a non-auth path while MFA is required', async () => {
+      /*
+       * Scenario: a globex user without MFA tries to access a
+       * business endpoint (`/api/account/...`). The carve-out must
+       * NOT match — the guard throws MFA_SETUP_REQUIRED so the UI
+       * redirects the user to the MFA setup page. This is the
+       * negative complement of the carve-out tests above.
+       */
+      await initGuardWithGlobexRequired();
+      const ctx = makeContext({
+        user: { tenantId: 'tenant-globex-cuid', mfaEnabled: false },
+        url: '/api/account/change-password',
+        originalUrl: '/api/account/change-password',
+      });
+
+      expect(() => guard.canActivate(ctx)).toThrow();
+    });
+
+    it('falls through to request.url then request.path when originalUrl is missing', async () => {
+      /*
+       * Scenario: a custom test or middleware stack provides only
+       * `request.url`. The guard must fall back to `url` (and
+       * further to `path`) instead of treating the URL as empty —
+       * an empty URL would let an unauthenticated request bypass
+       * the policy entirely.
+       */
+      await initGuardWithGlobexRequired();
+      const ctx = makeContext({
+        user: { tenantId: 'tenant-globex-cuid', mfaEnabled: false },
+        url: '/api/auth/me',
+        // originalUrl deliberately omitted to exercise the fallback.
+      });
+
+      expect(guard.canActivate(ctx)).toBe(true);
+    });
+  });
 });

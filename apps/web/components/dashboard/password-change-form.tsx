@@ -20,6 +20,10 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/auth/password-input';
 import { changePassword, handleAuthClientError } from '@/lib/auth-client';
+import { cn } from '@/lib/utils';
+
+/** Tailwind error-border class applied to a password input on validation failure. */
+const ERROR_BORDER_CLASS = 'border-red-500/60';
 
 const changePasswordSchema = z
   .object({
@@ -51,7 +55,9 @@ export function PasswordChangeForm() {
     formState: { errors },
   } = useForm<ChangePasswordValues>({
     resolver: zodResolver(changePasswordSchema),
+    // Stryker disable next-line StringLiteral: RHF validation cadence — documented equivalent in mutation-testing-guidelines.md § "Equivalent mutants — known patterns in this repo".
     mode: 'onSubmit',
+    // Stryker disable next-line StringLiteral: same reasoning as `mode` above.
     reValidateMode: 'onChange',
   });
 
@@ -82,7 +88,7 @@ export function PasswordChangeForm() {
           autoComplete="current-password"
           placeholder="••••••••"
           {...register('currentPassword')}
-          className={errors.currentPassword ? 'border-red-500/60' : ''}
+          className={cn(errors.currentPassword && ERROR_BORDER_CLASS)}
         />
         {errors.currentPassword && (
           <p className="text-xs text-red-400">{errors.currentPassword.message}</p>
@@ -98,7 +104,7 @@ export function PasswordChangeForm() {
           autoComplete="new-password"
           placeholder="••••••••"
           {...register('newPassword')}
-          className={errors.newPassword ? 'border-red-500/60' : ''}
+          className={cn(errors.newPassword && ERROR_BORDER_CLASS)}
         />
         {errors.newPassword && <p className="text-xs text-red-400">{errors.newPassword.message}</p>}
       </div>
@@ -112,7 +118,7 @@ export function PasswordChangeForm() {
           autoComplete="new-password"
           placeholder="••••••••"
           {...register('confirmPassword')}
-          className={errors.confirmPassword ? 'border-red-500/60' : ''}
+          className={cn(errors.confirmPassword && ERROR_BORDER_CLASS)}
         />
         {errors.confirmPassword && (
           <p className="text-xs text-red-400">{errors.confirmPassword.message}</p>

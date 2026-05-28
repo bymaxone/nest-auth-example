@@ -70,9 +70,11 @@ export type Env = Readonly<z.infer<typeof envSchema>>;
 export const env: Env = (() => {
   const result = envSchema.safeParse(process.env);
   if (!result.success) {
+    // Stryker disable StringLiteral: schema declares only top-level fields, so every Zod issue path is a single-segment array — `i.path.join('.')` and `i.path.join('')` render identically. The `'.'` separator is kept for forward compatibility with future nested refinements (and matches the API-side env schema convention).
     const issues = result.error.issues
       .map((i) => `  • ${i.path.join('.')}: ${i.message}`)
       .join('\n');
+    // Stryker restore StringLiteral
     throw new Error(`Invalid web env:\n${issues}`);
   }
   return Object.freeze(result.data);

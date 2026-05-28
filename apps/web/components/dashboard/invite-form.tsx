@@ -19,6 +19,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { createInvitation, handleAuthClientError } from '@/lib/auth-client';
+import { cn } from '@/lib/utils';
+
+/** Tailwind error-border class applied to the email input on validation failure. Pinned by the email-error tests; kept OUTSIDE any disable block. */
+const ERROR_BORDER_CLASS = 'border-red-500/60';
 
 const ROLE_OPTIONS = ['VIEWER', 'MEMBER', 'ADMIN'] as const;
 
@@ -50,7 +54,9 @@ export function InviteForm({ onSuccess }: InviteFormProps) {
   } = useForm<InviteValues>({
     resolver: zodResolver(inviteSchema),
     defaultValues: { role: 'MEMBER' },
+    // Stryker disable next-line StringLiteral: RHF validation cadence — documented equivalent in mutation-testing-guidelines.md.
     mode: 'onSubmit',
+    // Stryker disable next-line StringLiteral: same reasoning as `mode` above.
     reValidateMode: 'onChange',
   });
 
@@ -59,6 +65,7 @@ export function InviteForm({ onSuccess }: InviteFormProps) {
     try {
       await createInvitation(data.email, data.role);
       toast.success(`Invitation sent to ${data.email}.`);
+      // Stryker disable next-line ObjectLiteral: `reset({})` is observationally equivalent under React Hook Form v7's reset semantics — when an empty object is passed, RHF re-applies the initial `defaultValues` (`{ role: 'MEMBER' }`) for uncontrolled fields whose refs do not receive an explicit empty-string set. The select DOM value stays at MEMBER either way. The literal `{ role: 'MEMBER' }` is kept for self-documentation of intent.
       reset({ role: 'MEMBER' });
       onSuccess();
     } catch (err) {
@@ -84,7 +91,7 @@ export function InviteForm({ onSuccess }: InviteFormProps) {
           autoComplete="off"
           placeholder="colleague@example.com"
           {...register('email')}
-          className={errors.email ? 'border-red-500/60' : ''}
+          className={cn(errors.email && ERROR_BORDER_CLASS)}
         />
         {errors.email && <p className="text-xs text-red-400">{errors.email.message}</p>}
       </div>

@@ -229,4 +229,131 @@ describe('PlatformLoginForm submission', () => {
       expect(screen.getByText(/signing in/i)).toBeDefined();
     });
   });
+
+  it('passes the EMPTY string to translateAuthError when mapAuthClientError returns UNKNOWN', async () => {
+    /*
+     * Scenario: the UNKNOWN sentinel must be normalised to '' before
+     * being passed to translateAuthError so the user sees the generic
+     * fallback copy rather than the literal "UNKNOWN" code. Pins the
+     * truthy arm of the `code === 'UNKNOWN' ? '' : code` ternary.
+     */
+    const { mapAuthClientError } = await import('@/lib/auth-client');
+    const { translateAuthError } = await import('@/lib/auth-errors');
+    vi.mocked(mapAuthClientError).mockReturnValueOnce({
+      code: 'UNKNOWN' as never,
+      message: 'Generic',
+    });
+    vi.mocked(platformLogin).mockRejectedValue(new Error('boom'));
+
+    render(<PlatformLoginForm />);
+
+    fireEvent.change(screen.getByLabelText(/email/i), {
+      target: { value: 'admin@example.com' },
+    });
+    const inputs = document.querySelectorAll('input');
+    fireEvent.change(inputs[1]!, { target: { value: 'wrong' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /sign in to platform admin/i }));
+
+    await waitFor(() => {
+      expect(translateAuthError).toHaveBeenCalledWith('');
+    });
+  });
+
+  it('re-enables the submit button + restores its label after a failed submit', async () => {
+    /*
+     * Scenario: when platformLogin rejects the `finally { setIsSubmitting(false) }`
+     * cleanup must run so the admin can retry. Pins the finally block
+     * AND the BooleanLiteral on the `false` argument — a regression
+     * that removed the block (or flipped to `true`) would leave the
+     * submit button stuck on "Signing in…" + disabled forever.
+     */
+    vi.mocked(platformLogin).mockRejectedValueOnce(new Error('Unauthorized'));
+
+    render(<PlatformLoginForm />);
+    fireEvent.change(screen.getByLabelText(/email/i), {
+      target: { value: 'admin@example.com' },
+    });
+    const inputs = document.querySelectorAll('input');
+    fireEvent.change(inputs[1]!, { target: { value: 'wrong' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /sign in to platform admin/i }));
+
+    // After the rejection settles the button must be clickable again.
+    await waitFor(() => {
+      const btn = screen.getByRole<HTMLButtonElement>('button', {
+        name: /sign in to platform admin/i,
+      });
+      expect(btn.disabled).toBe(false);
+    });
+    // The "Signing in…" label must NOT persist.
+    expect(screen.queryByText(/signing in/i)).toBeNull();
+  });
+});
+
+// ── A11y wiring on email + password inputs ───────────────────────────────────
+
+describe('PlatformLoginForm a11y wiring on validation errors', () => {
+  it('sets aria-invalid="false" and omits aria-describedby on the email input while pristine', () => {
+    /*
+     * Scenario: before any submit fires, the email field must not be
+     * marked invalid AND must not point at a non-existent error id.
+     * Pins the falsy arms of both `errors.email ?` ternaries on lines
+     * 110-111: the aria-describedby `undefined` fallback (React drops
+     * the attribute) and `aria-invalid={!!errors.email}` falsy.
+     */
+    render(<PlatformLoginForm />);
+    const email = screen.getByLabelText<HTMLInputElement>(/email/i);
+    expect(email.getAttribute('aria-invalid')).toBe('false');
+    expect(email.getAttribute('aria-describedby')).toBeNull();
+  });
+
+  it('sets aria-invalid="true" + aria-describedby="email-error" on the email input after validation fails', async () => {
+    /*
+     * Scenario: after an empty-submit validation fires, the email
+     * input's `aria-invalid` must flip to `true` AND `aria-describedby`
+     * must point at the documented `email-error` id so a screen reader
+     * announces the validation message in order. Pins both BooleanLiteral
+     * mutants on `!!errors.email` AND the verbatim 'email-error' literal.
+     */
+    render(<PlatformLoginForm />);
+    fireEvent.click(screen.getByRole('button', { name: /sign in to platform admin/i }));
+    await screen.findByText(/valid email/i);
+
+    const email = screen.getByLabelText<HTMLInputElement>(/email/i);
+    expect(email.getAttribute('aria-invalid')).toBe('true');
+    expect(email.getAttribute('aria-describedby')).toBe('email-error');
+  });
+
+  it('sets aria-invalid="true" + aria-describedby="password-error" on the password input after validation fails', async () => {
+    /*
+     * Scenario: counterpart for the password field. Pins both
+     * BooleanLiteral mutants on `!!errors.password` AND the verbatim
+     * 'password-error' literal, plus the `errors.password && <p>...</p>`
+     * conditional rendering of the error paragraph.
+     */
+    render(<PlatformLoginForm />);
+    // Email valid, password empty — only the password validation fires.
+    fireEvent.change(screen.getByLabelText(/email/i), {
+      target: { value: 'admin@example.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /sign in to platform admin/i }));
+    await screen.findByText(/password is required/i);
+
+    const inputs = document.querySelectorAll<HTMLInputElement>('input');
+    const password = inputs[1]!;
+    expect(password.getAttribute('aria-invalid')).toBe('true');
+    expect(password.getAttribute('aria-describedby')).toBe('password-error');
+  });
+
+  it('does NOT render the password error paragraph while the field is pristine', () => {
+    /*
+     * Scenario: counterpart to the password-after-failure test — the
+     * `<p id="password-error">…</p>` paragraph must NOT render until
+     * validation fires. Pins the falsy arm of the `errors.password && …`
+     * conditional.
+     */
+    render(<PlatformLoginForm />);
+    expect(document.getElementById('password-error')).toBeNull();
+  });
 });

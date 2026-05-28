@@ -23,6 +23,15 @@ import { cn } from '@/lib/utils';
 /** Props extend every native input attribute except `type`, which is managed internally. */
 type PasswordInputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'>;
 
+// Stryker disable StringLiteral
+const INPUT_PAD_RIGHT_CLASS = 'pr-12';
+const TOGGLE_POSITION_CLASS = 'absolute right-4 top-1/2 -translate-y-1/2';
+const TOGGLE_TONE_CLASS =
+  'text-[rgba(255,255,255,0.4)] transition-colors duration-200 hover:text-[rgba(255,255,255,0.7)]';
+const TOGGLE_FOCUS_CLASS =
+  'rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6224]/50';
+// Stryker restore StringLiteral
+
 /**
  * Password input field with a show/hide visibility toggle.
  *
@@ -44,18 +53,14 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
           {...props}
           ref={ref}
           type={isVisible ? 'text' : 'password'}
-          className={cn('pr-12', className)}
+          className={cn(INPUT_PAD_RIGHT_CLASS, className)}
         />
         <button
           type="button"
           aria-label={isVisible ? 'Conceal' : 'Reveal'}
           aria-pressed={isVisible}
           onClick={() => setIsVisible((v) => !v)}
-          className={cn(
-            'absolute right-4 top-1/2 -translate-y-1/2',
-            'text-[rgba(255,255,255,0.4)] transition-colors duration-200 hover:text-[rgba(255,255,255,0.7)]',
-            'rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6224]/50',
-          )}
+          className={cn(TOGGLE_POSITION_CLASS, TOGGLE_TONE_CLASS, TOGGLE_FOCUS_CLASS)}
         >
           {isVisible ? (
             <EyeOff size={16} aria-hidden="true" />

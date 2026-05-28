@@ -90,4 +90,68 @@ describe('env', () => {
     if (savedSecret !== undefined) process.env['AUTH_JWT_SECRET_FOR_PROXY'] = savedSecret;
     vi.resetModules();
   });
+
+  it('lists every missing variable by name and indents each one with the bullet prefix', async () => {
+    /*
+     * Scenario: operators staring at a `pnpm dev` crash need to see which
+     * env vars failed validation so they can fix the `.env` file in one
+     * pass. The error message must enumerate every missing variable on its
+     * own line, prefixed with the bullet glyph, and use a dot as the path
+     * separator for any nested Zod issue. Pins the multi-line render of
+     * the validation issues — defending against a regression that drops
+     * either the bullet glyph or the path-segment join character.
+     */
+    vi.resetModules();
+    const savedUrl = process.env['INTERNAL_API_URL'];
+    const savedSecret = process.env['AUTH_JWT_SECRET_FOR_PROXY'];
+    delete process.env['INTERNAL_API_URL'];
+    delete process.env['AUTH_JWT_SECRET_FOR_PROXY'];
+
+    let captured: unknown;
+    try {
+      await import('./env.js');
+    } catch (err) {
+      captured = err;
+    }
+
+    expect(captured).toBeInstanceOf(Error);
+    const message = (captured as Error).message;
+    // Header line is the verbatim documented prefix.
+    expect(message.startsWith('Invalid web env:\n')).toBe(true);
+    // Every missing variable surfaces as its own bulleted line — both names
+    // pinned to lock the per-issue mapper.
+    expect(message).toMatch(/^ {2}• INTERNAL_API_URL: /m);
+    expect(message).toMatch(/^ {2}• AUTH_JWT_SECRET_FOR_PROXY: /m);
+    // Issues are joined with newlines, not concatenated together.
+    const bulletLines = message.split('\n').filter((line) => line.startsWith('  • '));
+    expect(bulletLines.length).toBeGreaterThanOrEqual(2);
+
+    if (savedUrl !== undefined) process.env['INTERNAL_API_URL'] = savedUrl;
+    if (savedSecret !== undefined) process.env['AUTH_JWT_SECRET_FOR_PROXY'] = savedSecret;
+    vi.resetModules();
+  });
+
+  it('defaults NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED to the literal boolean false when the env var is unset', async () => {
+    /*
+     * Scenario: a fresh deploy that has not opted into Google OAuth should
+     * boot cleanly with the feature disabled by default — the schema must
+     * coerce a missing var to the literal boolean `false`, not to `true`
+     * (which would surface the OAuth button to end users on every fresh
+     * environment) and not to `undefined` (which would skip the
+     * `enum`/`transform` pipeline entirely and break consumer type
+     * narrowing). Pins the `.default(false)` literal so a regression to
+     * `.default(true)` or `.default(undefined)` is caught at test time.
+     */
+    vi.resetModules();
+    const saved = process.env['NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED'];
+    delete process.env['NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED'];
+
+    const { env } = await import('./env.js');
+
+    expect(env.NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED).toBe(false);
+    expect(typeof env.NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED).toBe('boolean');
+
+    if (saved !== undefined) process.env['NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED'] = saved;
+    vi.resetModules();
+  });
 });

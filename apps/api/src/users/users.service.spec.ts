@@ -300,6 +300,34 @@ describe('UsersService', () => {
       expect('passwordHash' in result).toBe(false);
     });
 
+    it('invalidates the user-status cache by the exact `nest-auth-example:us:<userId>` Redis key', async () => {
+      /*
+       * Scenario: after a status change, the lib's
+       * UserStatusGuard reads from Redis to enforce the new
+       * status on the very next request. The cache key MUST
+       * include the redis namespace prefix and the target user
+       * id — an empty key would clear an unrelated key (or
+       * fail), leaving the suspended user able to call
+       * protected routes for up to 60 seconds.
+       */
+      findById.mockResolvedValue(makeSafeUser({ tenantId: 'acme' }));
+      userUpdate.mockResolvedValue(makePrismaRow({ status: 'SUSPENDED' }));
+      auditLogCreate.mockResolvedValue(undefined);
+
+      await service.updateStatus(
+        'user-cache-key',
+        { status: UserStatus.SUSPENDED },
+        'acme',
+        'admin-1',
+        '127.0.0.1',
+        'agent',
+      );
+
+      expect(redisDel).toHaveBeenCalledTimes(1);
+      const calls = redisDel.mock.calls as unknown as Array<[string]>;
+      expect(calls[0]?.[0]).toBe('nest-auth-example:us:user-cache-key');
+    });
+
     it('swallows AuditLog write failures — does not throw, status update still returns', async () => {
       // A transient DB failure on the audit log must not roll back the status
       // update — the change is more important than the audit trail.
@@ -377,6 +405,124 @@ describe('UsersService', () => {
       expect(userFindMany).toHaveBeenCalledWith(
         expect.objectContaining({ orderBy: { createdAt: 'asc' } }),
       );
+    });
+  });
+
+  // ─── Exception messages and audit-log failure observability ──────────────
+
+  describe('updateStatus error messages and audit observability', () => {
+    it('surfaces "User \'<id>\' not found" with the requested id when no row matches', async () => {
+      /*
+       * Scenario: an admin attempts to change the status of a user
+       * id that no longer exists (deleted in another tab, or a
+       * stale dashboard). The 404 message MUST name the specific
+       * user id so the audit log and the admin's UI toast can
+       * differentiate which action missed.
+       */
+      findById.mockResolvedValue(null);
+
+      await expect(
+        service.updateStatus(
+          'ghost-user-cuid',
+          { status: UserStatus.SUSPENDED },
+          'tenant-acme',
+          'admin-1',
+          '203.0.113.5',
+          'admin-agent',
+        ),
+      ).rejects.toThrow("User 'ghost-user-cuid' not found");
+    });
+
+    it('surfaces the documented "Access denied" message when the target row belongs to another tenant', async () => {
+      /*
+       * Scenario: a defensive belt-and-suspenders check fires when
+       * the row resolves but its tenantId no longer matches the
+       * admin's (data drift, mid-flight tenant move). The 403
+       * message MUST stay generic — "Access denied" — to avoid
+       * leaking the fact that the user exists in another tenant.
+       */
+      findById.mockResolvedValue({
+        ...makeSafeUser({ tenantId: 'tenant-globex' }),
+      });
+
+      await expect(
+        service.updateStatus(
+          'user-1',
+          { status: UserStatus.SUSPENDED },
+          'tenant-acme',
+          'admin-1',
+          '203.0.113.5',
+          'admin-agent',
+        ),
+      ).rejects.toThrow('Access denied');
+    });
+
+    it('logs the AuditLog write failure with the documented message, target id, and error reason', async () => {
+      /*
+       * Scenario: the status update succeeded but the audit-log
+       * insert failed (e.g. Postgres briefly unavailable). The
+       * service MUST NOT abort — losing the audit row is
+       * preferable to refusing a successful status change — but
+       * the failure must surface in operator logs with the
+       * canonical message, target user id, and root cause so
+       * support can investigate the audit-trail gap.
+       */
+      findById.mockResolvedValue(makeSafeUser({ tenantId: 'tenant-acme' }));
+      userUpdate.mockResolvedValue(makePrismaRow());
+      redisDel.mockResolvedValue(1);
+      auditLogCreate.mockRejectedValue(new Error('Postgres down'));
+      const errorSpy = jest
+        .spyOn((service as unknown as { logger: { error: (m: unknown) => void } }).logger, 'error')
+        .mockImplementation(() => undefined);
+
+      await service.updateStatus(
+        'user-1',
+        { status: UserStatus.SUSPENDED },
+        'tenant-acme',
+        'admin-1',
+        '203.0.113.5',
+        'admin-agent',
+      );
+
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const arg = errorSpy.mock.calls[0]?.[0] as {
+        msg?: string;
+        targetUserId?: string;
+        error?: string;
+      };
+      expect(arg.msg).toBe('AuditLog write failed for user.status.changed');
+      expect(arg.targetUserId).toBe('user-1');
+      expect(arg.error).toBe('Postgres down');
+    });
+
+    it('uses String(err) when the audit-log error is not an Error instance', async () => {
+      /*
+       * Scenario: some Postgres drivers reject with plain strings
+       * instead of Error objects. The error-message extractor
+       * (`err instanceof Error ? err.message : String(err)`) must
+       * fall back to `String(err)` so the log entry still carries
+       * a useful reason even when the rejection bypasses the
+       * Error class.
+       */
+      findById.mockResolvedValue(makeSafeUser({ tenantId: 'tenant-acme' }));
+      userUpdate.mockResolvedValue(makePrismaRow());
+      redisDel.mockResolvedValue(1);
+      auditLogCreate.mockRejectedValue('plain-string failure');
+      const errorSpy = jest
+        .spyOn((service as unknown as { logger: { error: (m: unknown) => void } }).logger, 'error')
+        .mockImplementation(() => undefined);
+
+      await service.updateStatus(
+        'user-1',
+        { status: UserStatus.SUSPENDED },
+        'tenant-acme',
+        'admin-1',
+        '203.0.113.5',
+        'admin-agent',
+      );
+
+      const arg = errorSpy.mock.calls[0]?.[0] as { error?: string };
+      expect(arg.error).toBe('plain-string failure');
     });
   });
 });

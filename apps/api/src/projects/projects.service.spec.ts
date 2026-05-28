@@ -116,6 +116,24 @@ describe('ProjectsService', () => {
         expect.objectContaining({ where: { tenantId: 'empty-tenant' } }),
       );
     });
+
+    it('orders the project list by createdAt descending (newest first)', async () => {
+      /*
+       * Scenario: the dashboard's project list shows the most
+       * recently created project at the top so the user can
+       * see what they just created. A drift that emptied the
+       * orderBy clause would let Prisma return rows in
+       * indeterminate order — visibly broken on every page load.
+       */
+      projectFindMany.mockResolvedValue([]);
+
+      await service.listByTenant('acme');
+
+      const calls = projectFindMany.mock.calls as unknown as Array<
+        [{ orderBy: { createdAt: string } }]
+      >;
+      expect(calls[0]?.[0].orderBy).toEqual({ createdAt: 'desc' });
+    });
   });
 
   // ─── create ────────────────────────────────────────────────────────────────
@@ -195,6 +213,21 @@ describe('ProjectsService', () => {
       projectDeleteMany.mockResolvedValue({ count: 0 });
 
       await expect(service.delete('missing-proj', 'acme')).rejects.toThrow(NotFoundException);
+    });
+
+    it('names the missing project id verbatim in the 404 message', async () => {
+      /*
+       * Scenario: a user clicks delete on a project that
+       * another admin already removed (or that belongs to
+       * another tenant). The 404 message MUST name the
+       * specific project id so the audit trail and UI toast
+       * surface exactly which target failed.
+       */
+      projectDeleteMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.delete('ghost-proj', 'acme')).rejects.toThrow(
+        "Project 'ghost-proj' not found",
+      );
     });
   });
 });

@@ -732,4 +732,494 @@ describe('AccountService', () => {
       expect(tenantFindMany).toHaveBeenCalledTimes(1);
     });
   });
+
+  // ─── verifyScrypt guard — stored-hash format edge cases ────────────────────
+
+  describe('verifyScrypt edge cases (exercised through changePassword)', () => {
+    it('rejects a stored hash whose algorithm prefix is not "scrypt"', async () => {
+      /*
+       * Scenario: an admin imports password hashes from a system that
+       * used Argon2 ("argon2:salt:derived") and forgets to migrate them
+       * before flipping to this library. The verify path must refuse
+       * unknown algorithm prefixes so the user is forced through the
+       * password-reset flow instead of being silently locked out by a
+       * runtime crypto crash.
+       */
+      userFindUnique.mockResolvedValue({
+        id: 'user-1',
+        passwordHash: 'argon2:abcdef:0102030405',
+      });
+      const dto: ChangePasswordDto = {
+        currentPassword: 'AnyPassword1!',
+        newPassword: 'NewPassword2!',
+      };
+
+      await expect(service.changePassword('user-1', 'acme', dto)).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(userUpdate).not.toHaveBeenCalled();
+    });
+
+    it('rejects a stored hash with more than three colon-separated segments', async () => {
+      /*
+       * Scenario: a corrupted hash gains an extra colon-separated
+       * segment ("scrypt:salt:derived:bogus"). The wire format is
+       * exactly three segments; anything else indicates DB tampering
+       * or a deserialisation bug. The change-password flow must reject
+       * the hash safely rather than parse it as salt+derived and run
+       * scrypt on garbage data.
+       */
+      userFindUnique.mockResolvedValue({
+        id: 'user-1',
+        passwordHash: 'scrypt:deadbeef:0102:extra-segment',
+      });
+      const dto: ChangePasswordDto = {
+        currentPassword: 'AnyPassword1!',
+        newPassword: 'NewPassword2!',
+      };
+
+      await expect(service.changePassword('user-1', 'acme', dto)).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(userUpdate).not.toHaveBeenCalled();
+    });
+
+    it('rejects a stored hash with an empty derived segment', async () => {
+      /*
+       * Scenario: a partial database migration produced rows where the
+       * derived-key segment is empty ("scrypt:deadbeef:"). The flow
+       * must short-circuit and surface a 401 instead of accepting an
+       * empty buffer as a valid derived key — accepting it would let
+       * any candidate password "match" once timingSafeEqual hits the
+       * zero-length comparison, which is a silent authentication
+       * bypass.
+       */
+      userFindUnique.mockResolvedValue({
+        id: 'user-1',
+        passwordHash: 'scrypt:deadbeef:',
+      });
+      const dto: ChangePasswordDto = {
+        currentPassword: 'AnyPassword1!',
+        newPassword: 'NewPassword2!',
+      };
+
+      await expect(service.changePassword('user-1', 'acme', dto)).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+  });
+
+  // ─── Database call-shape pinning ───────────────────────────────────────────
+
+  describe('database call shapes and exception messages', () => {
+    it('listWorkspaces requests {id, slug, name} from the tenant relation and scopes by ACTIVE status', async () => {
+      /*
+       * Scenario: the workspace switcher UI displays the tenant slug,
+       * name, and id for every workspace the user can sign in to.
+       * A drift that drops any of these columns (or stops scoping by
+       * ACTIVE status) would either render an empty dropdown or
+       * surface suspended workspaces, both of which are visible UI
+       * regressions and a potential privacy leak.
+       */
+      userFindUnique.mockResolvedValue({ email: 'sole@example.dev' });
+      userFindMany.mockResolvedValue([]);
+
+      await service.listWorkspaces('user-1', 'tenant-acme');
+
+      const calls = userFindMany.mock.calls as unknown as Array<
+        [
+          {
+            where: { email: string; status: string };
+            select: {
+              tenantId: boolean;
+              role: boolean;
+              tenant: { select: { id: boolean; slug: boolean; name: boolean } };
+            };
+          },
+        ]
+      >;
+      const args = calls[0]?.[0];
+      expect(args?.where).toEqual({ email: 'sole@example.dev', status: 'ACTIVE' });
+      expect(args?.select).toEqual({
+        tenantId: true,
+        role: true,
+        tenant: { select: { id: true, slug: true, name: true } },
+      });
+    });
+
+    it('findSwitchTarget target lookup requests {id, status, tenant.slug} via the (tenantId, email) composite key', async () => {
+      /*
+       * Scenario: switching workspaces requires the destination row's
+       * id (to mint the new session), status (to refuse SUSPENDED /
+       * BANNED accounts), and the destination slug (for the audit log
+       * and UI breadcrumb). Pinning the select shape protects the API
+       * contract — a future refactor that omits `status` would silently
+       * let suspended users complete the switch, the kind of bug that
+       * never surfaces in green-path tests.
+       */
+      userFindUnique.mockResolvedValueOnce({ email: 'admin@example.dev' });
+      userFindUnique.mockResolvedValueOnce({
+        id: 'user-target',
+        status: 'ACTIVE',
+        tenant: { slug: 'globex' },
+      });
+
+      await service.findSwitchTarget('user-1', 'tenant-acme', 'tenant-globex');
+
+      const calls = userFindUnique.mock.calls as unknown as Array<
+        [
+          {
+            where: Record<string, unknown>;
+            select: {
+              id?: boolean;
+              status?: boolean;
+              tenant?: { select: { slug: boolean } };
+              email?: boolean;
+            };
+          },
+        ]
+      >;
+      // Second call is the target lookup; first is the caller email lookup.
+      const targetCall = calls[1]?.[0];
+      expect(targetCall?.select).toEqual({
+        id: true,
+        status: true,
+        tenant: { select: { slug: true } },
+      });
+    });
+
+    it('findSwitchTarget rejects a self-switch with the documented user-facing message', async () => {
+      /*
+       * Scenario: the workspace switcher accidentally re-selects the
+       * current workspace (the row remains visible until the page
+       * refreshes). The 400 response must carry the literal text the
+       * UI surfaces in a toast — an empty body would leave the user
+       * staring at a silent failure.
+       */
+      await expect(
+        service.findSwitchTarget('user-1', 'tenant-acme', 'tenant-acme'),
+      ).rejects.toThrow('You are already signed in to this workspace.');
+    });
+
+    it('findSwitchTarget surfaces the documented message when the caller row is missing', async () => {
+      /*
+       * Scenario: the JWT outlives a deleted user row (admin removed
+       * the account in another tab). The 401 response message tells
+       * the user their session is no longer valid, and the global
+       * error handler escalates to a sign-out.
+       */
+      userFindUnique.mockResolvedValueOnce(null);
+
+      await expect(
+        service.findSwitchTarget('ghost', 'tenant-acme', 'tenant-globex'),
+      ).rejects.toThrow('Your account could not be resolved.');
+    });
+
+    it('findSwitchTarget surfaces the documented 404 message when no row exists in the target workspace', async () => {
+      /*
+       * Scenario: the user's workspace list was loaded earlier and the
+       * admin of the target workspace removed the user since. The 404
+       * message tells the UI to refresh the dropdown — distinct from
+       * the 403 below, so the toast can differentiate "no longer a
+       * member" from "your account is suspended here".
+       */
+      userFindUnique.mockResolvedValueOnce({ email: 'admin@example.dev' });
+      userFindUnique.mockResolvedValueOnce(null);
+
+      await expect(
+        service.findSwitchTarget('user-1', 'tenant-acme', 'tenant-globex'),
+      ).rejects.toThrow('You do not have access to this workspace.');
+    });
+
+    it('findSwitchTarget surfaces the documented 403 message when the target row exists but is not ACTIVE', async () => {
+      /*
+       * Scenario: the user is suspended in the destination workspace
+       * but still listed in the dropdown because the page loaded
+       * before the suspension. The 403 message is distinct from the
+       * 404 above so the UI can show "Your account in <workspace> is
+       * suspended" instead of the generic "no access" message.
+       */
+      userFindUnique.mockResolvedValueOnce({ email: 'admin@example.dev' });
+      userFindUnique.mockResolvedValueOnce({
+        id: 'user-target',
+        status: 'SUSPENDED',
+        tenant: { slug: 'globex' },
+      });
+
+      await expect(
+        service.findSwitchTarget('user-1', 'tenant-acme', 'tenant-globex'),
+      ).rejects.toThrow('Your account in the target workspace is not active.');
+    });
+
+    it('getMfaStatus requests exactly {mfaEnabled, mfaRecoveryCodes} from prisma.user', async () => {
+      /*
+       * Scenario: the security page reads the MFA snapshot to render
+       * the recovery-code counter. The select clause MUST stay narrow:
+       * widening it would pull the encrypted TOTP secret and recovery
+       * code hashes through the service boundary, exactly the leak the
+       * focused projection prevents. Pinning the requested columns
+       * keeps the surface area minimal.
+       */
+      userFindUnique.mockResolvedValue({ mfaEnabled: true, mfaRecoveryCodes: ['h1', 'h2'] });
+
+      await service.getMfaStatus('user-1', 'tenant-acme');
+
+      const calls = userFindUnique.mock.calls as unknown as Array<
+        [{ where: { id: string; tenantId: string }; select: Record<string, boolean> }]
+      >;
+      expect(calls[0]?.[0].select).toEqual({ mfaEnabled: true, mfaRecoveryCodes: true });
+    });
+
+    it('getMfaStatus surfaces the documented 401 message when the user row is missing', async () => {
+      /*
+       * Scenario: the JWT outlives a deleted user row. The MFA
+       * endpoint must respond with a 401 carrying the literal text
+       * the UI maps to a hard sign-out — a different message would
+       * leave the dashboard rendering a fake "no MFA configured"
+       * card to a user with no actual session.
+       */
+      userFindUnique.mockResolvedValue(null);
+
+      await expect(service.getMfaStatus('user-1', 'tenant-acme')).rejects.toThrow(
+        'User account not found.',
+      );
+    });
+
+    it('getRequiredTenantIds queries tenants by slug list and returns only ids', async () => {
+      /*
+       * Scenario: the MFA-required policy lives as an env-configured
+       * list of tenant slugs. Resolution to tenant ids must use the
+       * slug list verbatim (over-matching would silently enforce MFA
+       * across every tenant) and the returned projection must be
+       * narrow to {id} (over-selecting would leak unrelated tenant
+       * columns through the policy resolution path).
+       */
+      userFindUnique.mockResolvedValue({ mfaEnabled: false, mfaRecoveryCodes: [] });
+      configGet.mockReturnValue('globex,acme');
+      tenantFindMany.mockResolvedValueOnce([
+        { id: 'tenant-globex-cuid' },
+        { id: 'tenant-acme-cuid' },
+      ]);
+
+      await service.getMfaStatus('user-1', 'tenant-globex-cuid');
+
+      const calls = tenantFindMany.mock.calls as unknown as Array<
+        [{ where: { slug: { in: string[] } }; select: { id: boolean } }]
+      >;
+      const args = calls[0]?.[0];
+      expect(args?.where).toEqual({ slug: { in: ['globex', 'acme'] } });
+      expect(args?.select).toEqual({ id: true });
+    });
+
+    it('changePassword writes a single `passwordHash` field via prisma.user.update on the happy path', async () => {
+      /*
+       * Scenario: a successful password change must update exactly
+       * the password column — no other field should be touched. A
+       * future refactor that accidentally drops the data payload or
+       * widens it (e.g. clears the MFA secret as a side effect)
+       * would either leave the password unchanged (silent success
+       * the user can't explain) or wreck unrelated security state.
+       * Asserting the precise data key set prevents both regressions.
+       */
+      const storedHash = await makeHash('CorrectPassword1!');
+      userFindUnique.mockResolvedValue({ id: 'user-1', passwordHash: storedHash });
+      userUpdate.mockResolvedValue({});
+      const dto: ChangePasswordDto = {
+        currentPassword: 'CorrectPassword1!',
+        newPassword: 'NewPassword2!',
+      };
+
+      await service.changePassword('user-1', 'tenant-acme', dto);
+
+      const calls = userUpdate.mock.calls as unknown as Array<
+        [{ data: { passwordHash: string }; where: { id: string; tenantId: string } }]
+      >;
+      const data = calls[0]?.[0].data;
+      expect(data).toBeDefined();
+      expect(Object.keys(data ?? {})).toEqual(['passwordHash']);
+      expect(typeof data?.passwordHash).toBe('string');
+      expect(data?.passwordHash.length).toBeGreaterThan(0);
+    }, 30_000);
+
+    it('changePassword surfaces the documented OAuth-only message verbatim', async () => {
+      /*
+       * Scenario: a user who originally signed up via Google OAuth has
+       * no local password set (passwordHash is null). When they try to
+       * change their password from the security page, the 400 response
+       * must explain that this is an OAuth-only account so the UI can
+       * surface the right hint ("Set a password first to enable
+       * change") rather than a generic validation error.
+       */
+      userFindUnique.mockResolvedValue({ id: 'user-1', passwordHash: null });
+      const dto: ChangePasswordDto = {
+        currentPassword: 'AnyPassword1!',
+        newPassword: 'NewPassword1!',
+      };
+
+      await expect(service.changePassword('user-1', 'acme', dto)).rejects.toThrow(
+        'Password change is not available for accounts without a local password.',
+      );
+    });
+
+    it('places the current workspace first when its name sorts AFTER the other workspace name', async () => {
+      /*
+       * Scenario: the user's current workspace has a name that
+       * would sort LAST alphabetically (e.g. "Zeta Co"), but the
+       * UI must still surface it first as the active workspace.
+       * The sort comparator must respect the current-first rule
+       * regardless of alphabetical order — a regression that
+       * dropped the current-first short-circuit would push the
+       * active workspace to the bottom of the dropdown.
+       */
+      userFindUnique.mockResolvedValue({ email: 'admin@example.dev' });
+      userFindMany.mockResolvedValue([
+        {
+          tenantId: 'tenant-acme',
+          role: 'ADMIN',
+          tenant: { id: 'tenant-acme', slug: 'acme', name: 'Acme Corp' },
+        },
+        {
+          tenantId: 'tenant-zeta',
+          role: 'ADMIN',
+          tenant: { id: 'tenant-zeta', slug: 'zeta', name: 'Zeta Co' },
+        },
+      ]);
+
+      const result = await service.listWorkspaces('user-1', 'tenant-zeta');
+
+      // Zeta is current and must come first even though it sorts after Acme.
+      expect(result.map((w) => w.tenantSlug)).toEqual(['zeta', 'acme']);
+      expect(result[0]?.isCurrent).toBe(true);
+    });
+
+    it('logs the validated switch-target event with the documented payload on success', async () => {
+      /*
+       * Scenario: a successful workspace switch must surface in
+       * operator logs with the canonical event name and the four
+       * actor/target identifiers so support can trace which user
+       * moved between which tenants. A drift that dropped any
+       * identifier would leave the audit trail incomplete.
+       */
+      userFindUnique.mockResolvedValueOnce({ email: 'admin@example.dev' });
+      userFindUnique.mockResolvedValueOnce({
+        id: 'user-target-globex',
+        status: 'ACTIVE',
+        tenant: { slug: 'globex' },
+      });
+      const logSpy = jest
+        .spyOn((service as unknown as { logger: { log: (m: unknown) => void } }).logger, 'log')
+        .mockImplementation(() => undefined);
+
+      await service.findSwitchTarget('user-1', 'tenant-acme', 'tenant-globex');
+
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      const arg = logSpy.mock.calls[0]?.[0] as {
+        msg?: string;
+        currentUserId?: string;
+        currentTenantId?: string;
+        targetUserId?: string;
+        targetTenantId?: string;
+      };
+      expect(arg.msg).toBe('switchWorkspace: validated switch target');
+      expect(arg.currentUserId).toBe('user-1');
+      expect(arg.currentTenantId).toBe('tenant-acme');
+      expect(arg.targetUserId).toBe('user-target-globex');
+      expect(arg.targetTenantId).toBe('tenant-globex');
+    });
+
+    it('changePassword findUnique select clause requests {id, passwordHash} only', async () => {
+      /*
+       * Scenario: the change-password flow only needs the user id
+       * (to confirm the row exists) and the stored hash (to verify
+       * the current password). Widening the select would pull
+       * unrelated columns (MFA secrets, recovery codes) through
+       * the service boundary — exactly the leak that the focused
+       * projection is designed to prevent.
+       */
+      const storedHash = await makeHash('CorrectPassword1!');
+      userFindUnique.mockResolvedValue({ id: 'user-1', passwordHash: storedHash });
+      userUpdate.mockResolvedValue({});
+
+      await service.changePassword('user-1', 'tenant-acme', {
+        currentPassword: 'CorrectPassword1!',
+        newPassword: 'NewPassword2!',
+      });
+
+      const calls = userFindUnique.mock.calls as unknown as Array<
+        [{ where: { id: string; tenantId: string }; select: Record<string, boolean> }]
+      >;
+      expect(calls[0]?.[0].select).toEqual({ id: true, passwordHash: true });
+    }, 30_000);
+
+    it('logs the wrong-current-password warning with the documented payload', async () => {
+      /*
+       * Scenario: the user supplies the wrong current password. The
+       * warning log must surface BOTH the canonical event message
+       * and the userId so support can correlate repeated wrong-
+       * password attempts to a specific account (rate-limiting and
+       * brute-force investigation depend on this signal).
+       */
+      const storedHash = await makeHash('CorrectPassword1!');
+      userFindUnique.mockResolvedValue({ id: 'user-1', passwordHash: storedHash });
+      const warnSpy = jest
+        .spyOn((service as unknown as { logger: { warn: (m: unknown) => void } }).logger, 'warn')
+        .mockImplementation(() => undefined);
+
+      await expect(
+        service.changePassword('user-bob', 'tenant-acme', {
+          currentPassword: 'WrongPassword1!',
+          newPassword: 'NewPassword2!',
+        }),
+      ).rejects.toThrow();
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const arg = warnSpy.mock.calls[0]?.[0] as { msg?: string; userId?: string };
+      expect(arg.msg).toBe('changePassword: wrong current password');
+      expect(arg.userId).toBe('user-bob');
+    }, 15_000);
+
+    it('logs the password-updated event with the documented payload on success', async () => {
+      /*
+       * Scenario: a successful password change must surface in
+       * operator logs with the canonical event message and the
+       * affected userId so support can trace credential rotations
+       * (especially during incident response).
+       */
+      const storedHash = await makeHash('CorrectPassword1!');
+      userFindUnique.mockResolvedValue({ id: 'user-1', passwordHash: storedHash });
+      userUpdate.mockResolvedValue({});
+      const logSpy = jest
+        .spyOn((service as unknown as { logger: { log: (m: unknown) => void } }).logger, 'log')
+        .mockImplementation(() => undefined);
+
+      await service.changePassword('user-claire', 'tenant-acme', {
+        currentPassword: 'CorrectPassword1!',
+        newPassword: 'NewPassword2!',
+      });
+
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      const arg = logSpy.mock.calls[0]?.[0] as { msg?: string; userId?: string };
+      expect(arg.msg).toBe('changePassword: password updated');
+      expect(arg.userId).toBe('user-claire');
+    }, 30_000);
+
+    it('changePassword surfaces the documented wrong-current-password message verbatim', async () => {
+      /*
+       * Scenario: the user mistyped their current password. The 401
+       * response carries the literal text the UI binds to the
+       * "currentPassword" form field — without the exact match, the
+       * field-level error would not appear and the user would see a
+       * generic toast that doesn't tell them which field to fix.
+       */
+      const storedHash = await makeHash('CorrectPassword1!');
+      userFindUnique.mockResolvedValue({ id: 'user-1', passwordHash: storedHash });
+
+      await expect(
+        service.changePassword('user-1', 'acme', {
+          currentPassword: 'WrongPassword1!',
+          newPassword: 'NewPassword2!',
+        }),
+      ).rejects.toThrow('Current password is incorrect.');
+    }, 15_000);
+  });
 });

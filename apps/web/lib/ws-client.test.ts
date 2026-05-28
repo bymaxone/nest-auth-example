@@ -72,8 +72,12 @@ class MockWebSocket {
 
 beforeEach(() => {
   vi.useFakeTimers();
-  // Remove jitter so backoff values are deterministic: 0.8 + 0.5 * 0.4 = 1.0.
-  vi.spyOn(Math, 'random').mockReturnValue(0.5);
+  // Pin jitter to 0 so the multiplicative factor is 0.8 + 0 * 0.4 = 0.8.
+  // 0.8 is NOT the multiplicative identity, which makes `base * 0.8` and
+  // `base / 0.8` distinguishable — kills the ArithmeticOperator `*` → `/`
+  // mutant that would survive an `0.5` mock (where 0.8 + 0.5 * 0.4 = 1.0
+  // collapses both operators to a no-op).
+  vi.spyOn(Math, 'random').mockReturnValue(0);
   MockWebSocket.instances = [];
   vi.stubGlobal('WebSocket', MockWebSocket);
   process.env['NEXT_PUBLIC_WS_URL'] = 'ws://localhost:3000';
@@ -117,97 +121,154 @@ describe('getWsClient', () => {
 });
 
 describe('reconnect backoff', () => {
-  it('reconnects after ~1 s on first disconnect (attempt 0)', () => {
+  it('reconnects after exactly 1200 ms on first disconnect when jitter is at its MAX value (random=1)', () => {
     /*
-     * Scenario: when the WS closes for the first time the reconnect delay must
-     * be min(1000 * 2^0, 30000) = 1 000 ms (jitter = 1.0 with mocked random).
-     * Protects: P16-1 — exponential backoff formula, first interval.
+     * Scenario: with Math.random pinned to 1 the jitter factor is
+     * 0.8 + 1*0.4 = 1.2, so the first reconnect delay is 1000 * 1.2 = 1200 ms.
+     * Pairing this with the jitter-min (random=0 → 800 ms) test in the same
+     * describe block locks BOTH the `+` operator and the `*` operator on
+     * `Math.random() * 0.4`:
+     * - `0.8 + Math.random() * 0.4` → `0.8 - Math.random() * 0.4` would give
+     *   0.4 here (delay 400 ms), failing.
+     * - `Math.random() * 0.4` → `Math.random() / 0.4` would give 2.5 here
+     *   (delay 3300 ms), failing.
+     * Protects: ArithmeticOperator mutants on the jitter computation.
      */
+    vi.spyOn(Math, 'random').mockReturnValue(1);
     getWsClient();
     const ws0 = MockWebSocket.instances[0]!;
     ws0.simulateClose();
 
-    // Not yet reconnected — timer hasn't fired.
     expect(MockWebSocket.instances).toHaveLength(1);
 
-    vi.advanceTimersByTime(1000);
+    vi.advanceTimersByTime(1199);
+    expect(MockWebSocket.instances).toHaveLength(1); // not yet
+
+    vi.advanceTimersByTime(1); // +1 ms → exactly 1200 ms total
     expect(MockWebSocket.instances).toHaveLength(2);
   });
 
-  it('reconnects after ~2 s on second disconnect (attempt 1)', () => {
+  it('reconnects after exactly 800 ms on first disconnect (attempt 0, jitter min)', () => {
     /*
-     * Scenario: second disconnect → delay = min(1000 * 2^1, 30000) = 2 000 ms.
-     * Protects: P16-1 — exponential backoff, doubling on each failure.
+     * Scenario: with Math.random pinned to 0 the jitter factor is 0.8, so the
+     * first reconnect delay is `min(1000 * 2^0, 30000) * 0.8 = 800 ms`.
+     * Asserting BOTH "not at 799 ms" AND "yes at 800 ms" pins the exact
+     * product — kills the ArithmeticOperator mutant `base * 0.8` → `base / 0.8`
+     * which would yield 1250 ms instead.
+     * Protects: P16-1 — exponential backoff formula AND the multiplicative
+     * application of the jitter factor.
      */
     getWsClient();
     const ws0 = MockWebSocket.instances[0]!;
     ws0.simulateClose();
-    vi.advanceTimersByTime(1000); // reconnect #1
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+
+    vi.advanceTimersByTime(799);
+    expect(MockWebSocket.instances).toHaveLength(1); // not yet
+
+    vi.advanceTimersByTime(1); // +1 ms → exactly 800 ms total
+    expect(MockWebSocket.instances).toHaveLength(2);
+  });
+
+  it('reconnects after exactly 1600 ms on second disconnect (attempt 1)', () => {
+    /*
+     * Scenario: second disconnect → base = 1000 * 2^1 = 2000 ms, jitter factor
+     * 0.8 → delay = 1600 ms.
+     * Protects: P16-1 — exponential backoff doubling on each failure.
+     */
+    getWsClient();
+    const ws0 = MockWebSocket.instances[0]!;
+    ws0.simulateClose();
+    vi.advanceTimersByTime(800); // reconnect #1 at 800 ms
 
     const ws1 = MockWebSocket.instances[1]!;
     ws1.simulateClose();
-    vi.advanceTimersByTime(1000); // not yet
-    expect(MockWebSocket.instances).toHaveLength(2);
+    vi.advanceTimersByTime(1599);
+    expect(MockWebSocket.instances).toHaveLength(2); // not yet
 
-    vi.advanceTimersByTime(1000); // +2 000 ms total → reconnect #2
+    vi.advanceTimersByTime(1); // +1 ms → exactly 1600 ms after second disconnect
     expect(MockWebSocket.instances).toHaveLength(3);
   });
 
-  it('caps the backoff at 30 s after enough failures', () => {
+  it('caps the backoff base at 30 000 ms after enough failures', () => {
     /*
-     * Scenario: after 5+ failures the backoff must not exceed 30 000 ms
-     * (min(1000 * 2^5, 30000) = 30 000 ms).
-     * Protects: P16-1 — 30 s cap prevents extreme delays.
+     * Scenario: after enough failures the underlying `base` must cap at
+     * 30 000 ms → with jitter factor 0.8 the actual delay is 24 000 ms.
+     * Protects: P16-1 — 30 s cap on the base prevents extreme delays.
      */
     getWsClient();
 
-    // Simulate 5 consecutive disconnects.
-    // Delays: 1 000, 2 000, 4 000, 8 000, 16 000 ms.
-    const delays = [1000, 2000, 4000, 8000, 16_000];
+    // Push through 5 attempts so attempt counter ends at 5.
+    // Delays (each = base * 0.8): 800, 1600, 3200, 6400, 12800.
+    const delays = [800, 1600, 3200, 6400, 12_800];
     for (const delay of delays) {
       const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1]!;
       ws.simulateClose();
       vi.advanceTimersByTime(delay);
     }
 
-    // 6th disconnect → delay should be capped at 30 000 ms.
+    // 6th disconnect → base capped at 30 000 ms → delay = 24 000 ms.
     const ws5 = MockWebSocket.instances[MockWebSocket.instances.length - 1]!;
     ws5.simulateClose();
 
     const countBefore = MockWebSocket.instances.length;
-    vi.advanceTimersByTime(29_999);
+    vi.advanceTimersByTime(23_999);
     expect(MockWebSocket.instances).toHaveLength(countBefore); // not yet
 
     vi.advanceTimersByTime(1);
-    expect(MockWebSocket.instances).toHaveLength(countBefore + 1); // reconnected at 30 000 ms
+    expect(MockWebSocket.instances).toHaveLength(countBefore + 1); // at 24 000 ms
   });
 
   it('resets the attempt counter to 0 on successful open', () => {
     /*
      * Scenario: after a successful reconnect (onopen fires) the next disconnect
-     * should start the backoff sequence over from 1 000 ms, not continue doubling.
-     * Protects: P16-1 — attempt reset on open preserves gentle reconnect behaviour.
+     * must restart the backoff sequence from the base delay, not continue
+     * doubling.
+     * Protects: P16-1 — attempt reset on open preserves gentle reconnect.
      */
     getWsClient();
     const ws0 = MockWebSocket.instances[0]!;
     ws0.simulateClose();
-    vi.advanceTimersByTime(1000); // reconnect attempt 1
+    vi.advanceTimersByTime(800); // reconnect attempt 1 at 800 ms
 
-    // Simulate a successful open — this resets the attempt counter.
     const ws1 = MockWebSocket.instances[1]!;
     ws1.simulateOpen();
 
-    // Disconnect again — backoff should restart from 1 000 ms (not 2 000 ms).
+    // Disconnect again — backoff must restart from 800 ms (not 1600 ms).
     ws1.simulateClose();
-    vi.advanceTimersByTime(999);
+    vi.advanceTimersByTime(799);
     expect(MockWebSocket.instances).toHaveLength(2); // not yet
 
     vi.advanceTimersByTime(1);
-    expect(MockWebSocket.instances).toHaveLength(3); // reconnected at 1 000 ms
+    expect(MockWebSocket.instances).toHaveLength(3); // reconnected at 800 ms
   });
 });
 
 describe('close()', () => {
+  it('does NOT schedule a reconnect timer after close() — even when the socket later closes', () => {
+    /*
+     * Scenario: close() must set stopped=true so subsequent socket onclose
+     * events take the !stopped → false branch and do NOT schedule a reconnect
+     * via setTimeout. Asserting at the side-effect level (setTimeout not
+     * called) is necessary because connect() ALSO guards on stopped — an
+     * always-true mutant on `if (!stopped)` would still produce a no-op
+     * connect when the timer fired, masking the bug at the "no new socket"
+     * level.
+     * Protects: onclose ConditionalExpression `if (!stopped)` — always-true
+     * mutant would still call setTimeout(connect, …) and leak a pending
+     * timer (eventually a no-op, but observably wrong).
+     */
+    const ws = getWsClient();
+    const socket0 = MockWebSocket.instances[0]!;
+    ws.close();
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+    socket0.simulateClose();
+
+    expect(setTimeoutSpy).not.toHaveBeenCalled();
+  });
+
   it('stops reconnect attempts permanently after close()', () => {
     /*
      * Scenario: calling close() must prevent any further reconnect even after
@@ -246,6 +307,21 @@ describe('on / off event emitter', () => {
     expect(handler1).toHaveBeenCalledOnce();
     expect(handler1).toHaveBeenCalledWith({ title: 'Hi', body: 'Test body' });
     expect(handler2).toHaveBeenCalledOnce();
+  });
+
+  it('off() does NOT throw when called for an event that was never registered', () => {
+    /*
+     * Scenario: calling `ws.off('notification:new', handler)` when no handler
+     * has ever been registered (so listeners.get(eventName) is undefined)
+     * must be a safe no-op — not a TypeError.
+     * Protects: OptionalChaining mutant `listeners.get(eventName)?.delete(...)`
+     * → `listeners.get(eventName).delete(...)` — without the `?.`, this would
+     * throw `Cannot read properties of undefined (reading 'delete')`.
+     */
+    const ws = getWsClient();
+    const handler = vi.fn<NotificationHandler>();
+
+    expect(() => ws.off('notification:new', handler)).not.toThrow();
   });
 
   it('stops delivering events to a handler after off() is called', () => {
@@ -496,6 +572,85 @@ describe('close() with pending reconnect timer', () => {
     vi.advanceTimersByTime(60_000);
     expect(MockWebSocket.instances).toHaveLength(1);
   });
+
+  it('clearTimeout is invoked with the pending timer reference when close() runs mid-backoff', () => {
+    /*
+     * Scenario: spies on the global clearTimeout to assert close() actually
+     * cancels the pending timer. The "no new socket opens" assertion in the
+     * sibling test passes for the empty-block / always-false mutants too
+     * because `stopped=true` makes connect() a no-op even when the timer
+     * still fires — so the cancellation must be observed at the side-effect
+     * level (clearTimeout call), not just at the symptom level.
+     * Protects: close() ConditionalExpression / EqualityOperator / BlockStatement
+     * on `if (reconnectTimer !== null) { clearTimeout(reconnectTimer); … }`.
+     */
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+    const ws = getWsClient();
+    const socket0 = MockWebSocket.instances[0]!;
+    socket0.simulateClose();
+    clearTimeoutSpy.mockClear();
+
+    ws.close();
+
+    expect(clearTimeoutSpy).toHaveBeenCalledTimes(1);
+    expect(clearTimeoutSpy.mock.calls[0]?.[0]).not.toBeNull();
+    expect(clearTimeoutSpy.mock.calls[0]?.[0]).not.toBeUndefined();
+  });
+
+  it('does NOT call clearTimeout when close() runs without a pending timer', () => {
+    /*
+     * Scenario: spies on global clearTimeout while calling close() on a freshly
+     * opened singleton (no disconnect has happened, so reconnectTimer is null).
+     * Asserting clearTimeout was NOT called kills the always-true and
+     * inverted-equality mutants on `if (reconnectTimer !== null)` which would
+     * still invoke clearTimeout(null).
+     * Protects: close() ConditionalExpression `true` and EqualityOperator
+     * `!==` → `===` mutants on the timer guard.
+     */
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+    const ws = getWsClient();
+    clearTimeoutSpy.mockClear();
+
+    ws.close();
+
+    expect(clearTimeoutSpy).not.toHaveBeenCalled();
+  });
+
+  it('closes the active socket via socket.close() when close() is called', () => {
+    /*
+     * Scenario: spy on the socket's close() method to assert close() actually
+     * tears down the live connection. With `stopped=true` set first, a missing
+     * socket.close() call leaves the socket alive on the server even though
+     * the client stops reconnecting — observable only at the side-effect level.
+     * Protects: close() ConditionalExpression `if (socket !== null) { socket.close(); … }`
+     * BlockStatement and `false` mutants — both would skip socket.close().
+     */
+    const ws = getWsClient();
+    const socket0 = MockWebSocket.instances[0]!;
+    const closeSpy = vi.spyOn(socket0, 'close');
+
+    ws.close();
+
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT call socket.close() when there is no active socket', () => {
+    /*
+     * Scenario: after the active socket has already fired its close event
+     * (socket = null), calling close() must not throw and must not invoke
+     * any spurious close on a stale reference.
+     * Protects: close() `if (socket !== null)` — an always-true mutant would
+     * attempt `null.close()` and throw a TypeError.
+     */
+    const ws = getWsClient();
+    const socket0 = MockWebSocket.instances[0]!;
+    socket0.simulateClose(); // socket = null in module state
+    // Advance past the backoff so the reconnect attempt is in flight; we
+    // immediately close again before the new socket exists.
+    ws.close(); // would throw with always-true mutant if module socket were null
+
+    expect(() => ws.close()).not.toThrow();
+  });
 });
 
 describe('reconnect()', () => {
@@ -560,6 +715,55 @@ describe('reconnect()', () => {
     expect(MockWebSocket.instances).toHaveLength(2);
   });
 
+  it('does NOT call clearTimeout when reconnect() runs without a pending timer', () => {
+    /*
+     * Scenario: reconnect() called on a freshly opened singleton (no prior
+     * disconnect, so reconnectTimer is null) must NOT call clearTimeout.
+     * Asserting at the side-effect level kills the always-true
+     * ConditionalExpression mutant on `if (reconnectTimer !== null)` inside
+     * reconnect().
+     * Protects: reconnect() ConditionalExpression `true` mutant on the timer guard.
+     */
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+    const ws = getWsClient();
+    clearTimeoutSpy.mockClear();
+
+    ws.reconnect();
+
+    expect(clearTimeoutSpy).not.toHaveBeenCalled();
+  });
+
+  it('detaches lifecycle handlers from the old socket before closing it during reconnect()', () => {
+    /*
+     * Scenario: reconnect() must reach into `if (socket !== null)` and detach
+     * the lifecycle handlers (onclose et al) BEFORE closing the old socket —
+     * otherwise the async onclose fires, schedules a stale reconnect, and
+     * spawns zombie sockets. The "exactly one replacement socket" assertion
+     * in the sibling test passes for the empty-block mutant too because the
+     * new socket gets opened either way; the only observable for the missing
+     * branch is the detachment side effect on the old socket.
+     * Protects: reconnect() ConditionalExpression `if (socket !== null)`
+     * (false / empty-block mutants) — both would skip the detachment AND the
+     * socket.close() call.
+     */
+    const ws = getWsClient();
+    const original = MockWebSocket.instances[0]!;
+    expect(original.onopen).toBeDefined();
+    expect(original.onmessage).toBeDefined();
+    expect(original.onclose).toBeDefined();
+    const closeSpy = vi.spyOn(original, 'close');
+
+    ws.reconnect();
+
+    // Lifecycle handlers nulled on the old socket BEFORE close — required to
+    // avoid the zombie-reconnect bug.
+    expect(original.onopen).toBeNull();
+    expect(original.onmessage).toBeNull();
+    expect(original.onclose).toBeNull();
+    expect(original.onerror).toBeNull();
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('resets the backoff attempt counter so the next disconnect reconnects fast', () => {
     /*
      * Scenario: the singleton was in a deep backoff window (attempt = 5)
@@ -585,8 +789,74 @@ describe('reconnect()', () => {
     // Simulate the post-reconnect socket closing.
     post.simulateClose();
     const countBefore = MockWebSocket.instances.length;
-    // Base delay (~1 s) — if reset failed we'd still be sleeping.
-    vi.advanceTimersByTime(1_500);
+    // Base delay (800 ms with jitter=0.8) — if reset failed we'd still be sleeping.
+    vi.advanceTimersByTime(1_000);
     expect(MockWebSocket.instances.length).toBe(countBefore + 1);
+  });
+});
+
+describe('_resetForTest()', () => {
+  /*
+   * `_resetForTest` is a test-only export, but Stryker still mutates it.
+   * Its conditional / block survivors are killable via post-conditions —
+   * after calling it, the singleton must be in a clean slate (no pending
+   * timer firing, no stale socket reference).
+   */
+  it('cancels any pending reconnect timer so no zombie socket opens after reset', () => {
+    /*
+     * Scenario: arm a backoff timer, then call _resetForTest. Advance time
+     * past the would-be timer; no new socket may open.
+     * Protects: _resetForTest ConditionalExpression / EqualityOperator /
+     * BlockStatement on `if (reconnectTimer !== null) { clearTimeout(...); … }`
+     * — the always-false / inverted / empty-block mutants would leave the
+     * timer armed, causing a zombie reconnect when time advances.
+     */
+    getWsClient();
+    const socket0 = MockWebSocket.instances[0]!;
+    socket0.simulateClose();
+    expect(MockWebSocket.instances).toHaveLength(1);
+
+    _resetForTest();
+
+    // Drain potential timer windows; the cleared timer must not fire.
+    vi.advanceTimersByTime(60_000);
+    expect(MockWebSocket.instances).toHaveLength(1);
+  });
+
+  it('does NOT call clearTimeout when _resetForTest runs without a pending timer', () => {
+    /*
+     * Scenario: when _resetForTest is called immediately after getWsClient
+     * (no disconnect has fired, so reconnectTimer is null) it must NOT
+     * invoke clearTimeout. Asserting at the side-effect level kills the
+     * always-true ConditionalExpression mutant on the timer guard.
+     * Protects: _resetForTest ConditionalExpression `true` mutant.
+     */
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+    getWsClient();
+    clearTimeoutSpy.mockClear();
+
+    _resetForTest();
+
+    expect(clearTimeoutSpy).not.toHaveBeenCalled();
+  });
+
+  it('clearTimeout is invoked with the pending timer reference when _resetForTest runs mid-backoff', () => {
+    /*
+     * Scenario: side-effect-level assertion that _resetForTest actually
+     * cancels the pending timer, not just leaves it to no-op via `stopped`.
+     * Protects: ConditionalExpression `true`/`false` and EqualityOperator
+     * `!==` → `===` on the _resetForTest timer guard.
+     */
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+    getWsClient();
+    const socket0 = MockWebSocket.instances[0]!;
+    socket0.simulateClose();
+    clearTimeoutSpy.mockClear();
+
+    _resetForTest();
+
+    expect(clearTimeoutSpy).toHaveBeenCalledTimes(1);
+    expect(clearTimeoutSpy.mock.calls[0]?.[0]).not.toBeNull();
+    expect(clearTimeoutSpy.mock.calls[0]?.[0]).not.toBeUndefined();
   });
 });

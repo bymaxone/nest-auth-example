@@ -9,6 +9,16 @@ build/
 # Coverage
 coverage/
 
+# Stryker mutation testing
+.stryker-tmp/
+**/.stryker-tmp/
+reports/mutation/
+**/reports/mutation/
+reports/stryker-incremental.json
+**/reports/stryker-incremental.json
+stryker.log
+**/stryker.log
+
 # Playwright artifacts
 test-results/
 playwright-report/

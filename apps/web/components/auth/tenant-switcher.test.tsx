@@ -355,17 +355,20 @@ describe('TenantSwitcher states', () => {
     });
   });
 
-  it('surfaces an error toast when the silent switch fails for a non-MFA reason', async () => {
+  it('surfaces an error toast with the documented retry message when the silent switch fails for a non-MFA reason', async () => {
     /*
      * Scenario: `switchWorkspace` rejects with a code other than
      * `auth.mfa_required` (e.g. ACCOUNT_SUSPENDED in destination tenant,
      * NotFound when the workspace list was stale, transient network
      * error). The component must:
-     *   1. Surface a user-facing toast so the click is not silently lost.
+     *   1. Surface a user-facing toast with the verbatim "Could not switch
+     *      workspace. Please try again." copy so support docs and QA can
+     *      pattern-match on it.
      *   2. NOT redirect — the user stays on the current workspace.
      *   3. Re-enable the switcher (`setIsSwitching(false)`) so the user
      *      can retry without reloading the page.
-     * Protects: the generic `catch` arm of `handleSelect`.
+     * Protects: the generic `catch` arm of `handleSelect`, the verbatim
+     * toast string, and the `setIsSwitching(false)` retry-affordance reset.
      */
     sessionState.tenantId = 'tid-1';
     vi.mocked(listWorkspaces).mockResolvedValue([
@@ -379,7 +382,7 @@ describe('TenantSwitcher states', () => {
       expect(screen.getByText('Acme Corp')).toBeDefined();
     });
 
-    const trigger = screen.getByRole('button', { name: /switch workspace/i });
+    const trigger = screen.getByRole<HTMLButtonElement>('button', { name: /switch workspace/i });
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, bubbles: true });
     fireEvent.mouseDown(trigger, { bubbles: true });
     fireEvent.click(trigger, { bubbles: true });
@@ -392,13 +395,212 @@ describe('TenantSwitcher states', () => {
       }
     });
 
-    // The toast carries a recoverable message — exact copy is not pinned
-    // so a small wording edit does not break the test.
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalled();
+      expect(toast.error).toHaveBeenCalledWith('Could not switch workspace. Please try again.');
     });
     // No redirect / logout — the user remains on the current workspace.
     expect(assignMock).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalledWith('/api/auth/logout', expect.anything());
+    // The trigger button must be re-enabled so the user can retry.
+    await waitFor(() => {
+      expect(trigger.disabled).toBe(false);
+    });
+  });
+
+  it('disables the trigger button while the silent switch is in flight', async () => {
+    /*
+     * Scenario: clicking a non-current workspace must immediately
+     * disable the trigger so the user cannot fire a second switch
+     * mid-flight (which would race two `issueTokensForUserId` calls
+     * and produce contradictory cookie states). Pinning the
+     * `setIsSwitching(true)` literal — a regression to
+     * `setIsSwitching(false)` would leave the trigger live and the
+     * user could trigger duplicate switches.
+     */
+    sessionState.tenantId = 'tid-1';
+    vi.mocked(listWorkspaces).mockResolvedValue([
+      workspace('tid-1', 'Acme Corp', 'acme', true),
+      workspace('tid-2', 'Globex Inc', 'globex', false),
+    ]);
+    // Never resolve switchWorkspace so the component stays in the
+    // in-flight state we want to observe.
+    vi.mocked(switchWorkspace).mockReturnValueOnce(new Promise(() => undefined));
+
+    render(<TenantSwitcher />);
+    await waitFor(() => {
+      expect(screen.getByText('Acme Corp')).toBeDefined();
+    });
+
+    const trigger = screen.getByRole<HTMLButtonElement>('button', { name: /switch workspace/i });
+    expect(trigger.disabled).toBe(false);
+
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, bubbles: true });
+    fireEvent.mouseDown(trigger, { bubbles: true });
+    fireEvent.click(trigger, { bubbles: true });
+
+    await waitFor(() => {
+      const menuItems = document.body.querySelectorAll('[role="menuitem"]');
+      if (menuItems.length >= 2) {
+        fireEvent.click(menuItems[1]!);
+      }
+    });
+
+    await waitFor(() => {
+      expect(trigger.disabled).toBe(true);
+    });
+  });
+
+  it('re-enables the trigger button after a successful silent switch', async () => {
+    /*
+     * Scenario: once `switchWorkspace` resolves AND the workspace list +
+     * session have been refreshed, the trigger must be clickable again
+     * so the user can switch a second time without reloading. Pins the
+     * `setIsSwitching(false)` literal in the success arm — a regression
+     * to `setIsSwitching(true)` would leave the trigger permanently
+     * disabled after the first switch.
+     */
+    sessionState.tenantId = 'tid-1';
+    vi.mocked(listWorkspaces).mockResolvedValue([
+      workspace('tid-1', 'Acme Corp', 'acme', true),
+      workspace('tid-2', 'Globex Inc', 'globex', false),
+    ]);
+    vi.mocked(switchWorkspace).mockResolvedValue({
+      user: {
+        id: 'user-target',
+        email: 'admin@example.dev',
+        name: 'Admin',
+        role: 'ADMIN',
+        status: 'ACTIVE',
+        tenantId: 'tid-2',
+        emailVerified: true,
+        mfaEnabled: false,
+      },
+    });
+
+    render(<TenantSwitcher />);
+    await waitFor(() => {
+      expect(screen.getByText('Acme Corp')).toBeDefined();
+    });
+
+    const trigger = screen.getByRole<HTMLButtonElement>('button', { name: /switch workspace/i });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, bubbles: true });
+    fireEvent.mouseDown(trigger, { bubbles: true });
+    fireEvent.click(trigger, { bubbles: true });
+
+    await waitFor(() => {
+      const menuItems = document.body.querySelectorAll('[role="menuitem"]');
+      if (menuItems.length >= 2) {
+        fireEvent.click(menuItems[1]!);
+      }
+    });
+
+    await waitFor(() => {
+      expect(switchWorkspace).toHaveBeenCalledWith('tid-2');
+    });
+    await waitFor(() => {
+      expect(trigger.disabled).toBe(false);
+    });
+  });
+
+  it('does NOT call switchWorkspace when the user clicks the already-active row', async () => {
+    /*
+     * Scenario: stronger version of the no-op guard test — pin the
+     * negative assertion that `switchWorkspace` is NEVER invoked when
+     * the active row is clicked. Pinning a NOT-called expectation
+     * defends every direction of the `if (workspace.tenantId ===
+     * user?.tenantId || isSwitching) return;` guard (the truthy short-
+     * circuit, the equality, AND the surrounding ternary), all of which
+     * would, if mutated, allow the call through.
+     */
+    sessionState.tenantId = 'tid-1';
+    vi.mocked(listWorkspaces).mockResolvedValue([
+      workspace('tid-1', 'Acme Corp', 'acme', true),
+      workspace('tid-2', 'Globex Inc', 'globex', false),
+    ]);
+
+    render(<TenantSwitcher />);
+    await waitFor(() => {
+      expect(screen.getByText('Acme Corp')).toBeDefined();
+    });
+
+    const trigger = screen.getByRole('button', { name: /switch workspace/i });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, bubbles: true });
+    fireEvent.mouseDown(trigger, { bubbles: true });
+    fireEvent.click(trigger, { bubbles: true });
+
+    await waitFor(() => {
+      const menuItems = document.body.querySelectorAll('[role="menuitem"]');
+      expect(menuItems.length).toBeGreaterThanOrEqual(2);
+      fireEvent.click(menuItems[0]!);
+    });
+
+    // The decisive assertion: the silent-switch endpoint was never called.
+    expect(switchWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('renders the workspace role in lowercase under each row, not uppercase', async () => {
+    /*
+     * Scenario: the role label under each workspace name is rendered as
+     * `workspace.role.toLowerCase()` ("admin" not "ADMIN") so it reads
+     * as a casual descriptor rather than a SHOUTING badge. Pinning the
+     * `.toLowerCase()` method choice — a regression to `.toUpperCase()`
+     * would flip the casing on every row.
+     */
+    sessionState.tenantId = 'tid-1';
+    vi.mocked(listWorkspaces).mockResolvedValue([
+      workspace('tid-1', 'Acme Corp', 'acme', true, 'OWNER'),
+      workspace('tid-2', 'Globex Inc', 'globex', false, 'MEMBER'),
+    ]);
+
+    render(<TenantSwitcher />);
+    await waitFor(() => {
+      expect(screen.getByText('Acme Corp')).toBeDefined();
+    });
+
+    const trigger = screen.getByRole('button', { name: /switch workspace/i });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, bubbles: true });
+    fireEvent.mouseDown(trigger, { bubbles: true });
+    fireEvent.click(trigger, { bubbles: true });
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('owner');
+      expect(document.body.textContent).toContain('member');
+    });
+    // Negative assertion to defend against `.toUpperCase()` slipping through —
+    // both label spans must NOT carry the SHOUTING upper-case form.
+    const lowercaseHits = (document.body.textContent ?? '').match(/owner|member/g) ?? [];
+    expect(lowercaseHits.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('does NOT render the checkmark on non-current workspace rows', async () => {
+    /*
+     * Scenario: the "✓" indicator is the user's visual cue for "you are
+     * here". It must appear EXACTLY once — only on the active row. A
+     * regression of `{isActive && <span>✓</span>}` to `||` would put a
+     * checkmark on every row, dissolving the affordance. Pinning the
+     * single-occurrence count defends the `isActive &&` guard.
+     */
+    sessionState.tenantId = 'tid-1';
+    vi.mocked(listWorkspaces).mockResolvedValue([
+      workspace('tid-1', 'Acme Corp', 'acme', true),
+      workspace('tid-2', 'Globex Inc', 'globex', false),
+      workspace('tid-3', 'Initech', 'initech', false),
+    ]);
+
+    render(<TenantSwitcher />);
+    await waitFor(() => {
+      expect(screen.getByText('Acme Corp')).toBeDefined();
+    });
+
+    const trigger = screen.getByRole('button', { name: /switch workspace/i });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, bubbles: true });
+    fireEvent.mouseDown(trigger, { bubbles: true });
+    fireEvent.click(trigger, { bubbles: true });
+
+    await waitFor(() => {
+      const checkmarks = (document.body.textContent ?? '').match(/✓/g) ?? [];
+      // Exactly ONE checkmark across all three rows — only on tid-1.
+      expect(checkmarks.length).toBe(1);
+    });
   });
 });

@@ -100,14 +100,21 @@ describe('DebugController', () => {
       expect(lowerResult.key).toBe(upperResult.key);
     });
 
-    it('throws ForbiddenException when NODE_ENV is "production"', async () => {
-      // Belt-and-suspenders guard: even if the module is accidentally wired in
-      // production, the handler must refuse to execute.
+    it('throws ForbiddenException with the documented "Not available" message in production', async () => {
+      /*
+       * Scenario: even if the module is accidentally wired in
+       * production, the handler must refuse to execute AND
+       * carry a recognisable error message so operators can
+       * spot the gate's intent in 403 responses.
+       */
       process.env['NODE_ENV'] = 'production';
 
       await expect(
         controller.lockout({ tenantId: 'tenant-1', email: 'user@example.com' }),
       ).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(
+        controller.lockout({ tenantId: 'tenant-1', email: 'user@example.com' }),
+      ).rejects.toThrow('Not available');
 
       expect(redisSet).not.toHaveBeenCalled();
     });

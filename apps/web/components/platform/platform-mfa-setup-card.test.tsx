@@ -265,6 +265,178 @@ describe('PlatformMfaSetupCard', () => {
     expect(selectSpy).toHaveBeenCalledOnce();
   });
 
+  it('shows the verbatim "Loading…" copy while the setup call is pending and disables the button', async () => {
+    /*
+     * Scenario: the setup endpoint can take a moment (the lib generates
+     * QR + secret + recovery codes server-side). The button must surface
+     * the loading affordance verbatim AND be disabled so the operator
+     * cannot double-click and create two enrolment attempts. Pinning
+     * both the "Loading…" string and the `disabled` state defends:
+     *   - the truthy arm of the `isLoading ? 'Loading…' : 'Set up
+     *     authenticator'` ternary,
+     *   - the `setIsLoading(true)` literal at the top of `handleSetup`.
+     */
+    vi.mocked(platformMfaSetup).mockReturnValue(new Promise(() => undefined));
+    render(<PlatformMfaSetupCard onEnabled={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('platform-mfa-setup-button'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Loading…')).toBeDefined();
+    });
+    const btn = screen.getByTestId<HTMLButtonElement>('platform-mfa-setup-button');
+    expect(btn.disabled).toBe(true);
+  });
+
+  it('renders the verbatim "Set up authenticator" copy in the idle state', () => {
+    /*
+     * Scenario: counterpart to the loading test — in the idle state the
+     * button must display the verbatim "Set up authenticator" copy. Pins
+     * the falsy arm of the `isLoading ?` ternary.
+     */
+    render(<PlatformMfaSetupCard onEnabled={vi.fn()} />);
+    expect(screen.getByText('Set up authenticator')).toBeDefined();
+  });
+
+  it('passes the empty OTP value to the inner OtpInput when the form field is undefined', async () => {
+    /*
+     * Scenario: React Hook Form initialises the `code` field as
+     * undefined. The Controller's render must coerce that undefined to
+     * the empty string before handing it to OtpInput, so the boxes
+     * start empty rather than displaying the literal "undefined" or
+     * "Stryker". Pins the `field.value ?? ''` fallback.
+     */
+    vi.mocked(platformMfaSetup).mockResolvedValue({
+      secret: 'JBSWY3DPEHPK3PXP',
+      qrCodeUri: 'otpauth://totp/Example:admin',
+      recoveryCodes: ['AAAA'],
+    });
+    render(<PlatformMfaSetupCard onEnabled={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('platform-mfa-setup-button'));
+    await screen.findByTestId('platform-mfa-secret');
+
+    const inputs = screen.getAllByRole<HTMLInputElement>('textbox');
+    const otpInputs = inputs.filter((el) => el.inputMode === 'numeric');
+    for (const input of otpInputs) {
+      expect(input.value).toBe('');
+    }
+  });
+
+  it('re-enables the verify button and clears the "Verifying…" label after platformMfaVerifyEnable rejects', async () => {
+    /*
+     * Scenario: the verify endpoint rejects (wrong TOTP, anti-replay,
+     * etc.). The `finally { setIsLoading(false) }` cleanup must run so
+     * the button is clickable again — without it, the admin would see
+     * a permanent "Verifying…" label and have no way to retry the
+     * 6-digit code.
+     */
+    vi.mocked(platformMfaSetup).mockResolvedValue({
+      secret: 'JBSWY3DPEHPK3PXP',
+      qrCodeUri: 'otpauth://totp/Example:admin',
+      recoveryCodes: ['AAAA'],
+    });
+    vi.mocked(platformMfaVerifyEnable).mockRejectedValue(new Error('Invalid TOTP'));
+
+    render(<PlatformMfaSetupCard onEnabled={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('platform-mfa-setup-button'));
+    await screen.findByTestId('platform-mfa-secret');
+    const otpInputs = screen
+      .getAllByRole('textbox')
+      .filter((el) => (el as HTMLInputElement).inputMode === 'numeric');
+    otpInputs.forEach((input, i) => {
+      fireEvent.change(input, { target: { value: String(i + 1) } });
+    });
+    fireEvent.click(screen.getByRole('button', { name: /verify.*enable/i }));
+
+    await waitFor(() => {
+      expect(handleAuthClientError).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      // After the failure-cleanup runs, the button must NOT still read
+      // "Verifying…" — that's the in-flight label.
+      expect(screen.queryByText('Verifying…')).toBeNull();
+    });
+    // And it must be clickable so the admin can retry.
+    const retryBtn = screen.getByRole<HTMLButtonElement>('button', { name: /verify.*enable/i });
+    expect(retryBtn.disabled).toBe(false);
+  });
+
+  it('hides the recovery-codes modal entirely after the user clicks "I have saved my codes"', async () => {
+    /*
+     * Scenario: after dismissal the modal must DISAPPEAR from the DOM,
+     * not just be cleared of content. The "saved my codes" button is
+     * the only modal control unique to that surface — its absence is
+     * the cleanest signal that the modal closed. Pinning the
+     * `setShowModal(false)` literal — a regression to
+     * `setShowModal(true)` would leave the modal frame open after
+     * dismissal (just with no codes inside).
+     */
+    const codes = ['CODE-A'];
+    vi.mocked(platformMfaSetup).mockResolvedValue({
+      secret: 'JBSWY3DPEHPK3PXP',
+      qrCodeUri: 'otpauth://totp/Example:admin',
+      recoveryCodes: codes,
+    });
+    vi.mocked(platformMfaVerifyEnable).mockResolvedValue(undefined);
+
+    render(<PlatformMfaSetupCard onEnabled={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('platform-mfa-setup-button'));
+    await screen.findByTestId('platform-mfa-secret');
+    const otpInputs = screen
+      .getAllByRole('textbox')
+      .filter((el) => (el as HTMLInputElement).inputMode === 'numeric');
+    otpInputs.forEach((input, i) => {
+      fireEvent.change(input, { target: { value: String(i + 1) } });
+    });
+    fireEvent.click(screen.getByRole('button', { name: /verify.*enable/i }));
+
+    const saveBtn = await screen.findByRole('button', { name: /saved my codes/i });
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      // The button is the modal's defining control — its absence proves
+      // the modal was actually removed from the DOM.
+      expect(screen.queryByRole('button', { name: /saved my codes/i })).toBeNull();
+    });
+  });
+
+  it('clears the recovery codes from internal state after the modal closes (prevents DOM leak)', async () => {
+    /*
+     * Scenario: once the operator dismisses the modal, the recovery
+     * codes must be wiped from component state — re-rendering the modal
+     * (even briefly) with the codes would risk leaking them into a
+     * background tab's DOM where a screen recorder or extension could
+     * see them. Pins the `setRecoveryCodes([])` call inside
+     * `handleModalClose`. Without it, a future re-render could surface
+     * the codes again.
+     */
+    const codes = ['SECRET-CODE-1'];
+    vi.mocked(platformMfaSetup).mockResolvedValue({
+      secret: 'JBSWY3DPEHPK3PXP',
+      qrCodeUri: 'otpauth://totp/Example:admin',
+      recoveryCodes: codes,
+    });
+    vi.mocked(platformMfaVerifyEnable).mockResolvedValue(undefined);
+
+    render(<PlatformMfaSetupCard onEnabled={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('platform-mfa-setup-button'));
+    await screen.findByTestId('platform-mfa-secret');
+    const otpInputs = screen
+      .getAllByRole('textbox')
+      .filter((el) => (el as HTMLInputElement).inputMode === 'numeric');
+    otpInputs.forEach((input, i) => {
+      fireEvent.change(input, { target: { value: String(i + 1) } });
+    });
+    fireEvent.click(screen.getByRole('button', { name: /verify.*enable/i }));
+
+    await screen.findByText('SECRET-CODE-1');
+    fireEvent.click(screen.getByRole('button', { name: /saved my codes/i }));
+
+    // After dismissal, the code must NOT appear anywhere in the DOM.
+    await waitFor(() => {
+      expect(screen.queryByText('SECRET-CODE-1')).toBeNull();
+    });
+  });
+
   it('invokes onEnabled after the recovery-codes modal is dismissed', async () => {
     /*
      * Scenario: full happy path through enrolment. The parent page

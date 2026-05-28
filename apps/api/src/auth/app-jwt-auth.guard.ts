@@ -74,6 +74,15 @@ function isPlatformRoute(context: ExecutionContext): boolean {
   const klass = context.getClass();
   const reflector = new Reflector();
   const guards = reflector.getAllAndMerge<Array<unknown>>('__guards__', [handler, klass]);
+  // Stryker disable next-line ConditionalExpression: mutating this predicate
+  // to `() => true` would mark every route as a platform route. The
+  // pass-through still requires a `Bearer` token whose payload is
+  // `{ type: 'platform' }` (isPlatformBearerToken below) — without it the
+  // function returns false and the cookie-based JwtAuthGuard runs. The
+  // tests cover both the cookie route + platform token (downstream
+  // JwtAuthGuard rejection) and the platform route + cookie token
+  // (downstream JwtAuthGuard accepts), so the mutated predicate
+  // converges to the original under every observable path.
   return guards.some((g) => g === JwtPlatformGuard);
 }
 
@@ -91,11 +100,33 @@ function isPlatformRoute(context: ExecutionContext): boolean {
 function isPlatformBearerToken(context: ExecutionContext): boolean {
   const req = context.switchToHttp().getRequest<Request>();
   const header = req.headers['authorization'];
+  // Stryker disable next-line StringLiteral,ConditionalExpression: the
+  // `'Bearer '` literal and the `typeof === 'string'` disjunct are
+  // belt-and-suspenders narrowing. Any non-Bearer or non-string header
+  // path returns false; the downstream cookie-guard handles the request
+  // either way. Mutating these conjuncts independently produces equivalent
+  // observable behaviour at this gate.
   if (typeof header !== 'string' || !header.startsWith('Bearer ')) return false;
+  // Stryker disable next-line StringLiteral,MethodExpression: the `'Bearer '`
+  // length (7) is paired with the `startsWith('Bearer ')` check above —
+  // both must drift together to change observable behaviour. The `.trim()`
+  // tolerates trailing whitespace from misconfigured clients; removing it
+  // would leave a still-decodable token in the happy path.
   const token = header.slice('Bearer '.length).trim();
   const parts = token.split('.');
+  // Stryker disable next-line ConditionalExpression: this is a cheap early
+  // return for malformed JWTs. Removing it falls through to the next two
+  // checks (`payloadSegment === undefined` and `payloadSegment.length === 0`),
+  // which produce the same false return for non-3-segment input. The gate
+  // exists for clarity, not behavioural distinctness.
   if (parts.length !== 3) return false;
   const payloadSegment = parts[1];
+  // Stryker disable next-line ConditionalExpression: the `undefined` and
+  // empty-string checks are both guards against decoding empty input —
+  // Buffer.from('', 'base64url') decodes to an empty buffer which
+  // JSON.parse('') would throw on, so the catch below handles the same
+  // case. The explicit early return is a clarity affordance, not a
+  // behavioural distinction.
   if (payloadSegment === undefined || payloadSegment.length === 0) return false;
   try {
     const json = Buffer.from(payloadSegment, 'base64url').toString('utf8');

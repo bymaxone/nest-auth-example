@@ -383,3 +383,263 @@ describe('PlatformUsersTable optimistic toggle', () => {
     });
   });
 });
+
+// ── Toast verbatim + lowercase status ─────────────────────────────────────────
+
+describe('PlatformUsersTable success toast', () => {
+  it('toasts the verbatim "User <email> is now <status-lowercase>." message after a successful toggle', async () => {
+    /*
+     * Scenario: support docs and audit-log dashboards pattern-match on this
+     * exact line. Pinning the verbatim template AND the `.toLowerCase()`
+     * call defends both: a regression that drops the email or hardens the
+     * status to uppercase would silently break those external consumers.
+     */
+    const updatedAlice: PlatformUserInfo = { ...mockUsers[0]!, status: 'SUSPENDED' };
+    vi.mocked(listPlatformUsers).mockResolvedValue(mockUsers);
+    vi.mocked(platformUpdateUserStatus).mockResolvedValue(updatedAlice);
+    const { toast } = await import('sonner');
+
+    render(<PlatformUsersTable tenantId="tenant-1" />);
+    await waitFor(() => expect(screen.getByText('Alice')).toBeDefined());
+
+    const allButtons = screen.getAllByRole('button');
+    const suspendBtn = allButtons.find(
+      (b) => b.textContent === 'Suspend' && !(b as HTMLButtonElement).disabled,
+    );
+    fireEvent.click(suspendBtn!);
+
+    await waitFor(() => {
+      expect(vi.mocked(toast).success).toHaveBeenCalledWith(
+        'User alice@example.com is now suspended.',
+      );
+    });
+  });
+});
+
+// ── Status badge palette ──────────────────────────────────────────────────────
+
+describe('PlatformUsersTable status badge palette', () => {
+  it('renders the ACTIVE badge with the green-palette className from STATUS_STYLES', async () => {
+    /*
+     * Scenario: the colour of the status badge is the user's quickest visual
+     * cue. The ACTIVE palette must carry the documented `text-[#22c55e]`
+     * fragment — a regression that swapped the palette map keys would
+     * silently produce a green "Suspended" badge or a yellow "Active" one,
+     * a serious UX defect on the platform admin page.
+     */
+    vi.mocked(listPlatformUsers).mockResolvedValue(mockUsers);
+    render(<PlatformUsersTable tenantId="tenant-1" />);
+    await waitFor(() => expect(screen.getByText('Active')).toBeDefined());
+
+    const activeBadge = screen.getByText('Active');
+    expect(activeBadge.className).toContain('#22c55e');
+  });
+
+  it('renders the SUSPENDED badge with the amber-palette className', async () => {
+    /*
+     * Scenario: counterpart to the ACTIVE-palette test — the SUSPENDED
+     * arm of the STATUS_STYLES map must carry the documented
+     * `text-[#eab308]` (amber) fragment. Defends the SUSPENDED arm of
+     * the palette table independently.
+     */
+    vi.mocked(listPlatformUsers).mockResolvedValue(mockUsers);
+    render(<PlatformUsersTable tenantId="tenant-1" />);
+    await waitFor(() => expect(screen.getByText('Suspended')).toBeDefined());
+
+    const suspendedBadge = screen.getByText('Suspended');
+    expect(suspendedBadge.className).toContain('#eab308');
+  });
+
+  it('falls back to the INACTIVE muted palette for an unknown status', async () => {
+    /*
+     * Scenario: when a future status value not in STATUS_STYLES appears
+     * (or after a bad backend deploy), the badge must still render with
+     * a muted fallback rather than a missing-className blank pill.
+     * Pinning the `?? STATUS_STYLES['INACTIVE']` fallback by asserting
+     * the muted text fragment on a synthetic unknown status.
+     */
+    const unknownUser: PlatformUserInfo = {
+      ...mockUsers[0]!,
+      status: 'UNKNOWN_STATUS' as PlatformUserInfo['status'],
+    };
+    vi.mocked(listPlatformUsers).mockResolvedValue([unknownUser]);
+    render(<PlatformUsersTable tenantId="tenant-1" />);
+    await waitFor(() => expect(screen.getByText('Unknown_status')).toBeDefined());
+
+    const badge = screen.getByText('Unknown_status');
+    // The INACTIVE fallback uses the muted white-translucent text colour.
+    expect(badge.className).toContain('rgba(255,255,255,0.4)');
+  });
+});
+
+// ── Toggle pending UI ─────────────────────────────────────────────────────────
+
+describe('PlatformUsersTable in-flight toggle', () => {
+  it('shows the "…" placeholder text on the toggled row\'s button while the API call is pending', async () => {
+    /*
+     * Scenario: the optimistic-update window is visible to the user — they
+     * must see the spinner-equivalent "…" so they know the click landed
+     * and a retry is unnecessary. Pinning the `'…'` literal AND the
+     * `toggling === user.id` per-row guard defends both the in-flight UX
+     * and the per-row isolation of the toggling state.
+     */
+    vi.mocked(listPlatformUsers).mockResolvedValue(mockUsers);
+    // Never resolve so the button stays in the in-flight state we observe.
+    vi.mocked(platformUpdateUserStatus).mockReturnValueOnce(new Promise(() => undefined));
+
+    render(<PlatformUsersTable tenantId="tenant-1" />);
+    await waitFor(() => expect(screen.getByText('Alice')).toBeDefined());
+
+    const allButtons = screen.getAllByRole('button');
+    const suspendBtn = allButtons.find(
+      (b) => b.textContent === 'Suspend' && !(b as HTMLButtonElement).disabled,
+    );
+    fireEvent.click(suspendBtn!);
+
+    await waitFor(() => {
+      const dotsBtn = screen
+        .getAllByRole('button')
+        .find((b) => b.textContent === '…' && (b as HTMLButtonElement).disabled);
+      expect(dotsBtn).toBeDefined();
+    });
+  });
+
+  it('restores the action button label (no more "…") after the toggle resolves successfully', async () => {
+    /*
+     * Scenario: the `…` placeholder is the in-flight affordance and MUST
+     * disappear once the API response settles. Pins the `finally {
+     * setToggling(null) }` cleanup — without it, the button text stays
+     * on `…` after the user's action completes, looking like the page
+     * is permanently stuck.
+     */
+    const updatedAlice: PlatformUserInfo = { ...mockUsers[0]!, status: 'SUSPENDED' };
+    vi.mocked(listPlatformUsers).mockResolvedValue(mockUsers);
+    vi.mocked(platformUpdateUserStatus).mockResolvedValue(updatedAlice);
+
+    render(<PlatformUsersTable tenantId="tenant-1" />);
+    await waitFor(() => expect(screen.getByText('Alice')).toBeDefined());
+
+    const suspendBtn = screen
+      .getAllByRole('button')
+      .find((b) => b.textContent === 'Suspend' && !(b as HTMLButtonElement).disabled);
+    fireEvent.click(suspendBtn!);
+
+    // Wait for the API call to land + state to settle.
+    await waitFor(() => {
+      expect(platformUpdateUserStatus).toHaveBeenCalledWith('u1', 'SUSPENDED');
+    });
+    // After settle, no button should still show the pending `…` placeholder.
+    await waitFor(() => {
+      const dotsButton = screen.queryAllByRole('button').find((b) => b.textContent === '…');
+      expect(dotsButton).toBeUndefined();
+    });
+  });
+
+  it("disables ONLY the toggled row's button while the API call is pending, not every row", async () => {
+    /*
+     * Scenario: the platform admin is allowed to fire several toggles
+     * across different rows in parallel. The `toggling === user.id`
+     * per-row guard must lock ONLY the row whose button was clicked.
+     * Pinning the negative space: Bob's button must remain interactive
+     * while Alice's toggle is mid-flight.
+     */
+    vi.mocked(listPlatformUsers).mockResolvedValue(mockUsers);
+    vi.mocked(platformUpdateUserStatus).mockReturnValueOnce(new Promise(() => undefined));
+
+    render(<PlatformUsersTable tenantId="tenant-1" />);
+    await waitFor(() => expect(screen.getByText('Alice')).toBeDefined());
+
+    // Click Alice's Suspend button.
+    const suspendBtn = screen
+      .getAllByRole('button')
+      .find((b) => b.textContent === 'Suspend' && !(b as HTMLButtonElement).disabled);
+    fireEvent.click(suspendBtn!);
+
+    await waitFor(() => {
+      // Alice's button now reads "…" and is disabled.
+      const dots = screen
+        .getAllByRole('button')
+        .find((b) => b.textContent === '…' && (b as HTMLButtonElement).disabled);
+      expect(dots).toBeDefined();
+    });
+    // Bob's Unsuspend button must still be clickable.
+    const unsuspendBtn = screen.getAllByRole('button').find((b) => b.textContent === 'Unsuspend');
+    expect(unsuspendBtn).toBeDefined();
+    expect((unsuspendBtn as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+// ── UNKNOWN error code → empty string forwarded to translateAuthError ────────
+
+describe('PlatformUsersTable UNKNOWN error normalisation', () => {
+  it('forwards an EMPTY string to translateAuthError when mapAuthClientError returns UNKNOWN (load path)', async () => {
+    /*
+     * Scenario: the UNKNOWN error code is the lib's "I do not have a more
+     * specific reason" sentinel. The component normalises it to the empty
+     * string before handing it to translateAuthError so the user sees the
+     * generic fallback copy rather than the literal "UNKNOWN" code. Pinning
+     * the empty-string arg specifically defends the `code === 'UNKNOWN' ? ''
+     * : code` ternary in the load() catch — without this assertion, a
+     * regression returning the literal string `code` to translateAuthError
+     * would slip through silently.
+     */
+    const { translateAuthError } = await import('@/lib/auth-errors');
+    vi.mocked(mapAuthClientError).mockImplementation(() => ({
+      code: 'UNKNOWN',
+      message: 'Generic',
+    }));
+    vi.mocked(listPlatformUsers).mockRejectedValue(new Error('boom'));
+
+    render(<PlatformUsersTable tenantId="tenant-1" />);
+    await waitFor(() => {
+      expect(vi.mocked(translateAuthError)).toHaveBeenCalledWith('');
+    });
+  });
+
+  it('forwards an EMPTY string to translateAuthError when mapAuthClientError returns UNKNOWN (toggle path)', async () => {
+    /*
+     * Scenario: same UNKNOWN-normalisation contract on the handleToggle
+     * catch branch. Pinned independently so a future refactor cannot
+     * branch the normalisation per code-path.
+     */
+    const { translateAuthError } = await import('@/lib/auth-errors');
+    vi.mocked(mapAuthClientError).mockImplementation(() => ({
+      code: 'UNKNOWN',
+      message: 'Generic',
+    }));
+    vi.mocked(listPlatformUsers).mockResolvedValue(mockUsers);
+    vi.mocked(platformUpdateUserStatus).mockRejectedValue(new Error('Forbidden'));
+
+    render(<PlatformUsersTable tenantId="tenant-1" />);
+    await waitFor(() => expect(screen.getByText('Alice')).toBeDefined());
+
+    const suspendBtn = screen
+      .getAllByRole('button')
+      .find((b) => b.textContent === 'Suspend' && !(b as HTMLButtonElement).disabled);
+    fireEvent.click(suspendBtn!);
+
+    await waitFor(() => {
+      expect(vi.mocked(translateAuthError)).toHaveBeenCalledWith('');
+    });
+  });
+});
+
+// ── Created timestamp ─────────────────────────────────────────────────────────
+
+describe('PlatformUsersTable created timestamp', () => {
+  it('renders relative time with the "ago" suffix (formatDistanceToNow addSuffix:true)', async () => {
+    /*
+     * Scenario: the Created column is human-readable relative time —
+     * "2 days ago" not "2 days". Pinning the "ago" suffix defends the
+     * `{ addSuffix: true }` option passed to `formatDistanceToNow` — a
+     * regression to `{}` or `{ addSuffix: false }` would drop the
+     * suffix and the column would read as a bare duration.
+     */
+    vi.mocked(listPlatformUsers).mockResolvedValue(mockUsers);
+    render(<PlatformUsersTable tenantId="tenant-1" />);
+    await waitFor(() => expect(screen.getByText('Alice')).toBeDefined());
+
+    // At least one cell must contain the relative-time "ago" suffix.
+    expect(document.body.textContent ?? '').toContain(' ago');
+  });
+});

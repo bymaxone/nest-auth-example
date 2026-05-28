@@ -99,6 +99,57 @@ describe('Topbar rendering', () => {
     expect(screen.getByText('AB')).toBeDefined();
   });
 
+  it('caps initials at TWO characters when the user name has three or more parts', () => {
+    /*
+     * Scenario: a user whose name has three or more space-separated parts must
+     * have their initials capped at two characters — anything longer overflows
+     * the small avatar circle.
+     * Protects: `.slice(0, 2)` on the split name — MethodExpression mutant that
+     * drops the slice would let three-letter initials through.
+     */
+    vi.mocked(useSession).mockReturnValue({
+      user: {
+        id: 'u2',
+        name: 'Anne Marie Smith',
+        role: 'MEMBER',
+        tenantId: 'tid',
+        mfaEnabled: false,
+      },
+      session: null,
+      isPending: false,
+      error: null,
+    } as unknown as ReturnType<typeof useSession>);
+    render(<Topbar onMenuOpen={vi.fn()} />);
+    expect(screen.getByText('AM')).toBeDefined();
+    expect(screen.queryByText('AMS')).toBeNull();
+    expect(screen.queryByText('AnneMarieSmith')).toBeNull();
+  });
+
+  it('renders the literal "?" placeholder initials when the user has an empty name', () => {
+    /*
+     * Scenario: when the user record exists but `user.name` is an empty string
+     * (e.g. a partially-migrated legacy record) the avatar must render the
+     * literal "?" fallback so the avatar circle is never blank.
+     * Protects: StringLiteral mutant on `: '?'` — an empty-string mutant would
+     * render an empty avatar. The user is truthy so the surrounding
+     * `{user && (…)}` block still renders the avatar.
+     */
+    vi.mocked(useSession).mockReturnValue({
+      user: {
+        id: 'u3',
+        name: '',
+        role: 'MEMBER',
+        tenantId: 'tid',
+        mfaEnabled: false,
+      },
+      session: null,
+      isPending: false,
+      error: null,
+    } as unknown as ReturnType<typeof useSession>);
+    render(<Topbar onMenuOpen={vi.fn()} />);
+    expect(screen.getByText('?')).toBeDefined();
+  });
+
   it('computes "?" initials when user session is null', () => {
     /*
      * Scenario: when user is null the initials variable is "?" — the Avatar

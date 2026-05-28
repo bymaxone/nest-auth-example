@@ -58,14 +58,21 @@ describe('PasswordInput toggle behaviour', () => {
   it('switches input type to text when the toggle is clicked', () => {
     /*
      * Scenario: clicking the "Reveal" button must change the input type
-     * from "password" to "text" so the value becomes visible.
-     * Protects: toggle show/hide switches the input type correctly.
+     * from "password" to "text" so the value becomes visible. The raw
+     * `type` attribute must equal the verbatim string "text" — asserting
+     * via `.type` would silently normalise an empty attribute to "text"
+     * (HTMLInputElement default) and miss a StringLiteral mutant that
+     * replaces "text" with "".
+     * Protects:
+     * - toggle show/hide switches the input type correctly,
+     * - StringLiteral on the truthy branch of `type={isVisible ? 'text' : 'password'}`
+     *   — the raw attribute must be the verbatim word, not a default fallback.
      */
     render(<PasswordInput />);
     const toggle = screen.getByRole('button', { name: 'Reveal' });
     fireEvent.click(toggle);
     const inputEl = document.querySelector('input') as HTMLInputElement;
-    expect(inputEl.type).toBe('text');
+    expect(inputEl.getAttribute('type')).toBe('text');
   });
 
   it('updates aria-label to "Conceal" after showing', () => {

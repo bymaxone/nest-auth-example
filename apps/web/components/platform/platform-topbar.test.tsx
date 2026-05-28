@@ -90,6 +90,52 @@ describe('PlatformTopbar rendering', () => {
     expect(screen.getByText('SA')).toBeDefined();
   });
 
+  it('caps initials at TWO characters when the admin name has three or more parts', () => {
+    /*
+     * Scenario: when an admin name has three or more space-separated parts
+     * (e.g. "Anne Marie Smith") the initials must be capped at two
+     * characters — anything longer overflows the small avatar circle and
+     * looks broken.
+     * Protects: `.slice(0, 2)` on the split name — MethodExpression mutant
+     * that drops the slice would let "AMS" through.
+     */
+    vi.mocked(getPlatformAdmin).mockReturnValue({
+      id: 'a2',
+      email: 'amarie@example.com',
+      name: 'Anne Marie Smith',
+      role: 'SUPER_ADMIN',
+      status: 'ACTIVE',
+    });
+    render(<PlatformTopbar />);
+    expect(screen.getByText('AM')).toBeDefined();
+    expect(screen.queryByText('AMS')).toBeNull();
+    expect(screen.queryByText('AnneMarieSmith')).toBeNull();
+  });
+
+  it('falls back to "PA" initials when the admin record has an empty name', () => {
+    /*
+     * Scenario: when the stored admin record carries an empty string for
+     * name (e.g. a partially-populated record from a legacy migration) the
+     * avatar must render the literal "PA" platform-admin fallback so the
+     * avatar circle is never blank.
+     * Protects:
+     * - StringLiteral mutant on `: 'PA'` — empty-string mutant would render
+     *   an empty avatar,
+     * - the `admin?.name ? … : 'PA'` ternary takes the falsy arm for empty
+     *   names (and the surrounding `{admin && (…)}` block still renders
+     *   because the admin record itself is truthy).
+     */
+    vi.mocked(getPlatformAdmin).mockReturnValue({
+      id: 'a3',
+      email: 'unknown@example.com',
+      name: '',
+      role: 'SUPER_ADMIN',
+      status: 'ACTIVE',
+    });
+    render(<PlatformTopbar />);
+    expect(screen.getByText('PA')).toBeDefined();
+  });
+
   it('renders the sign-out button', () => {
     /*
      * Scenario: the sign-out button must always be visible in the topbar.
@@ -102,6 +148,31 @@ describe('PlatformTopbar rendering', () => {
 });
 
 describe('PlatformTopbar sign-out flow', () => {
+  it('disables the sign-out button while platformLogout is in flight', async () => {
+    /*
+     * Scenario: between clicking sign-out and the API responding, the
+     * sign-out button must be disabled so the operator cannot double-submit.
+     * Protects: BooleanLiteral mutant on `setIsPending(true)` — a `false`
+     * mutant would leave the button enabled mid-flight.
+     */
+    vi.mocked(getPlatformAdmin).mockReturnValue(null);
+    let resolveLogout: () => void = () => undefined;
+    vi.mocked(platformLogout).mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveLogout = resolve;
+        }),
+    );
+
+    render(<PlatformTopbar />);
+    const button = screen.getByRole('button', { name: /sign out/i });
+    fireEvent.click(button);
+
+    await waitFor(() => expect(platformLogout).toHaveBeenCalled());
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(true));
+    resolveLogout();
+  });
+
   it('calls platformLogout, clears tokens, and redirects on sign-out', async () => {
     /*
      * Scenario: clicking sign out must call platformLogout with the refresh

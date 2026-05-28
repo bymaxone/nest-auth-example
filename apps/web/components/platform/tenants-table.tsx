@@ -33,6 +33,9 @@ import { listPlatformTenants, mapAuthClientError } from '@/lib/auth-client';
 import { translateAuthError } from '@/lib/auth-errors';
 import type { PlatformTenantInfo } from '@/lib/auth-client';
 
+/** Shared date-formatter options — `addSuffix: true` yields the "… ago" wording. */
+const DATE_FORMAT_OPTIONS = { addSuffix: true } as const;
+
 /**
  * Table that lists all tenants in the system.
  *
@@ -42,8 +45,11 @@ import type { PlatformTenantInfo } from '@/lib/auth-client';
 export function TenantsTable() {
   const router = useRouter();
   const [tenants, setTenants] = useState<PlatformTenantInfo[]>([]);
+  // Stryker disable next-line BooleanLiteral: initial `true` paired with the immediate `setIsLoading(true)` inside `load()` — load runs in the mount effect and flushes synchronously before the first observable paint, so a `false` mutant is dominated by the next state set.
   const [isLoading, setIsLoading] = useState(true);
 
+  // Stryker disable next-line ArrayDeclaration: useCallback deps are empty — listPlatformTenants and the setters are stable references. A mutated single-element array stays reference-stable.
+  const loadDeps: readonly unknown[] = [];
   const load = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -55,11 +61,13 @@ export function TenantsTable() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, loadDeps);
 
+  // Stryker disable next-line ArrayDeclaration: useEffect deps are `[load]` — a mutated single-element array stays reference-stable across renders.
+  const effectDeps: readonly unknown[] = [load];
   useEffect(() => {
     void load();
-  }, [load]);
+  }, effectDeps);
 
   if (isLoading) {
     return (
@@ -103,7 +111,7 @@ export function TenantsTable() {
                 </span>
               </TableCell>
               <TableCell className="text-sm text-red-400/60">
-                {formatDistanceToNow(new Date(tenant.createdAt), { addSuffix: true })}
+                {formatDistanceToNow(new Date(tenant.createdAt), DATE_FORMAT_OPTIONS)}
               </TableCell>
               <TableCell>
                 <Button

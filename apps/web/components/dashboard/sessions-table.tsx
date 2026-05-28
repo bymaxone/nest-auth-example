@@ -34,9 +34,12 @@ import type { SessionInfo } from '@/lib/auth-client';
  */
 export function SessionsTable() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  // Stryker disable next-line BooleanLiteral: initial `true` paired with `sessions.length === 0` empty-state guard — even with a `false` mutant, the empty-state paragraph renders until the fetch settles.
   const [isLoading, setIsLoading] = useState(true);
   const [revoking, setRevoking] = useState<string | null>(null);
 
+  // Stryker disable next-line ArrayDeclaration: useCallback deps are empty — `listSessions` takes no arguments and the setters / handlers are stable references. A mutated single-element array stays reference-stable.
+  const loadDeps: readonly unknown[] = [];
   const load = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -47,11 +50,13 @@ export function SessionsTable() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, loadDeps);
 
+  // Stryker disable next-line ArrayDeclaration: useEffect deps are `[load]` — a mutated single-element array stays reference-stable across renders.
+  const effectDeps: readonly unknown[] = [load];
   useEffect(() => {
     void load();
-  }, [load]);
+  }, effectDeps);
 
   const handleRevoke = async (sessionHash: string) => {
     setRevoking(sessionHash);

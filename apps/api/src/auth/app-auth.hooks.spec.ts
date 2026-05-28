@@ -598,11 +598,18 @@ describe('AppAuthHooks', () => {
     });
 
     it('returns action=link when existingUser is present and not blocked', async () => {
-      // A non-blocked user who already has an OAuth link re-authenticates via
-      // the 'link' action — the library calls userRepo.linkOAuth (effectively a
-      // no-op update for an already-linked identity).
-      const activeUser = makeSafeUser({ status: 'ACTIVE' });
-      const ctx = makeContext({ tenantId: 'acme', userId: 'user-1' });
+      /*
+       * A non-blocked user who already has an OAuth link
+       * re-authenticates via the 'link' action — the library
+       * calls userRepo.linkOAuth (effectively a no-op update
+       * for an already-linked identity). The audit payload
+       * must carry the existing user's id so support can
+       * trace the OAuth-to-account binding; if the id were
+       * coerced to null on the happy path, the audit row
+       * would no longer link the OAuth event to the user.
+       */
+      const activeUser = makeSafeUser({ id: 'user-existing-99', status: 'ACTIVE' });
+      const ctx = makeContext({ tenantId: 'acme', userId: 'user-existing-99' });
 
       const result = await hooks.onOAuthLogin(profile, activeUser, ctx);
 
@@ -611,7 +618,10 @@ describe('AppAuthHooks', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             event: 'oauth.login',
-            payload: expect.objectContaining({ action: 'link' }),
+            payload: expect.objectContaining({
+              action: 'link',
+              existingUserId: 'user-existing-99',
+            }),
           }),
         }),
       );
@@ -712,6 +722,70 @@ describe('AppAuthHooks', () => {
           data: expect.objectContaining({ actorUserId: 'user-99' }),
         }),
       );
+    });
+  });
+
+  // ─── Failure-path observability ──────────────────────────────────────────
+
+  describe('failure-path observability', () => {
+    it('logs the documented AuditLog failure payload when prisma.auditLog.create rejects', async () => {
+      /*
+       * Scenario: a hook records an audit row but Postgres briefly
+       * rejects the insert. The hook MUST NOT bubble the failure to
+       * the caller (the auth flow must continue), but the failure
+       * must surface in operator logs with the canonical message,
+       * the event name, and the underlying error message so
+       * support can trace audit-trail gaps.
+       */
+      auditLogCreate.mockRejectedValueOnce(new Error('Postgres connection lost'));
+      const errorSpy = jest
+        .spyOn((hooks as unknown as { logger: { error: (m: unknown) => void } }).logger, 'error')
+        .mockImplementation(() => undefined);
+
+      await hooks.onNewSession(
+        makeSafeUser(),
+        { sessionHash: 'h', device: 'd', ip: '1.2.3.4' },
+        makeContext(),
+      );
+
+      // The audit failure log fires once; the email path succeeds in this scenario.
+      const auditCall = errorSpy.mock.calls.find(
+        (c) => (c[0] as { msg?: string }).msg === 'AuditLog write failed',
+      );
+      expect(auditCall).toBeDefined();
+      const arg = auditCall?.[0] as { msg?: string; event?: string; error?: string };
+      expect(arg.event).toBe('session.new');
+      expect(arg.error).toBe('Postgres connection lost');
+    });
+
+    it('logs the documented sendNewSessionAlert dispatch failure with userId and reason', async () => {
+      /*
+       * Scenario: the new-session alert email cannot be sent (SMTP
+       * outage). The hook MUST NOT abort the login response — the
+       * user is already authenticated and the audit row is already
+       * written — but the dispatch failure must surface in
+       * operator logs with the canonical message, the affected
+       * userId, and the upstream error so support can resend the
+       * alert manually.
+       */
+      sendNewSessionAlert.mockRejectedValueOnce(new Error('SMTP rejected'));
+      const errorSpy = jest
+        .spyOn((hooks as unknown as { logger: { error: (m: unknown) => void } }).logger, 'error')
+        .mockImplementation(() => undefined);
+
+      await hooks.onNewSession(
+        makeSafeUser({ id: 'user-frank' }),
+        { sessionHash: 'h', device: 'd', ip: '1.2.3.4' },
+        makeContext(),
+      );
+
+      const dispatchCall = errorSpy.mock.calls.find(
+        (c) => (c[0] as { msg?: string }).msg === 'sendNewSessionAlert dispatch failed',
+      );
+      expect(dispatchCall).toBeDefined();
+      const arg = dispatchCall?.[0] as { msg?: string; userId?: string; error?: string };
+      expect(arg.userId).toBe('user-frank');
+      expect(arg.error).toBe('SMTP rejected');
     });
   });
 });

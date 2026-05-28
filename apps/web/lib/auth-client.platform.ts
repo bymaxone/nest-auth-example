@@ -184,6 +184,7 @@ async function platformApiFetch<T>(path: string, init: RequestInit = {}): Promis
 
   const response = await fetch(path, { ...init, headers, credentials: 'include' });
 
+  // Stryker disable next-line ConditionalExpression: the `if (false)` direction is observationally equivalent — when the 204 short-circuit is skipped, `response.text()` returns `''`, `response.ok` is true so the !ok branch is skipped, and `if (!text) return undefined as T` catches the empty body. End state is identical. The `if (true)` direction IS killed by the "200 returns parsed body" test. Same pattern as `lib/auth-client.ts`.
   if (response.status === 204) return undefined as T;
 
   const text = await response.text();

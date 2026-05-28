@@ -151,3 +151,212 @@ describe('Form primitives', () => {
     }
   });
 });
+
+// ── Stryker-killing strengthenings ───────────────────────────────────────────
+
+describe('Form a11y wiring + error styling', () => {
+  it('binds the label htmlFor, input id, and aria-describedby to ids ending in -form-item / -description', () => {
+    /*
+     * Scenario: screen readers rely on label.htmlFor matching input.id
+     * AND on aria-describedby pointing at the description paragraph. The
+     * useFormField helper composes these IDs as `${id}-form-item`,
+     * `${id}-form-item-description`, `${id}-form-item-message`. Pinning
+     * the verbatim suffixes catches a regression that flipped them
+     * around (e.g. label pointed at the description id) — a defect
+     * accessibility audits would otherwise surface only on real-device
+     * runs.
+     */
+    render(<TestForm />);
+    const label = screen.getByText('Full name');
+    const input = screen.getByPlaceholderText<HTMLInputElement>('Enter your name');
+    const description = screen.getByText('Your display name.');
+
+    const inputId = input.getAttribute('id');
+    expect(inputId).toMatch(/-form-item$/);
+    expect(label.getAttribute('for')).toBe(inputId);
+    expect(description.getAttribute('id')).toMatch(/-form-item-description$/);
+    // aria-describedby on the input points at the description id when no
+    // error is present.
+    expect(input.getAttribute('aria-describedby')).toBe(description.getAttribute('id'));
+  });
+
+  it('flips aria-describedby to "<description> <message>" and sets aria-invalid=true when validation fails', async () => {
+    /*
+     * Scenario: once the user submits an invalid form, the FormMessage
+     * renders the error AND the input's aria-describedby must include
+     * BOTH ids (description + message) so screen readers announce the
+     * error after the description. aria-invalid must also flip to true.
+     * Pins the ternary's truthy arm AND the `!!error` cast.
+     */
+    render(<TestForm />);
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+    const errorMsg = await screen.findByText('Name is required');
+    const input = screen.getByPlaceholderText<HTMLInputElement>('Enter your name');
+
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    const describedBy = input.getAttribute('aria-describedby') ?? '';
+    expect(describedBy).toContain(errorMsg.getAttribute('id') ?? '__missing__');
+    expect(describedBy.split(' ')).toHaveLength(2);
+  });
+
+  it('keeps aria-invalid="false" while the form is pristine (no error)', () => {
+    /*
+     * Scenario: before any submit fires, the input must NOT be marked
+     * invalid — pinning the `!!error` cast for the absent-error path.
+     * Without this, every input would shout "invalid" to screen readers
+     * on first render, breaking the SR experience entirely.
+     */
+    render(<TestForm />);
+    const input = screen.getByPlaceholderText<HTMLInputElement>('Enter your name');
+    expect(input.getAttribute('aria-invalid')).toBe('false');
+  });
+
+  it('adds the text-destructive class to the FormLabel when validation fails', async () => {
+    /*
+     * Scenario: when the field is invalid, the label must visually
+     * reflect that — Tailwind `text-destructive` is the brand error
+     * colour. Pins the `error && 'text-destructive'` conditional's
+     * truthy arm AND the literal class string.
+     */
+    render(<TestForm />);
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+    await screen.findByText('Name is required');
+    const label = screen.getByText('Full name');
+    expect(label.className).toContain('text-destructive');
+  });
+
+  it('does NOT add the text-destructive class to the FormLabel while pristine', () => {
+    /*
+     * Scenario: counterpart to the previous test — without error, the
+     * label must NOT carry the destructive palette. Defends the falsy
+     * arm of `error && 'text-destructive'`.
+     */
+    render(<TestForm />);
+    const label = screen.getByText('Full name');
+    expect(label.className).not.toContain('text-destructive');
+  });
+
+  it('renders the FormMessage children verbatim when there is no validation error', () => {
+    /*
+     * Scenario: FormMessage falls back to its children when no field
+     * error is present (e.g. a custom hint slot). Pins the
+     * `error?.message ? String(error.message) : children` ternary's
+     * falsy arm AND the `if (!body) return null` guard for the
+     * children-present case.
+     */
+    function FormWithStaticMessage() {
+      const form = useForm<{ name: string }>({ defaultValues: { name: '' } });
+      return (
+        <Form {...form}>
+          <FormField
+            control={form.control}
+            name="name"
+            render={() => (
+              <FormItem>
+                <FormMessage>Static helper text</FormMessage>
+              </FormItem>
+            )}
+          />
+        </Form>
+      );
+    }
+    render(<FormWithStaticMessage />);
+    expect(screen.getByText('Static helper text')).toBeDefined();
+  });
+
+  it('binds the FormMessage paragraph id to the verbatim "-form-item-message" suffix', async () => {
+    /*
+     * Scenario: aria-describedby on the input lists the message id when
+     * an error exists. Pinning the verbatim suffix on the message
+     * paragraph defends the `${id}-form-item-message` template — a
+     * mutated empty suffix would leave both the message id AND the
+     * description id colliding under the same base, breaking screen-
+     * reader announcement order.
+     */
+    render(<TestForm />);
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+    const errorMsg = await screen.findByText('Name is required');
+    expect(errorMsg.getAttribute('id')).toMatch(/-form-item-message$/);
+  });
+
+  it('gives each FormItem a unique id so multiple fields do not collide', () => {
+    /*
+     * Scenario: a form with TWO FormFields must render TWO inputs with
+     * DISTINCT ids. The `FormItemContext.Provider value={{ id }}` spread
+     * uses React.useId() to generate a stable-but-unique id per item —
+     * a mutated empty object `value={{}}` would leave both inputs with
+     * `undefined-form-item` and screen readers would lose the
+     * per-field label association entirely. Pins the ObjectLiteral.
+     */
+    function TwoFieldForm() {
+      const form = useForm<{ first: string; second: string }>({
+        defaultValues: { first: '', second: '' },
+      });
+      return (
+        <Form {...form}>
+          <FormField
+            control={form.control}
+            name="first"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>First</FormLabel>
+                <FormControl>
+                  <Input placeholder="first" {...field} />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="second"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Second</FormLabel>
+                <FormControl>
+                  <Input placeholder="second" {...field} />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+        </Form>
+      );
+    }
+    render(<TwoFieldForm />);
+    const firstId = screen.getByPlaceholderText<HTMLInputElement>('first').getAttribute('id');
+    const secondId = screen.getByPlaceholderText<HTMLInputElement>('second').getAttribute('id');
+    expect(firstId).toBeTruthy();
+    expect(secondId).toBeTruthy();
+    expect(firstId).not.toBe(secondId);
+  });
+
+  it('returns null from FormMessage when neither error nor children are present', () => {
+    /*
+     * Scenario: the empty FormMessage (no error, no children) must
+     * render NOTHING — not an empty `<p>` that adds vertical rhythm
+     * to the form. Pins the `if (!body) return null;` guard.
+     */
+    function FormWithEmptyMessage() {
+      const form = useForm<{ name: string }>({ defaultValues: { name: '' } });
+      return (
+        <Form {...form}>
+          <FormField
+            control={form.control}
+            name="name"
+            render={() => (
+              <FormItem>
+                <span data-testid="anchor">anchor</span>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </Form>
+      );
+    }
+    const { container } = render(<FormWithEmptyMessage />);
+    // The FormItem renders the anchor and nothing else inside it.
+    const paragraphs = container.querySelectorAll('p');
+    expect(paragraphs).toHaveLength(0);
+  });
+});

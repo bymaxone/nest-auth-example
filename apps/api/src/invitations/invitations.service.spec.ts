@@ -425,4 +425,266 @@ describe('InvitationsService', () => {
       await expect(service.revoke('inv-1', 'acme')).resolves.toBeUndefined();
     });
   });
+
+  // ─── Database call shapes, exception messages, and side-effect bodies ─────
+
+  describe('database call shapes and exception messages', () => {
+    it('surfaces "Inviter not found" verbatim when the acting user cannot be resolved', async () => {
+      /*
+       * Scenario: the inviter's session is valid but the underlying
+       * user row is gone (deleted by another admin). The 404 message
+       * must be the literal text the UI binds to so the toast tells
+       * the admin to sign in again, instead of showing an opaque
+       * "Not Found" page.
+       */
+      userFindUnique.mockResolvedValue(null);
+      tenantFindUnique.mockResolvedValue({ id: 'acme', name: 'Acme' });
+
+      await expect(
+        service.create('missing', 'acme', { email: 'a@b.test', role: 'MEMBER' }),
+      ).rejects.toThrow('Inviter not found');
+    });
+
+    it('surfaces "Tenant not found" verbatim when the tenant row is missing', async () => {
+      /*
+       * Scenario: the JWT references a tenant id that no longer exists
+       * in the database (rare — possible after a manual cleanup). The
+       * invitation flow must abort early with a recognisable message
+       * before any Redis or email side-effects fire.
+       */
+      userFindUnique.mockResolvedValue({ id: 'u', name: 'U', role: 'ADMIN' });
+      tenantFindUnique.mockResolvedValue(null);
+
+      await expect(
+        service.create('u', 'missing', { email: 'a@b.test', role: 'MEMBER' }),
+      ).rejects.toThrow('Tenant not found');
+    });
+
+    it('forbidden-role message names both the inviter role and the requested role', async () => {
+      /*
+       * Scenario: a MEMBER tries to invite an ADMIN. The 403 response
+       * must name BOTH roles in the message so the admin investigating
+       * the audit trail can immediately see what was attempted, instead
+       * of guessing which side of the hierarchy was at fault.
+       */
+      userFindUnique.mockResolvedValue({ id: 'u', name: 'U', role: 'MEMBER' });
+      tenantFindUnique.mockResolvedValue({ id: 'acme', name: 'Acme' });
+      mockHasRole.mockReturnValue(false);
+
+      await expect(
+        service.create('u', 'acme', { email: 'a@b.test', role: 'ADMIN' }),
+      ).rejects.toThrow('Your role (MEMBER) cannot invite users with role ADMIN.');
+    });
+
+    it('inviter lookup requests {id, name, role} from prisma.user', async () => {
+      /*
+       * Scenario: the invitation email shows the inviter's display name
+       * ("Alice invited you to Acme Corp"), and the service uses the
+       * inviter role to authorise the requested role. If the select
+       * narrowed to only `id`, the email would render with `undefined`
+       * for the inviter's name and the role check would compare
+       * against an empty string.
+       */
+      userFindUnique.mockResolvedValue({ id: 'u', name: 'U', role: 'ADMIN' });
+      tenantFindUnique.mockResolvedValue({ id: 'acme', name: 'Acme' });
+      invitationCreate.mockResolvedValue(makeInvitationRecord());
+      sendInvitation.mockResolvedValue(undefined);
+      redisSet.mockResolvedValue('OK');
+
+      await service.create('u', 'acme', { email: 'a@b.test', role: 'MEMBER' });
+
+      const calls = userFindUnique.mock.calls as unknown as Array<
+        [{ select: { id: boolean; name: boolean; role: boolean } }]
+      >;
+      expect(calls[0]?.[0].select).toEqual({ id: true, name: true, role: true });
+    });
+
+    it('tenant lookup requests {id, name} from prisma.tenant', async () => {
+      /*
+       * Scenario: the invitation email also embeds the tenant display
+       * name ("…to Acme Corp"). The select must keep both `id` and
+       * `name` populated — dropping either would render the email
+       * with an `undefined` workspace name and confuse the recipient
+       * about which organisation invited them.
+       */
+      userFindUnique.mockResolvedValue({ id: 'u', name: 'U', role: 'ADMIN' });
+      tenantFindUnique.mockResolvedValue({ id: 'acme', name: 'Acme' });
+      invitationCreate.mockResolvedValue(makeInvitationRecord());
+      sendInvitation.mockResolvedValue(undefined);
+      redisSet.mockResolvedValue('OK');
+
+      await service.create('u', 'acme', { email: 'a@b.test', role: 'MEMBER' });
+
+      const calls = tenantFindUnique.mock.calls as unknown as Array<
+        [{ select: { id: boolean; name: boolean } }]
+      >;
+      expect(calls[0]?.[0].select).toEqual({ id: true, name: true });
+    });
+
+    it('redis payload is JSON-parseable and carries every field the accept endpoint needs', async () => {
+      /*
+       * Scenario: when the invitee clicks the email link, the library
+       * reads the Redis payload to know which workspace, role, and
+       * email the invitation grants. The payload MUST contain
+       * `email`, `role`, `tenantId`, `inviterUserId`, and a
+       * `createdAt` timestamp — a stripped-down payload would either
+       * fail the accept flow or grant the wrong role.
+       */
+      userFindUnique.mockResolvedValue({ id: 'admin-id', name: 'A', role: 'ADMIN' });
+      tenantFindUnique.mockResolvedValue({ id: 'acme', name: 'Acme' });
+      invitationCreate.mockResolvedValue(makeInvitationRecord());
+      sendInvitation.mockResolvedValue(undefined);
+      redisSet.mockResolvedValue('OK');
+
+      await service.create('admin-id', 'acme', { email: 'BOB@example.test', role: 'MEMBER' });
+
+      const calls = redisSet.mock.calls as unknown as Array<[string, string, string, number]>;
+      const payload = JSON.parse(calls[0]?.[1] ?? '{}') as Record<string, unknown>;
+      expect(payload['email']).toBe('bob@example.test');
+      expect(payload['role']).toBe('MEMBER');
+      expect(payload['tenantId']).toBe('acme');
+      expect(payload['inviterUserId']).toBe('admin-id');
+      expect(typeof payload['createdAt']).toBe('string');
+    });
+
+    it('expiresAt lands 48 hours in the future on the persisted invitation row', async () => {
+      /*
+       * Scenario: the invitation row carries an `expiresAt` Date that
+       * the admin UI uses to show the countdown and to filter out
+       * expired entries from the "pending" list. The deadline must
+       * land 48 hours from now — a value computed in the past would
+       * make every new invitation look already-expired, and a value
+       * far in the future would let stale invitations linger.
+       */
+      userFindUnique.mockResolvedValue({ id: 'u', name: 'U', role: 'ADMIN' });
+      tenantFindUnique.mockResolvedValue({ id: 'acme', name: 'Acme' });
+      invitationCreate.mockResolvedValue(makeInvitationRecord());
+      sendInvitation.mockResolvedValue(undefined);
+      redisSet.mockResolvedValue('OK');
+
+      const before = Date.now();
+      await service.create('u', 'acme', { email: 'a@b.test', role: 'MEMBER' });
+      const after = Date.now();
+
+      const calls = invitationCreate.mock.calls as unknown as Array<
+        [{ data: { expiresAt: Date } }]
+      >;
+      const expiresAt = calls[0]?.[0].data.expiresAt;
+      expect(expiresAt).toBeInstanceOf(Date);
+      // noUncheckedIndexedAccess narrows expiresAt to Date | undefined here;
+      // the instanceof assertion above proves it is defined at runtime.
+      if (!(expiresAt instanceof Date)) throw new Error('unreachable: expiresAt asserted above');
+      const ttlMs = 172_800 * 1000;
+      // The deadline must land in (before + ttl) <= expiresAt <= (after + ttl).
+      expect(expiresAt.getTime()).toBeGreaterThanOrEqual(before + ttlMs);
+      expect(expiresAt.getTime()).toBeLessThanOrEqual(after + ttlMs);
+    });
+
+    it('logs an error with the failed invitation id and reason when email delivery fails', async () => {
+      /*
+       * Scenario: the invitation row was persisted but the email
+       * provider rejected the send (transient SMTP outage). The flow
+       * must NOT throw — the admin would lose context about the
+       * partially-completed invitation — but the failure must be
+       * observable in operator logs so support can resend manually.
+       * The log entry pinpoints the invitation id and the upstream
+       * error message.
+       */
+      userFindUnique.mockResolvedValue({ id: 'u', name: 'U', role: 'ADMIN' });
+      tenantFindUnique.mockResolvedValue({ id: 'acme', name: 'Acme' });
+      invitationCreate.mockResolvedValue(makeInvitationRecord());
+      sendInvitation.mockRejectedValue(new Error('SMTP down'));
+      redisSet.mockResolvedValue('OK');
+      const errorSpy = jest
+        .spyOn((service as unknown as { logger: { error: (m: unknown) => void } }).logger, 'error')
+        .mockImplementation(() => undefined);
+
+      await service.create('u', 'acme', { email: 'a@b.test', role: 'MEMBER' });
+
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const arg = errorSpy.mock.calls[0]?.[0] as { msg?: string; error?: string };
+      expect(arg.msg).toBe('invitations: email delivery failed');
+      expect(arg.error).toBe('SMTP down');
+    });
+
+    it('listByTenant orders pending invitations newest-first', async () => {
+      /*
+       * Scenario: the admin "pending invitations" page shows the most
+       * recently sent invites at the top so the admin can quickly see
+       * what they just did. A drift that drops the orderBy clause
+       * would let Prisma return rows in indeterminate order — visibly
+       * broken to anyone managing more than a couple of invites.
+       */
+      invitationFindMany.mockResolvedValue([]);
+
+      await service.listByTenant('acme');
+
+      const calls = invitationFindMany.mock.calls as unknown as Array<
+        [{ orderBy: { createdAt: string } }]
+      >;
+      expect(calls[0]?.[0].orderBy).toEqual({ createdAt: 'desc' });
+    });
+
+    it('revoke 404 names the missing invitation id in the response message', async () => {
+      /*
+       * Scenario: an admin clicks "revoke" on a stale row that another
+       * admin already deleted. The 404 message must identify the
+       * specific invitation id so the audit trail (and the toast)
+       * shows which entry failed — a generic "not found" hides which
+       * action actually missed.
+       */
+      invitationFindUnique.mockResolvedValue(null);
+
+      await expect(service.revoke('inv-xyz', 'acme')).rejects.toThrow(
+        "Invitation 'inv-xyz' not found",
+      );
+    });
+
+    it('logs a warning with the invitation id and reason when Redis cleanup fails on revoke', async () => {
+      /*
+       * Scenario: the Prisma delete succeeded but the corresponding
+       * Redis entry could not be cleaned (network blip). The
+       * invitation IS logically revoked — the Redis entry will
+       * expire at its TTL — but the partial outage must surface in
+       * operator logs with the invitation id so support can verify
+       * the orphaned entry is gone within the TTL window.
+       */
+      invitationFindUnique.mockResolvedValue({ tenantId: 'acme', token: 'tok-hash' });
+      invitationDelete.mockResolvedValue(makeInvitationRecord());
+      redisDel.mockRejectedValue(new Error('Redis down'));
+      const warnSpy = jest
+        .spyOn((service as unknown as { logger: { warn: (m: unknown) => void } }).logger, 'warn')
+        .mockImplementation(() => undefined);
+
+      await service.revoke('inv-1', 'acme');
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const arg = warnSpy.mock.calls[0]?.[0] as { msg?: string; id?: string; error?: string };
+      expect(arg.msg).toBe('invitations: Redis cleanup failed');
+      expect(arg.id).toBe('inv-1');
+      expect(arg.error).toBe('Redis down');
+    });
+
+    it('does not log an error on the happy invitation path (email delivered)', async () => {
+      /*
+       * Scenario: every successful invitation must keep the operator
+       * log quiet. Spurious error entries on the happy path would
+       * flood production logs and dilute the signal of real email
+       * delivery failures — making it harder to spot a genuine
+       * outage in time to resend.
+       */
+      userFindUnique.mockResolvedValue({ id: 'u', name: 'U', role: 'ADMIN' });
+      tenantFindUnique.mockResolvedValue({ id: 'acme', name: 'Acme' });
+      invitationCreate.mockResolvedValue(makeInvitationRecord());
+      sendInvitation.mockResolvedValue(undefined);
+      redisSet.mockResolvedValue('OK');
+      const errorSpy = jest
+        .spyOn((service as unknown as { logger: { error: (m: unknown) => void } }).logger, 'error')
+        .mockImplementation(() => undefined);
+
+      await service.create('u', 'acme', { email: 'a@b.test', role: 'MEMBER' });
+
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
+  });
 });

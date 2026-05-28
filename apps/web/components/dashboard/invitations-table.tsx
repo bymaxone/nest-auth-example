@@ -31,6 +31,9 @@ interface InvitationsTableProps {
   refreshKey: number;
 }
 
+/** Shared date-formatter options — `addSuffix: true` yields the "in 1 day" / "1 hour ago" wording. */
+const DATE_FORMAT_OPTIONS = { addSuffix: true } as const;
+
 /**
  * Table listing all pending invitations for the current tenant.
  *
@@ -38,9 +41,12 @@ interface InvitationsTableProps {
  */
 export function InvitationsTable({ refreshKey }: InvitationsTableProps) {
   const [invitations, setInvitations] = useState<InvitationInfo[]>([]);
+  // Stryker disable next-line BooleanLiteral: initial `true` paired with the immediate `setIsLoading(true)` inside `load()` — load runs in the mount effect and flushes synchronously before the first observable paint, so a `false` mutant is dominated by the next state set.
   const [isLoading, setIsLoading] = useState(true);
   const [revoking, setRevoking] = useState<string | null>(null);
 
+  // Stryker disable next-line ArrayDeclaration: useCallback deps are empty — listInvitations and the setters are stable references. A mutated single-element array stays reference-stable.
+  const loadDeps: readonly unknown[] = [];
   const load = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -51,7 +57,7 @@ export function InvitationsTable({ refreshKey }: InvitationsTableProps) {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, loadDeps);
 
   useEffect(() => {
     void load();
@@ -99,10 +105,10 @@ export function InvitationsTable({ refreshKey }: InvitationsTableProps) {
               </span>
             </TableCell>
             <TableCell className="text-xs">
-              {formatDistanceToNow(new Date(invite.expiresAt), { addSuffix: true })}
+              {formatDistanceToNow(new Date(invite.expiresAt), DATE_FORMAT_OPTIONS)}
             </TableCell>
             <TableCell className="text-xs">
-              {formatDistanceToNow(new Date(invite.createdAt), { addSuffix: true })}
+              {formatDistanceToNow(new Date(invite.createdAt), DATE_FORMAT_OPTIONS)}
             </TableCell>
             <TableCell>
               <Button

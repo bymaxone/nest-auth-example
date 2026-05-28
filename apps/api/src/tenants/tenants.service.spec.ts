@@ -91,6 +91,24 @@ describe('TenantsService', () => {
 
       expect(result).toEqual([]);
     });
+
+    it('orders the workspace list by createdAt ascending (oldest first)', async () => {
+      /*
+       * Scenario: the workspace switcher needs a stable order
+       * so the user sees their oldest workspace first. A drift
+       * that emptied the orderBy clause would let Prisma return
+       * rows in indeterminate order — the dropdown would jump
+       * around between page loads.
+       */
+      tenantFindMany.mockResolvedValue([]);
+
+      await service.listForUser('user-1');
+
+      const calls = tenantFindMany.mock.calls as unknown as Array<
+        [{ orderBy: { createdAt: string } }]
+      >;
+      expect(calls[0]?.[0].orderBy).toEqual({ createdAt: 'asc' });
+    });
   });
 
   // ─── create ────────────────────────────────────────────────────────────────
@@ -137,6 +155,26 @@ describe('TenantsService', () => {
       tenantCreate.mockRejectedValue(p2002);
 
       await expect(service.create(dto)).rejects.toThrow(ConflictException);
+    });
+
+    it('names the offending slug verbatim in the duplicate-slug 409 message', async () => {
+      /*
+       * Scenario: an admin tries to create a tenant with a slug
+       * already in use. The 409 response MUST name the
+       * offending slug so the admin's form can surface the
+       * exact validation message under the slug field — a
+       * generic "slug taken" would leave the user guessing.
+       */
+      const dto: CreateTenantDto = { name: 'Acme Two', slug: 'acme-taken' };
+      const p2002 = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+        code: 'P2002',
+        clientVersion: '5.0.0',
+      });
+      tenantCreate.mockRejectedValue(p2002);
+
+      await expect(service.create(dto)).rejects.toThrow(
+        "Tenant slug 'acme-taken' is already taken",
+      );
     });
 
     it('rethrows non-P2002 Prisma errors without wrapping them', async () => {

@@ -38,6 +38,7 @@ vi.mock('sonner', () => ({
 // ── Typed imports after mocks ─────────────────────────────────────────────────
 
 import { revokeAllSessions, handleAuthClientError } from '@/lib/auth-client';
+import { toast } from 'sonner';
 import { SignOutEverywhereButton } from './sign-out-everywhere-button.js';
 
 beforeEach(() => {
@@ -68,21 +69,22 @@ describe('SignOutEverywhereButton dialog flow', () => {
     expect(screen.getByText(/sign out of all sessions/i)).toBeDefined();
   });
 
-  it('calls revokeAllSessions and redirects when confirm is clicked', async () => {
+  it('calls revokeAllSessions, shows the verbatim toast and redirects to /auth/login when confirm is clicked', async () => {
     /*
      * Scenario: clicking the confirm button inside the dialog must call
-     * revokeAllSessions and then navigate to /auth/login.
-     * Protects: handleConfirm calls revokeAllSessions and router.replace.
+     * revokeAllSessions, surface the verbatim "All sessions revoked." toast
+     * so support docs and audit dashboards can pattern-match on the exact
+     * wording, and navigate to /auth/login.
+     * Protects:
+     * - handleConfirm calls revokeAllSessions and router.replace,
+     * - StringLiteral mutant on the toast.success template — exact-string
+     *   assertion kills any swap of the message.
      */
     vi.mocked(revokeAllSessions).mockResolvedValue(undefined);
 
     render(<SignOutEverywhereButton />);
-    // Open the dialog.
     fireEvent.click(screen.getByRole('button', { name: /sign out everywhere/i }));
-    // Click the destructive confirm button inside the dialog.
-    // There are two buttons named "Sign out everywhere" — trigger and confirm.
     const allButtons = screen.getAllByRole('button', { name: /sign out everywhere/i });
-    // The confirm button is the last one rendered.
     const confirmBtn = allButtons[allButtons.length - 1]!;
     fireEvent.click(confirmBtn);
 
@@ -90,8 +92,46 @@ describe('SignOutEverywhereButton dialog flow', () => {
       expect(revokeAllSessions).toHaveBeenCalledOnce();
     });
     await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith('All sessions revoked.');
+    });
+    await waitFor(() => {
       expect(mockReplace).toHaveBeenCalledWith('/auth/login');
     });
+  });
+
+  it('swaps the trigger label to "Signing out…" and disables it while revokeAllSessions is in flight', async () => {
+    /*
+     * Scenario: between confirming the dialog and the server responding, the
+     * trigger button must display the verbatim "Signing out…" label and be
+     * disabled so the operator can see progress and cannot double-submit.
+     * Protects:
+     * - BooleanLiteral mutant on setIsPending(true) — a `false` mutant would
+     *   leave isPending=false, no label swap, no disabled state,
+     * - StringLiteral mutant on the truthy arm `'Signing out…'` — verbatim
+     *   pin including the trailing ellipsis character.
+     */
+    let resolveRevoke: () => void = () => undefined;
+    vi.mocked(revokeAllSessions).mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRevoke = resolve;
+        }),
+    );
+
+    render(<SignOutEverywhereButton />);
+    // Capture the trigger BEFORE opening the dialog — survives Radix teardown.
+    const trigger = screen.getByRole('button', { name: /sign out everywhere/i });
+    fireEvent.click(trigger);
+    const allButtons = screen.getAllByRole('button', { name: /sign out everywhere/i });
+    const confirmBtn = allButtons[allButtons.length - 1]!;
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => expect(revokeAllSessions).toHaveBeenCalledOnce());
+    await waitFor(() => expect((trigger as HTMLButtonElement).disabled).toBe(true));
+    // The label inside the trigger swaps to the verbatim "Signing out…".
+    expect(trigger.textContent).toContain('Signing out…');
+    expect(trigger.textContent).not.toContain('Sign out everywhere');
+    resolveRevoke();
   });
 
   it('calls handleAuthClientError and re-enables the button when revokeAllSessions rejects', async () => {
@@ -118,10 +158,13 @@ describe('SignOutEverywhereButton dialog flow', () => {
         expect.objectContaining({ toast: expect.anything() }),
       );
     });
-    // The trigger button must be re-enabled after failure (isPending=false).
+    // Radix may keep <body data-aria-hidden="true"> while tearing down the
+    // dialog overlay, which blinds RTL role queries. Query the trigger via a
+    // raw DOM selector that ignores the aria-hidden tree.
     await waitFor(() => {
-      const triggerBtn = screen.getByRole('button', { name: /sign out everywhere/i });
-      expect((triggerBtn as HTMLButtonElement).disabled).toBe(false);
+      const triggerBtn = document.querySelector<HTMLButtonElement>('button[type="button"]');
+      expect(triggerBtn).not.toBeNull();
+      expect(triggerBtn?.disabled).toBe(false);
     });
   });
 });

@@ -275,14 +275,16 @@ describe('OtpInput paste', () => {
     expect(newValue).toBe('123456');
   });
 
-  it('pads remaining positions when fewer digits than length are pasted (value has existing chars)', () => {
+  it('pads remaining positions with the SUFFIX of existing chars (chars.slice(pasted.length))', () => {
     /*
      * Scenario: pasting "12" when the existing value is "ABCDEF" must call
-     * onChange with "12" at the start and the remaining existing chars as
-     * padding — `pasted.padEnd(length, chars.slice(pasted.length))`.
-     * When value="" the empty-string fill makes padEnd a no-op, so we use an
-     * existing value to exercise the padding path.
-     * Protects: handlePaste padding with existing chars fill.
+     * onChange with "12CDEF" — the pasted digits in front, then the
+     * SUFFIX of the existing value starting at `pasted.length`. Pinning
+     * the trailing characters is what distinguishes the correct
+     * `chars.slice(pasted.length)` fill ("CDEF") from a regression to
+     * `chars` ("ABCDEF" → would emit "12ABCD"). Without this assertion,
+     * a wrong-fill mutant slips through because the test only checked
+     * the leading characters and the total length.
      */
     const onChange = vi.fn();
     render(<OtpInput length={6} value="ABCDEF" onChange={onChange} />);
@@ -292,11 +294,8 @@ describe('OtpInput paste', () => {
     });
     expect(onChange).toHaveBeenCalledOnce();
     const [newValue] = onChange.mock.calls[0] as [string];
-    // First two characters must be the pasted digits.
-    expect(newValue[0]).toBe('1');
-    expect(newValue[1]).toBe('2');
-    // Total length must match the `length` prop (padded from existing chars).
-    expect(newValue).toHaveLength(6);
+    // Pinned in full so trailing-character regressions are caught.
+    expect(newValue).toBe('12CDEF');
   });
 
   it('strips non-digit characters from pasted text', () => {
@@ -329,5 +328,218 @@ describe('OtpInput paste', () => {
       clipboardData: { getData: () => '123456' },
     });
     expect(document.activeElement).toBe(inputs[5]);
+  });
+
+  it('caps the paste at exactly `length` digits and ignores any overflow', () => {
+    /*
+     * Scenario: a careless paste delivers more digits than the input
+     * accepts (e.g. 8 digits into a 6-box widget when the user copied a
+     * longer code by mistake). Pins `handlePaste`'s `slice(0, length)`
+     * cap — without it, the controlled value could exceed the visual
+     * widget's length and the resulting OTP submission would carry the
+     * extra digits, failing the API's length validation in a
+     * difficult-to-diagnose way.
+     */
+    const onChange = vi.fn();
+    render(<OtpInput length={6} value="" onChange={onChange} />);
+    fireEvent.paste(screen.getAllByRole('textbox')[0]!, {
+      clipboardData: { getData: () => '12345678' },
+    });
+    expect(onChange).toHaveBeenCalledOnce();
+    const [emitted] = onChange.mock.calls[0] as [string];
+    expect(emitted).toBe('123456');
+    expect(emitted.length).toBe(6);
+  });
+
+  it('moves focus to the SHORTER paste length when fewer digits than length are pasted', () => {
+    /*
+     * Scenario: pasting "12" into the first box must leave focus on
+     * box 2 (index 2 = `pasted.length`) — NOT on the last box — so the
+     * user can immediately keep typing where the paste ended. Pins
+     * the truthy branch of `Math.min(pasted.length, length - 1)` so a
+     * regression to `Math.min(length - 1, pasted.length)` would still
+     * pass but `length - 1` alone would land the cursor at the end.
+     */
+    render(<OtpInput length={6} value="" onChange={vi.fn()} />);
+    const inputs = screen.getAllByRole('textbox');
+    inputs[0]!.focus();
+    fireEvent.paste(inputs[0]!, {
+      clipboardData: { getData: () => '12' },
+    });
+    // After "12" → focus index 2 (third box).
+    expect(document.activeElement).toBe(inputs[2]);
+  });
+
+  it('only registers the paste handler on the first box (not on the trailing boxes)', () => {
+    /*
+     * Scenario: a paste fired on box 4 (instead of box 0) must NOT call
+     * `onChange` with the pasted full string because `onPaste` is only
+     * bound to box 0. Pins the `i === 0 ? handlePaste : undefined`
+     * branch of the input render. Without this, pasting in the middle
+     * of the widget would clobber the leading digits.
+     */
+    const onChange = vi.fn();
+    render(<OtpInput length={6} value="" onChange={onChange} />);
+    const inputs = screen.getAllByRole('textbox');
+    fireEvent.paste(inputs[3]!, {
+      clipboardData: { getData: () => '999999' },
+    });
+    expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+// ── Boundary guards + input sanitisation ──────────────────────────────────────
+
+describe('OtpInput boundary guards and input sanitisation', () => {
+  it('keeps only the LAST typed digit when the input event delivers a multi-character string', () => {
+    /*
+     * Scenario: Android composing-text and some IMEs deliver multi-char
+     * change events (e.g. typing "5" while the previous digit "3" is
+     * still composing arrives as "35"). The input must keep only the
+     * trailing digit so the OTP boxes never carry stale composition
+     * residue. Pins `digit = raw.replace(/\D/g, '').slice(-1)` — the
+     * `slice(-1)` arm specifically.
+     */
+    const onChange = vi.fn();
+    render(<OtpInput length={6} value="" onChange={onChange} />);
+    fireEvent.change(screen.getAllByRole('textbox')[0]!, {
+      target: { value: '35' },
+    });
+    expect(onChange).toHaveBeenCalledOnce();
+    const [emitted] = onChange.mock.calls[0] as [string];
+    expect(emitted[0]).toBe('5');
+  });
+
+  it('strips letters and punctuation from change events AND does not advance focus when no digit results', () => {
+    /*
+     * Scenario: pasting "a3" or typing a letter on a keyboard that does
+     * not honour `inputMode="numeric"` (typical on iPad with a hardware
+     * keyboard) must drop the non-digit characters silently AND keep
+     * focus on the same box (no advance). Pins both the
+     * `raw.replace(/\D/g, '')` sanitiser AND the `digit &&` short-
+     * circuit guard — a regression of `&&` to `||` would advance focus
+     * even when nothing typed, breaking the keyboard-flow contract.
+     */
+    const onChange = vi.fn();
+    render(<OtpInput length={6} value="" onChange={onChange} />);
+    const inputs = screen.getAllByRole('textbox');
+    inputs[0]!.focus();
+    fireEvent.change(inputs[0]!, { target: { value: 'a' } });
+    // No digit landed → leading char is empty.
+    const [emitted] = onChange.mock.calls[0] as [string];
+    expect(emitted[0] ?? '').toBe('');
+    // Focus must NOT have advanced — guards the `digit && index < length - 1`
+    // short-circuit. A `||` regression would have focused box 1.
+    expect(document.activeElement).toBe(inputs[0]);
+  });
+
+  it('does not move focus past the last box when the final digit is typed', () => {
+    /*
+     * Scenario: typing into the LAST box must not attempt to focus an
+     * out-of-range box. Pins the `index < length - 1` guard in
+     * `handleChange` so a regression to `index <= length - 1` would
+     * crash on `inputRefs.current[length]?.focus()` (or focus the
+     * non-existent next input).
+     */
+    const onChange = vi.fn();
+    render(<OtpInput length={6} value="12345" onChange={onChange} />);
+    const inputs = screen.getAllByRole('textbox');
+    inputs[5]!.focus();
+    fireEvent.change(inputs[5]!, { target: { value: '6' } });
+    // Focus must stay on the last box.
+    expect(document.activeElement).toBe(inputs[5]);
+  });
+
+  it('does not move focus or call onChange when Backspace fires on box 0 with an empty value', () => {
+    /*
+     * Scenario: the very first box receives a Backspace while it is
+     * empty — the `index > 0` guard must short-circuit so no negative
+     * index is read. Pins the `index > 0` boundary of the Backspace
+     * empty-box branch.
+     */
+    const onChange = vi.fn();
+    render(<OtpInput length={6} value="" onChange={onChange} />);
+    const inputs = screen.getAllByRole('textbox');
+    inputs[0]!.focus();
+    fireEvent.keyDown(inputs[0]!, { key: 'Backspace' });
+    expect(document.activeElement).toBe(inputs[0]);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('puts the empty string at the previous index when Backspace fires on an empty later box', () => {
+    /*
+     * Scenario: Backspace on an empty box must clear the PREVIOUS box
+     * by writing an empty string at index - 1. Pins the
+     * `newChars[index - 1] = ''` literal — a regression to
+     * `'Stryker'` (or anything truthy) would leak into the OTP submission.
+     */
+    const onChange = vi.fn();
+    render(<OtpInput length={6} value="ABC" onChange={onChange} />);
+    const inputs = screen.getAllByRole('textbox');
+    inputs[3]!.focus();
+    fireEvent.keyDown(inputs[3]!, { key: 'Backspace' });
+    const [emitted] = onChange.mock.calls[0] as [string];
+    // The character at index 2 must have been cleared.
+    expect(emitted[2] ?? '').toBe('');
+    // Surrounding characters untouched.
+    expect(emitted[0]).toBe('A');
+    expect(emitted[1]).toBe('B');
+  });
+});
+
+// ── Per-box DOM contract ──────────────────────────────────────────────────────
+
+describe('OtpInput per-box DOM attributes', () => {
+  it('renders autoComplete="one-time-code" on the first box and "off" on every other box', () => {
+    /*
+     * Scenario: iOS auto-fill from the SMS app needs the FIRST box to
+     * carry `autoComplete="one-time-code"`; the remaining boxes must
+     * be explicitly opted out (`"off"`) so the OS does not race the
+     * controlled-input flow. Pins both arms of the `i === 0` ternary
+     * AND both literal strings.
+     */
+    render(<OtpInput length={6} value="" onChange={vi.fn()} />);
+    const inputs = screen.getAllByRole('textbox');
+    expect(inputs[0]!.getAttribute('autoComplete')).toBe('one-time-code');
+    for (let i = 1; i < 6; i++) {
+      expect(inputs[i]!.getAttribute('autoComplete')).toBe('off');
+    }
+  });
+
+  it('uses an empty string as the box value when the controlled value runs out of characters', () => {
+    /*
+     * Scenario: with `value="12"` and `length=6`, boxes 3-6 must
+     * display empty strings (not the literal "undefined" that
+     * `chars[i]` would render without the `?? ''` coalesce). Pins
+     * the empty-string fallback on the `<input value>` prop.
+     */
+    render(<OtpInput length={6} value="12" onChange={vi.fn()} />);
+    const inputs = screen.getAllByRole<HTMLInputElement>('textbox');
+    expect(inputs[2]!.value).toBe('');
+    expect(inputs[5]!.value).toBe('');
+    // And the early boxes still carry the typed digits.
+    expect(inputs[0]!.value).toBe('1');
+    expect(inputs[1]!.value).toBe('2');
+  });
+
+  it('does not crash when the inputRefs slot is null and a focus is attempted', () => {
+    /*
+     * Scenario: the ref callback for an early input may run with `null`
+     * when React unmounts the element before the focus side-effect
+     * fires. The `?.focus()` optional chain in the `focus()` helper
+     * prevents a TypeError. Pins that optional-chain by attempting a
+     * keyboard action that triggers `focus()` after unmount.
+     */
+    const { unmount } = render(<OtpInput length={6} value="" onChange={vi.fn()} />);
+    const inputs = screen.getAllByRole('textbox');
+    inputs[1]!.focus();
+    unmount();
+    // Re-render to get a fresh tree.
+    render(<OtpInput length={6} value="" onChange={vi.fn()} />);
+    // Triggering ArrowLeft on box 0 after a remount must not throw — the
+    // focus helper guards against missing refs.
+    const newInputs = screen.getAllByRole('textbox');
+    newInputs[0]!.focus();
+    expect(() => fireEvent.keyDown(newInputs[0]!, { key: 'ArrowLeft' })).not.toThrow();
   });
 });

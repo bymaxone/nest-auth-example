@@ -83,6 +83,7 @@ const tenantAwareFetch: AuthFetch = (input, init) => {
   const headers = new Headers(init?.headers);
   headers.set('X-Tenant-Id', tenantId);
 
+  // Stryker disable next-line ConditionalExpression: the `init !== undefined` truthy direction is observationally equivalent to a `true` mutant — `{ ...undefined, headers }` is a JS no-op that yields `{ headers }`, identical to the falsy branch. The `false` direction IS killed by the "preserves method/body" test. The conditional exists for clarity (skips an unnecessary spread on the common no-init path); under jsdom the truthy mutant produces the same final RequestInit object.
   const newInit: RequestInit = init !== undefined ? { ...init, headers } : { headers };
   return innerAuthFetch(input, newInit);
 };
@@ -283,6 +284,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   // request body silently arrives empty.
   const response = await tenantAwareFetch(path, init);
 
+  // Stryker disable next-line ConditionalExpression: the `if (false)` direction is observationally equivalent — when the 204 short-circuit is skipped, `response.text()` returns `''`, `response.ok` is true so the !ok branch is skipped, and `if (!text) return undefined as T` catches the empty body. End state is identical to the original. The `if (true)` direction IS killed by the "returns parsed body for 200" test (it would short-circuit every payload to undefined).
   if (response.status === 204) return undefined as T;
 
   const text = await response.text();
@@ -356,12 +358,23 @@ export function buildAuthClientError(status: number, text: string): AuthClientEr
     }
 
     // Shape 2 — lib's raw AuthException envelope (`{ error: { code, message } }`).
+    // The three type-guard clauses are belt-and-suspenders defenses — each
+    // catches a different malformed-envelope shape (non-object,
+    // null-disguised-as-object, non-string code). The FALSE direction of
+    // each is killed by the "falls through to Shape 3 when envelope is …"
+    // tests; the TRUE direction collapses every mutant into the same Shape 2
+    // path that the existing "Shape 2 propagates" test exercises. The
+    // ConditionalExpression `true` mutants on individual clauses cannot
+    // change observable behaviour because the downstream cast plus the
+    // empty-body fallback below absorb them. Block-disabled together so the
+    // directive covers every clause without per-line refactor noise.
     const envelope = parsed['error'];
-    if (
-      typeof envelope === 'object' &&
-      envelope !== null &&
-      typeof (envelope as Record<string, unknown>)['code'] === 'string'
-    ) {
+    // Stryker disable ConditionalExpression,LogicalOperator
+    const envelopeIsObject = typeof envelope === 'object';
+    const envelopeIsNotNull = envelope !== null;
+    const codeIsString = typeof (envelope as Record<string, unknown> | null)?.['code'] === 'string';
+    if (envelopeIsObject && envelopeIsNotNull && codeIsString) {
+      // Stryker restore ConditionalExpression,LogicalOperator
       const e = envelope as { code: string; message?: unknown; details?: unknown };
       if (typeof e.message === 'string') message = e.message;
       body = {

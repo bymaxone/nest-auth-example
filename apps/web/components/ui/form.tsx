@@ -24,6 +24,23 @@ import {
 import { cn } from '@/lib/utils';
 import { Label } from '@/components/ui/label';
 
+/*
+ * Pure-visual Tailwind class strings. Hoisted into module-level constants
+ * under a Stryker disable block per the constant-extraction pattern
+ * (mutation-testing-guidelines.md § "Disable-directive placement"). The
+ * behaviourally-distinguishing tokens (`text-destructive` on the error
+ * arm) live OUTSIDE the block in `LABEL_ERROR_CLASS` because they ARE
+ * pinned by tests.
+ */
+// Stryker disable StringLiteral
+const FORM_ITEM_CLASS = 'space-y-2';
+const FORM_DESCRIPTION_CLASS = 'text-xs text-muted-foreground';
+const FORM_MESSAGE_CLASS = 'text-xs font-medium text-destructive';
+// Stryker restore StringLiteral
+
+/** Tailwind error palette applied to FormLabel when the field is invalid. */
+const LABEL_ERROR_CLASS = 'text-destructive';
+
 const Form = FormProvider;
 
 interface FormFieldContextValue<
@@ -86,7 +103,7 @@ const FormItem = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivEl
     const id = React.useId();
     return (
       <FormItemContext.Provider value={{ id }}>
-        <div ref={ref} className={cn('space-y-2', className)} {...props} />
+        <div ref={ref} className={cn(FORM_ITEM_CLASS, className)} {...props} />
       </FormItemContext.Provider>
     );
   },
@@ -104,7 +121,7 @@ const FormLabel = React.forwardRef<
   return (
     <Label
       ref={ref}
-      className={cn(error && 'text-destructive', className)}
+      className={cn(error && LABEL_ERROR_CLASS, className)}
       htmlFor={formItemId}
       {...props}
     />
@@ -144,7 +161,7 @@ const FormDescription = React.forwardRef<
     <p
       ref={ref}
       id={formDescriptionId}
-      className={cn('text-xs text-muted-foreground', className)}
+      className={cn(FORM_DESCRIPTION_CLASS, className)}
       {...props}
     />
   );
@@ -166,12 +183,7 @@ const FormMessage = React.forwardRef<
   }
 
   return (
-    <p
-      ref={ref}
-      id={formMessageId}
-      className={cn('text-xs font-medium text-destructive', className)}
-      {...props}
-    >
+    <p ref={ref} id={formMessageId} className={cn(FORM_MESSAGE_CLASS, className)} {...props}>
       {body}
     </p>
   );

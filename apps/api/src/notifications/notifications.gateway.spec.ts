@@ -257,14 +257,25 @@ describe('NotificationsGateway', () => {
     });
 
     it('deletes the userId map entry when the last socket disconnects', async () => {
-      // Memory leak prevention: the map entry for a userId must be removed when
-      // no sockets remain, so the map does not grow unbounded.
+      /*
+       * Memory leak prevention: the userId map entry must be REMOVED
+       * (the key deleted, not just the inner set emptied) when no
+       * sockets remain, so the map does not grow unbounded across
+       * users who connect and disconnect over the process lifetime.
+       * Inspecting the internal map directly is the only way to
+       * distinguish "entry removed" from "entry with empty set".
+       */
       const { gateway } = makeGateway();
       const client = makeSocket();
       const req = makeRequest({ authorization: 'Bearer valid-token' });
 
       await gateway.handleConnection(client as never, req);
       gateway.handleDisconnect(client as never);
+
+      // The internal map MUST no longer carry a key for the user.
+      const internalMap = (gateway as unknown as { userSockets: Map<string, Set<unknown>> })
+        .userSockets;
+      expect(internalMap.has('user-001')).toBe(false);
 
       // Emitting to a userId with no map entry returns 0 (not an error).
       expect(gateway.emitNewNotification('user-001', { title: 'T', body: 'B' })).toBe(0);
@@ -492,6 +503,246 @@ describe('NotificationsGateway', () => {
       gateway.maybeDisconnectBlockedUser('user-001', 'UNKNOWN_FUTURE_STATUS');
 
       expect(disconnectSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── Wire-shape and observability pinning ─────────────────────────────────
+
+  describe('wire shape and observability', () => {
+    it('verifies the JWT with the HS256 algorithm only', async () => {
+      /*
+       * Scenario: a JWT signed with an unexpected algorithm (e.g. `none`
+       * or `RS256` from a misconfigured upstream) must never be accepted
+       * by the WebSocket connection path. Pinning the verify options
+       * preserves the "HS256-only" contract this gateway relies on; a
+       * widened algorithm list would be a real downgrade in the
+       * security posture.
+       */
+      const { gateway, jwtService } = makeGateway();
+      const client = makeSocket();
+      const req = makeRequest({ authorization: 'Bearer good-token' });
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(jwtService.verify).toHaveBeenCalledTimes(1);
+      const call = jwtService.verify.mock.calls[0] as unknown as [string, { algorithms: string[] }];
+      expect(call?.[0]).toBe('good-token');
+      expect(call?.[1]).toEqual({ algorithms: ['HS256'] });
+    });
+
+    it('rejects a JWT whose `type` is not "dashboard"', async () => {
+      /*
+       * Scenario: a platform-admin or MFA-temp token is delivered to
+       * the dashboard WebSocket gateway. Even though the signature
+       * verifies, the token is for a different audience and must be
+       * rejected at connection time — otherwise a platform admin's
+       * token could be used to receive dashboard-level notifications.
+       */
+      const platformPayload = { ...VALID_PAYLOAD, type: 'platform' as const };
+      const { gateway } = makeGateway(platformPayload as never);
+      const client = makeSocket();
+      const req = makeRequest({ authorization: 'Bearer token' });
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+    });
+
+    it('reads the access_token cookie from the upgrade Cookie header (browser path)', async () => {
+      /*
+       * Scenario: a browser opens the dashboard WebSocket through the
+       * Next.js same-origin proxy. The browser cannot set custom
+       * Authorization headers on a WS upgrade, so the gateway must
+       * fall back to the HttpOnly `access_token` cookie. The cookie
+       * regex extracts the token value between `access_token=` and
+       * either the next `;` or the end of the header.
+       */
+      const { gateway, jwtService } = makeGateway();
+      const client = makeSocket();
+      const req = makeRequest({
+        cookie: 'other=foo; access_token=cookie-token-value; another=bar',
+      });
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(jwtService.verify).toHaveBeenCalledTimes(1);
+      const call = jwtService.verify.mock.calls[0] as unknown as [string, unknown];
+      expect(call?.[0]).toBe('cookie-token-value');
+    });
+
+    it('rejects a Cookie header that has no access_token entry', async () => {
+      /*
+       * Scenario: the upgrade request carries cookies but the
+       * `access_token` is absent (the user already signed out or the
+       * cookie was scoped elsewhere). The gateway must NOT pull a
+       * random cookie value as a token candidate — the regex must
+       * specifically match `access_token=`. Without an exact match
+       * the connection is closed with 4401.
+       */
+      const { gateway } = makeGateway();
+      const client = makeSocket();
+      const req = makeRequest({ cookie: 'csrf=abc; theme=dark' });
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+    });
+
+    it('reads only the substring up to the next semicolon when access_token is followed by other cookies', async () => {
+      /*
+       * Scenario: the cookie header has more than one entry after
+       * `access_token=`. The token value MUST stop at the next `;`
+       * — picking up the rest of the header would invalidate the
+       * JWT signature and lock every browser-initiated WS connection
+       * out of notifications.
+       */
+      const { gateway, jwtService } = makeGateway();
+      const client = makeSocket();
+      const req = makeRequest({ cookie: 'access_token=just-this-part; csrf=other' });
+
+      await gateway.handleConnection(client as never, req);
+
+      const call = jwtService.verify.mock.calls[0] as unknown as [string, unknown];
+      expect(call?.[0]).toBe('just-this-part');
+    });
+
+    it('strips exactly the "Bearer " prefix when extracting the token from the Authorization header', async () => {
+      /*
+       * Scenario: a non-browser client (CLI, mobile app) sends
+       * `Authorization: Bearer <token>`. The gateway must remove the
+       * 7-character "Bearer " prefix exactly. A different prefix
+       * length would pass garbage characters through to `jwt.verify`
+       * and the connection would close on every API consumer.
+       */
+      const { gateway, jwtService } = makeGateway();
+      const client = makeSocket();
+      const req = makeRequest({ authorization: 'Bearer just-the-token' });
+
+      await gateway.handleConnection(client as never, req);
+
+      const call = jwtService.verify.mock.calls[0] as unknown as [string, unknown];
+      expect(call?.[0]).toBe('just-the-token');
+    });
+
+    it('logs a connect event with the userId and current socket count', async () => {
+      /*
+       * Scenario: every accepted connection must surface in operator
+       * logs with the userId and the current count of connected
+       * sockets for that user. The log entry feeds dashboards that
+       * detect runaway reconnect loops; pinning the payload keeps
+       * the observability contract stable.
+       */
+      const { gateway } = makeGateway();
+      const logSpy = jest
+        .spyOn((gateway as unknown as { logger: { log: (m: unknown) => void } }).logger, 'log')
+        .mockImplementation(() => undefined);
+      const client = makeSocket();
+      const req = makeRequest({ authorization: 'Bearer token' });
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      const arg = logSpy.mock.calls[0]?.[0] as {
+        msg?: string;
+        userId?: string;
+        socketCount?: number;
+      };
+      expect(arg.msg).toBe('ws:connect');
+      expect(arg.userId).toBe('user-001');
+      expect(arg.socketCount).toBe(1);
+    });
+
+    it('logs a disconnect event with the userId on handleDisconnect', async () => {
+      /*
+       * Scenario: every clean disconnect must also surface in logs
+       * with the userId, so dashboards can match connect/disconnect
+       * pairs and detect orphaned sessions. The payload must keep
+       * the documented `msg` shape.
+       */
+      const { gateway } = makeGateway();
+      const client = makeSocket();
+      const req = makeRequest({ authorization: 'Bearer token' });
+      await gateway.handleConnection(client as never, req);
+      const logSpy = jest
+        .spyOn((gateway as unknown as { logger: { log: (m: unknown) => void } }).logger, 'log')
+        .mockImplementation(() => undefined);
+
+      gateway.handleDisconnect(client as never);
+
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      const arg = logSpy.mock.calls[0]?.[0] as { msg?: string; userId?: string };
+      expect(arg.msg).toBe('ws:disconnect');
+      expect(arg.userId).toBe('user-001');
+    });
+
+    it('disconnectUser logs a user_disconnected event with the documented reason', async () => {
+      /*
+       * Scenario: when a user is suspended, every open socket for
+       * them is closed forcibly. The log entry must surface BOTH
+       * the canonical event name (`ws:user_disconnected`) and the
+       * `reason: status_blocked` discriminator so support can
+       * distinguish suspensions from voluntary disconnects.
+       */
+      const { gateway } = makeGateway();
+      const client = makeSocket();
+      const req = makeRequest({ authorization: 'Bearer token' });
+      await gateway.handleConnection(client as never, req);
+      const logSpy = jest
+        .spyOn((gateway as unknown as { logger: { log: (m: unknown) => void } }).logger, 'log')
+        .mockImplementation(() => undefined);
+
+      gateway.disconnectUser('user-001');
+
+      // The forced-disconnect path emits exactly one log entry.
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      const arg = logSpy.mock.calls[0]?.[0] as { msg?: string; reason?: string };
+      expect(arg.msg).toBe('ws:user_disconnected');
+      expect(arg.reason).toBe('status_blocked');
+    });
+
+    it('emitNewNotification returns 0 when the user has no entry in the socket map', () => {
+      /*
+       * Scenario: a notification is fired for a user who has no
+       * active WebSocket sessions (e.g. they signed out on every
+       * device). The method must return 0 without attempting to
+       * iterate, so callers can decide whether to fall back to
+       * email or push delivery.
+       */
+      const { gateway } = makeGateway();
+
+      const delivered = gateway.emitNewNotification('ghost-user', {
+        title: 't',
+        body: 'b',
+      });
+
+      expect(delivered).toBe(0);
+    });
+
+    it('handleDisconnect leaves the userSockets entry alive when the user has other open sockets', async () => {
+      /*
+       * Scenario: a user is connected on two tabs and closes one.
+       * The set of sockets for that user must shrink to one entry
+       * but the map key must remain so the surviving tab continues
+       * to receive notifications. Only when the set drops to zero
+       * does the map entry get deleted (covered separately by the
+       * "removes the userId entry when no sockets remain" test).
+       */
+      const { gateway } = makeGateway();
+      const clientA = makeSocket();
+      const clientB = makeSocket();
+      const reqA = makeRequest({ authorization: 'Bearer t' });
+      const reqB = makeRequest({ authorization: 'Bearer t' });
+      await gateway.handleConnection(clientA as never, reqA);
+      await gateway.handleConnection(clientB as never, reqB);
+
+      gateway.handleDisconnect(clientA as never);
+
+      // Single remaining socket still receives a follow-up notification.
+      const delivered = gateway.emitNewNotification('user-001', {
+        title: 't',
+        body: 'b',
+      });
+      expect(delivered).toBe(1);
     });
   });
 });

@@ -4,7 +4,18 @@ import prettier from 'eslint-config-prettier';
 import globals from 'globals';
 
 export default tseslint.config(
-  { ignores: ['**/dist', '**/.next', '**/coverage', '**/node_modules', '**/*.d.ts'] },
+  {
+    ignores: [
+      '**/dist',
+      '**/.next',
+      '**/coverage',
+      '**/node_modules',
+      '**/*.d.ts',
+      // Stryker mutation-testing artefacts.
+      '**/.stryker-tmp',
+      '**/reports/mutation',
+    ],
+  },
   js.configs.recommended,
   {
     // Plain JavaScript files (CJS/MJS helpers, config scripts) need Node globals

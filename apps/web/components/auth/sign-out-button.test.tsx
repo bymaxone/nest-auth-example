@@ -108,4 +108,49 @@ describe('SignOutButton click behaviour', () => {
       );
     });
   });
+
+  it('disables the button while the logout request is in flight', async () => {
+    /*
+     * Scenario: between clicking and the logout request resolving, the button
+     * must be disabled so the user cannot double-submit.
+     * Protects: BooleanLiteral mutant on `setIsPending(true)` — a `false`
+     * mutant would leave the button enabled mid-flight.
+     */
+    let resolveFetch: (value: { ok: boolean }) => void = () => undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(
+        () =>
+          new Promise<{ ok: boolean }>((resolve) => {
+            resolveFetch = resolve;
+          }),
+      ),
+    );
+
+    render(<SignOutButton />);
+    const btn = screen.getByRole('button', { name: /sign out/i });
+    fireEvent.click(btn);
+
+    await vi.waitFor(() => expect((btn as HTMLButtonElement).disabled).toBe(true));
+    resolveFetch({ ok: true });
+  });
+
+  it('re-enables the button after the logout request settles (finally → setIsPending(false))', async () => {
+    /*
+     * Scenario: after the logout fetch fails (catch path) the button must be
+     * enabled again so the user can retry. The catch path is used because the
+     * success path triggers a redirect that takes the page out of test scope.
+     * Protects: BlockStatement empty-block mutant on `finally` AND
+     * BooleanLiteral mutant on `setIsPending(false)` — both would leave the
+     * button stuck on disabled after the error.
+     */
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network error')));
+
+    render(<SignOutButton />);
+    const btn = screen.getByRole('button', { name: /sign out/i });
+    fireEvent.click(btn);
+
+    await vi.waitFor(() => expect(vi.mocked(toast).error).toHaveBeenCalled());
+    await vi.waitFor(() => expect((btn as HTMLButtonElement).disabled).toBe(false));
+  });
 });

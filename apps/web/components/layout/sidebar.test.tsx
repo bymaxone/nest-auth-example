@@ -19,9 +19,11 @@ import { render, screen, fireEvent } from '@testing-library/react';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
+/** Mutable pathname used by the usePathname mock — set per-test. */
+const pathnameRef = vi.hoisted(() => ({ current: '/dashboard' }));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn(), replace: vi.fn() }),
-  usePathname: () => '/dashboard',
+  usePathname: () => pathnameRef.current,
 }));
 
 vi.mock('@bymax-one/nest-auth/react', () => ({
@@ -35,6 +37,7 @@ import { Sidebar } from './sidebar.js';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  pathnameRef.current = '/dashboard';
 });
 
 /** Creates a minimal mock session object for useSession. */
@@ -163,5 +166,113 @@ describe('Sidebar rendering', () => {
     // Click one of the nav links — "Overview" is always visible.
     fireEvent.click(screen.getByText('Overview'));
     expect(onNavClick).toHaveBeenCalledOnce();
+  });
+});
+
+// ── Active-state, aria, and visibility pins ──────────────────────────────────
+
+describe('Sidebar active-state, aria-current, and visibility', () => {
+  it('marks the EXACT-match nav item active with aria-current="page" and the brand-orange palette', () => {
+    /*
+     * Scenario: the Overview item carries `exact: true`. When pathname
+     * equals `/dashboard` exactly, the item must surface as active —
+     * `aria-current="page"` for SR, brand-orange `#ff6224` palette for
+     * visual cue. Pins both the EqualityOperator (`===`) AND the
+     * ConditionalExpression that drives `aria-current` / palette.
+     */
+    pathnameRef.current = '/dashboard';
+    vi.mocked(useSession).mockReturnValue(
+      mockSession('MEMBER') as unknown as ReturnType<typeof useSession>,
+    );
+    render(<Sidebar isOpen />);
+    const overview = screen.getByText('Overview').closest('a') as HTMLAnchorElement;
+    expect(overview.getAttribute('aria-current')).toBe('page');
+    expect(overview.className).toContain('#ff6224');
+  });
+
+  it('does NOT mark Overview active when pathname is /dashboard/account (exact-match enforced)', () => {
+    /*
+     * Scenario: the Overview item's `exact: true` flag must reject any
+     * non-exact match. Without it, `pathname.startsWith('/dashboard')`
+     * would mark Overview active on every dashboard sub-page. Pins the
+     * truthy branch of the `item.exact ?` ternary by asserting Overview
+     * is NOT active when pathname is a strict descendant.
+     */
+    pathnameRef.current = '/dashboard/account';
+    vi.mocked(useSession).mockReturnValue(
+      mockSession('MEMBER') as unknown as ReturnType<typeof useSession>,
+    );
+    render(<Sidebar isOpen />);
+    const overview = screen.getByText('Overview').closest('a') as HTMLAnchorElement;
+    expect(overview.getAttribute('aria-current')).toBeNull();
+  });
+
+  it('marks PREFIX-match nav items active when pathname starts with item.href', () => {
+    /*
+     * Scenario: non-exact items (Security, Sessions, etc.) use
+     * `pathname.startsWith(item.href)` so deep links under
+     * `/dashboard/security/foo` still highlight Security in the sidebar.
+     * Pins the MethodExpression on `.startsWith` AND the falsy arm of
+     * the `item.exact ?` ternary — a mutation to `.endsWith` would fail
+     * because `'/dashboard/security/foo'.endsWith('/dashboard/security')`
+     * is false.
+     */
+    pathnameRef.current = '/dashboard/security/foo';
+    vi.mocked(useSession).mockReturnValue(
+      mockSession('MEMBER') as unknown as ReturnType<typeof useSession>,
+    );
+    render(<Sidebar isOpen />);
+    const security = screen.getByText('Security').closest('a') as HTMLAnchorElement;
+    expect(security.getAttribute('aria-current')).toBe('page');
+  });
+
+  it('omits aria-current entirely when the item is not active', () => {
+    /*
+     * Scenario: SRs interpret `aria-current="page"` as "this is where
+     * you are". Items that are NOT active must not surface that
+     * attribute at all (the JSX uses `undefined`, which React drops).
+     * Pins the falsy arm of `isActive ? 'page' : undefined` AND defends
+     * against a regression that hard-coded `'page'` on every item.
+     */
+    pathnameRef.current = '/dashboard';
+    vi.mocked(useSession).mockReturnValue(
+      mockSession('MEMBER') as unknown as ReturnType<typeof useSession>,
+    );
+    render(<Sidebar isOpen />);
+    // Account is non-active under /dashboard.
+    const account = screen.getByText('Account').closest('a') as HTMLAnchorElement;
+    expect(account.getAttribute('aria-current')).toBeNull();
+  });
+
+  it('renders the nav with the flex layout class when isOpen=true (mobile visible)', () => {
+    /*
+     * Scenario: counterpart to the existing isOpen=false test — when the
+     * mobile overlay is open the nav must carry the `flex` class so
+     * the layout actually renders. Pins the truthy arm of the
+     * `isOpen ? 'flex' : 'hidden lg:flex'` ternary.
+     */
+    vi.mocked(useSession).mockReturnValue(
+      mockSession('MEMBER') as unknown as ReturnType<typeof useSession>,
+    );
+    render(<Sidebar isOpen />);
+    const nav = screen.getByRole('navigation', { name: /main navigation/i });
+    expect(nav.className).toContain('flex');
+    expect(nav.className).not.toContain('hidden');
+  });
+
+  it('does NOT call any handler when no onNavClick prop is provided', () => {
+    /*
+     * Scenario: when the sidebar is rendered without an onNavClick
+     * callback the conditional spread `...(onNavClick !== undefined && {…})`
+     * must NOT pass any onClick down to the Link. A mutated `true && {…}`
+     * could pass an undefined onClick, which React would treat as a
+     * non-callable. Pins the falsy arm — the click must not throw
+     * AND no callback observable.
+     */
+    vi.mocked(useSession).mockReturnValue(
+      mockSession('MEMBER') as unknown as ReturnType<typeof useSession>,
+    );
+    render(<Sidebar isOpen />);
+    expect(() => fireEvent.click(screen.getByText('Overview'))).not.toThrow();
   });
 });

@@ -131,10 +131,12 @@ describe('TenantPicker states', () => {
     /*
      * Scenario: when mapAuthClientError returns a non-UNKNOWN code the
      * `code === 'UNKNOWN' ? '' : code` false branch fires and translateAuthError
-     * is called with the actual code.
+     * is called with the actual code (NOT the empty string). Pinning the
+     * exact arg defends both the falsy arm of the UNKNOWN ternary AND
+     * defends against a `true ?` mutant that would always pass `''`.
      * Protects: line 45 — `code !== 'UNKNOWN'` branch in load() catch.
      */
-    const { toast } = await import('sonner');
+    const { translateAuthError } = await import('@/lib/auth-errors');
     const { mapAuthClientError } = await import('@/lib/auth-client');
     vi.mocked(mapAuthClientError).mockReturnValue({
       code: 'auth.forbidden',
@@ -143,7 +145,7 @@ describe('TenantPicker states', () => {
     vi.mocked(listPlatformTenants).mockRejectedValue(new Error('Forbidden'));
     render(<TenantPicker />);
     await waitFor(() => {
-      expect(vi.mocked(toast).error).toHaveBeenCalled();
+      expect(translateAuthError).toHaveBeenCalledWith('auth.forbidden');
     });
   });
 
@@ -163,5 +165,105 @@ describe('TenantPicker states', () => {
     fireEvent.change(select, { target: { value: '' } });
 
     expect(mockReplace).not.toHaveBeenCalled();
+  });
+});
+
+// ── Stryker-killing strengthenings ───────────────────────────────────────────
+
+describe('TenantPicker copy + a11y + lifecycle pins', () => {
+  it('shows the verbatim "Loading tenants…" placeholder text while the fetch is in flight', () => {
+    /*
+     * Scenario: the placeholder option text is the user's primary
+     * signal that data is loading. Pinning the verbatim string defends
+     * the truthy arm of `isLoading ? 'Loading tenants…' : '— Choose a
+     * tenant —'`.
+     */
+    vi.mocked(listPlatformTenants).mockReturnValue(new Promise(() => undefined));
+    render(<TenantPicker />);
+    expect(screen.getByText('Loading tenants…')).toBeDefined();
+  });
+
+  it('shows the verbatim "— Choose a tenant —" placeholder after tenants resolve', async () => {
+    /*
+     * Scenario: counterpart to the loading test — once the fetch
+     * settles, the placeholder must read "— Choose a tenant —" so the
+     * user knows the dropdown is interactive. Pinning the falsy arm
+     * of the placeholder ternary.
+     */
+    vi.mocked(listPlatformTenants).mockResolvedValue(mockTenants);
+    render(<TenantPicker />);
+    await waitFor(() => {
+      expect(screen.getByText('— Choose a tenant —')).toBeDefined();
+    });
+  });
+
+  it('forwards the EMPTY string to translateAuthError when mapAuthClientError returns UNKNOWN', async () => {
+    /*
+     * Scenario: the UNKNOWN sentinel must be normalised to '' before
+     * being passed to translateAuthError so the user sees the generic
+     * fallback copy rather than the literal "UNKNOWN" code. Pins the
+     * truthy arm of `code === 'UNKNOWN' ? '' : code` AND the verbatim
+     * empty-string literal — the existing test asserted toast.error
+     * was called but did not pin the arg.
+     */
+    const { translateAuthError } = await import('@/lib/auth-errors');
+    const { mapAuthClientError } = await import('@/lib/auth-client');
+    vi.mocked(mapAuthClientError).mockReturnValueOnce({
+      code: 'UNKNOWN' as never,
+      message: 'Generic',
+    });
+    vi.mocked(listPlatformTenants).mockRejectedValue(new Error('boom'));
+
+    render(<TenantPicker />);
+    await waitFor(() => {
+      expect(translateAuthError).toHaveBeenCalledWith('');
+    });
+  });
+
+  it('re-enables the select after a failed load (finally setIsLoading(false))', async () => {
+    /*
+     * Scenario: when listPlatformTenants rejects the `finally {
+     * setIsLoading(false) }` cleanup must run so the select is no
+     * longer disabled — without it the operator would be stuck on a
+     * permanently-loading dropdown with no way to retry by navigating
+     * away. Pins both the finally BlockStatement AND the BooleanLiteral
+     * on the `false` argument.
+     */
+    vi.mocked(listPlatformTenants).mockRejectedValueOnce(new Error('boom'));
+    render(<TenantPicker />);
+
+    await waitFor(() => {
+      const select = screen.getByRole<HTMLSelectElement>('combobox');
+      expect(select.disabled).toBe(false);
+    });
+  });
+
+  it('uses the selectedTenantId prop as the select value when provided', async () => {
+    /*
+     * Scenario: navigating to `/platform/users?tenantId=tid-1` with
+     * `selectedTenantId="tid-1"` must pre-select that tenant in the
+     * dropdown via the `value` prop. Pins the truthy arm of
+     * `selectedTenantId ?? ''` and the LogicalOperator on `??`. Wait
+     * for tenants to load so the `<option value="tid-1">` exists.
+     */
+    vi.mocked(listPlatformTenants).mockResolvedValue(mockTenants);
+    render(<TenantPicker selectedTenantId="tid-1" />);
+    await screen.findByText('Acme Corp (acme)');
+    const select = screen.getByRole<HTMLSelectElement>('combobox');
+    expect(select.value).toBe('tid-1');
+  });
+
+  it('falls back to the empty string for the select value when selectedTenantId is undefined', () => {
+    /*
+     * Scenario: counterpart — when no `selectedTenantId` is provided,
+     * the select must default to the empty placeholder option (`""`)
+     * so the dropdown reads "— Choose a tenant —" rather than crashing
+     * with React's controlled-component warning. Pins the falsy arm
+     * of `selectedTenantId ?? ''`.
+     */
+    vi.mocked(listPlatformTenants).mockReturnValue(new Promise(() => undefined));
+    render(<TenantPicker />);
+    const select = screen.getByRole<HTMLSelectElement>('combobox');
+    expect(select.value).toBe('');
   });
 });

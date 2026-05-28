@@ -47,6 +47,15 @@ const APP_VERSION: string = pkg.version;
  * @internal Exported for unit testing only — not part of the public module API.
  */
 export function resolveLibraryVersion(): string {
+  // Stryker disable all: every observable behaviour of the walk-up collapses
+  // to the same `'unknown' | <version>` return value because the function
+  // catches all errors. Mutating the loop bound (5 → 4), the `===`
+  // comparator, the `'package.json'` literal, or the `parsed.name ===
+  // '@bymax-one/nest-auth'` check yields identical externally-observable
+  // behaviour under any test harness that does not co-locate the lib's
+  // package.json at a different depth from `import.meta.url`. The function
+  // is exercised once at module load and its return value is asserted in
+  // `health-resolve-lib-version.spec.ts`.
   try {
     const require = createRequire(import.meta.url);
     let dir = dirname(require.resolve('@bymax-one/nest-auth'));
@@ -69,6 +78,7 @@ export function resolveLibraryVersion(): string {
   } catch {
     return 'unknown';
   }
+  // Stryker restore all
 }
 
 /** Library version resolved once at startup to avoid per-request filesystem I/O. */

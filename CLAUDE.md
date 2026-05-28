@@ -78,32 +78,33 @@ Never open every guideline — load on demand. The table below maps task → gui
 
 ## On-demand guidelines map
 
-| Task                                            | Guideline                                                                        |
-| ----------------------------------------------- | -------------------------------------------------------------------------------- |
-| NestJS module, controller, service, guard, pipe | [nestjs-guidelines.md](docs/guidelines/nestjs-guidelines.md)                     |
-| Prisma schema, query, migration, seed           | [prisma-guidelines.md](docs/guidelines/prisma-guidelines.md)                     |
-| PostgreSQL index, raw SQL, perf                 | [postgres-guidelines.md](docs/guidelines/postgres-guidelines.md)                 |
-| Redis key design, TTL, pub/sub                  | [redis-guidelines.md](docs/guidelines/redis-guidelines.md)                       |
-| Next.js App Router, route handler, middleware   | [nextjs-guidelines.md](docs/guidelines/nextjs-guidelines.md)                     |
-| React component, hook, context                  | [react-guidelines.md](docs/guidelines/react-guidelines.md)                       |
-| Styling, token, shadcn/ui                       | [tailwind-guidelines.md](docs/guidelines/tailwind-guidelines.md)                 |
-| Types, generics, tsconfig                       | [typescript-guidelines.md](docs/guidelines/typescript-guidelines.md)             |
-| Form with React Hook Form + Zod                 | [forms-guidelines.md](docs/guidelines/forms-guidelines.md)                       |
-| DTO / env / boundary validation                 | [validation-guidelines.md](docs/guidelines/validation-guidelines.md)             |
-| Logging, Pino configuration                     | [logging-guidelines.md](docs/guidelines/logging-guidelines.md)                   |
-| Email template or provider swap                 | [email-guidelines.md](docs/guidelines/email-guidelines.md)                       |
-| `@bymax-one/nest-auth` wiring                   | [nest-auth-guidelines.md](docs/guidelines/nest-auth-guidelines.md)               |
-| Any test — unit, integration, e2e, Playwright   | [testing-guidelines.md](docs/guidelines/testing-guidelines.md)                   |
-| Compose file, Docker config                     | [docker-guidelines.md](docs/guidelines/docker-guidelines.md)                     |
-| New workspace, root script, pnpm filter         | [monorepo-guidelines.md](docs/guidelines/monorepo-guidelines.md)                 |
-| Env var, `.env.example`                         | [environment-guidelines.md](docs/guidelines/environment-guidelines.md)           |
-| Audit row, `/health`, metric                    | [observability-guidelines.md](docs/guidelines/observability-guidelines.md)       |
-| Auth, cookies, CORS, secrets                    | [security-privacy-guidelines.md](docs/guidelines/security-privacy-guidelines.md) |
-| ESLint / Prettier / hook change                 | [lint-format-guidelines.md](docs/guidelines/lint-format-guidelines.md)           |
-| Codebase style + code documentation policy      | [coding-style.md](docs/guidelines/coding-style.md)                               |
-| Branch, commit, PR, revert                      | [git-workflow.md](docs/guidelines/git-workflow.md)                               |
-| Approving a PR                                  | [pr-review.md](docs/guidelines/pr-review.md)                                     |
-| Handing off work to another agent               | [agent-handoff.md](docs/guidelines/agent-handoff.md)                             |
+| Task                                                                           | Guideline                                                                        |
+| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| NestJS module, controller, service, guard, pipe                                | [nestjs-guidelines.md](docs/guidelines/nestjs-guidelines.md)                     |
+| Prisma schema, query, migration, seed                                          | [prisma-guidelines.md](docs/guidelines/prisma-guidelines.md)                     |
+| PostgreSQL index, raw SQL, perf                                                | [postgres-guidelines.md](docs/guidelines/postgres-guidelines.md)                 |
+| Redis key design, TTL, pub/sub                                                 | [redis-guidelines.md](docs/guidelines/redis-guidelines.md)                       |
+| Next.js App Router, route handler, middleware                                  | [nextjs-guidelines.md](docs/guidelines/nextjs-guidelines.md)                     |
+| React component, hook, context                                                 | [react-guidelines.md](docs/guidelines/react-guidelines.md)                       |
+| Styling, token, shadcn/ui                                                      | [tailwind-guidelines.md](docs/guidelines/tailwind-guidelines.md)                 |
+| Types, generics, tsconfig                                                      | [typescript-guidelines.md](docs/guidelines/typescript-guidelines.md)             |
+| Form with React Hook Form + Zod                                                | [forms-guidelines.md](docs/guidelines/forms-guidelines.md)                       |
+| DTO / env / boundary validation                                                | [validation-guidelines.md](docs/guidelines/validation-guidelines.md)             |
+| Logging, Pino configuration                                                    | [logging-guidelines.md](docs/guidelines/logging-guidelines.md)                   |
+| Email template or provider swap                                                | [email-guidelines.md](docs/guidelines/email-guidelines.md)                       |
+| `@bymax-one/nest-auth` wiring                                                  | [nest-auth-guidelines.md](docs/guidelines/nest-auth-guidelines.md)               |
+| Any test — unit, integration, e2e, Playwright                                  | [testing-guidelines.md](docs/guidelines/testing-guidelines.md)                   |
+| Compose file, Docker config                                                    | [docker-guidelines.md](docs/guidelines/docker-guidelines.md)                     |
+| New workspace, root script, pnpm filter                                        | [monorepo-guidelines.md](docs/guidelines/monorepo-guidelines.md)                 |
+| Env var, `.env.example`                                                        | [environment-guidelines.md](docs/guidelines/environment-guidelines.md)           |
+| Audit row, `/health`, metric                                                   | [observability-guidelines.md](docs/guidelines/observability-guidelines.md)       |
+| Auth, cookies, CORS, secrets                                                   | [security-privacy-guidelines.md](docs/guidelines/security-privacy-guidelines.md) |
+| ESLint / Prettier / hook change                                                | [lint-format-guidelines.md](docs/guidelines/lint-format-guidelines.md)           |
+| Codebase style + code documentation policy                                     | [coding-style.md](docs/guidelines/coding-style.md)                               |
+| Branch, commit, PR, revert                                                     | [git-workflow.md](docs/guidelines/git-workflow.md)                               |
+| Approving a PR                                                                 | [pr-review.md](docs/guidelines/pr-review.md)                                     |
+| Handing off work to another agent                                              | [agent-handoff.md](docs/guidelines/agent-handoff.md)                             |
+| Mutation testing — Stryker config, killing mutants, `// Stryker disable` rules | [mutation-testing-guidelines.md](docs/guidelines/mutation-testing-guidelines.md) |
 
 ---
 
@@ -124,6 +125,32 @@ pnpm --filter @nest-auth-example/api dev       # boot the API
 pnpm --filter @nest-auth-example/web dev       # boot the web app
 # Exercise the flow end-to-end in a browser / curl.
 ```
+
+For changes that touch core business logic in `apps/api/src/` (services, guards, controllers, providers) or `apps/web/lib/` / `apps/web/components/`, also run the mutation suite for the affected workspace before opening the PR. 100% line coverage proves the lines run; mutation score proves the assertions catch behaviour changes.
+
+```bash
+pnpm mutation:api                              # full mutation run for the API
+pnpm mutation:web                              # full mutation run for the web
+pnpm mutation:incremental:api                  # faster iteration during the kill loop
+```
+
+**Both workspaces are at 100.00 % mutation score** (Phase 1 complete
+2026-05-28 — 2120 mutants killed, zero behavioural survivors). CI
+enforces this on every PR via `.github/workflows/mutation.yml` with
+`thresholds.break = 100` in both `stryker.config.json` files —
+**a single surviving mutant blocks the merge**. The PR workflow uses
+Stryker's incremental cache (typically <2 min per workspace) and a
+weekly `mutation-nightly.yml` does a full cold run as drift safety net.
+
+See [docs/guidelines/mutation-testing-guidelines.md](docs/guidelines/mutation-testing-guidelines.md) and the implementation plan in [docs/stryker/IMPLEMENTATION_PLAN.md](docs/stryker/IMPLEMENTATION_PLAN.md).
+
+**Hard-won Stryker rules** — read [mutation-testing-guidelines.md § Disable-directive placement](docs/guidelines/mutation-testing-guidelines.md#disable-directive-placement--stryker-ast-quirks) BEFORE writing any `// Stryker disable` comment. Three rules that bite hardest:
+
+1. `Stryker disable next-line` only suppresses mutants whose AST node **starts on the next line**. Multi-line `else if`, chained JSX `&&` guards, and `useEffect(() => {…}, [deps])` where the deps live on the closing line all attribute mutants to the parent statement's start. Extract conditions into named locals (`const isCounterVisible = …`) and deps arrays into module-level constants (`const EMPTY_EFFECT_DEPS = []`) so the directive lands.
+2. JSX comments `{/* Stryker disable … */}` are **not parsed**. Use plain `//` JS comments, which means refactoring so the directive lives in a JS context (extract ternary, className composition, etc.).
+3. `BlockStatement` mutants on `try/finally` resist `next-line` AND block-form disables when the directive sits in the surrounding catch arm. Prefer a real kill test that asserts on the post-resolve UI state (button re-enabled, label restored, "Loading…" gone) over chasing a directive that won't land.
+
+When a mutant is genuinely equivalent, the disable comment MUST name the mutator(s) and carry a colon-prefixed rationale that points at the test / invariant that protects against the underlying defect.
 
 Manual sweep on changed files:
 

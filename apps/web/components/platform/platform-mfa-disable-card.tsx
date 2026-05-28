@@ -71,7 +71,9 @@ export function PlatformMfaDisableCard({ onDisabled }: PlatformMfaDisableCardPro
     formState: { errors },
   } = useForm<TotpValues>({
     resolver: zodResolver(totpSchema),
+    // Stryker disable next-line StringLiteral: RHF `mode` controls validation cadence — `""` falls back to RHF's default `onSubmit`, identical observable behaviour. Other valid values (`'onBlur'`, `'all'`) also produce working forms with valid alternative timing; impossible to pin without coupling tests to RHF internals.
     mode: 'onSubmit',
+    // Stryker disable next-line StringLiteral: same reasoning as `mode` above — `reValidateMode` selects RHF-internal re-validation cadence.
     reValidateMode: 'onChange',
   });
 
@@ -122,6 +124,7 @@ export function PlatformMfaDisableCard({ onDisabled }: PlatformMfaDisableCardPro
       : isPending
         ? 'Regenerating…'
         : 'Regenerate codes';
+  // Stryker disable next-line StringLiteral: `'default'` → `""` is an equivalent mutant — passing an empty string to the shadcn Button `variant` prop falls back to the `default` variant's class composition (the CVA `variants` map has no entry for `""`). The regenerate-button-variant test pins `from-brand-500` to defend the truthy branch.
   const submitVariant = mode === 'disabling' ? 'destructive' : 'default';
 
   return (
@@ -146,6 +149,7 @@ export function PlatformMfaDisableCard({ onDisabled }: PlatformMfaDisableCardPro
               <Button
                 variant="outline"
                 size="sm"
+                // Stryker disable next-line StringLiteral: `setMode('regenerating')` → `setMode('')` is observationally equivalent — the empty string is not `'idle'`, so `isFormOpen` is still true, and `mode === 'disabling'` is false, so `submitVariant`, `formTitle`, `submitLabel`, and `onSubmit` all fall through to the regenerate branch. TypeScript would reject `''` at compile time, but Stryker does not run the project's TS check on this workspace (ADR 0001).
                 onClick={() => setMode('regenerating')}
                 data-testid="platform-mfa-regenerate-button"
                 className="border-red-500/30 text-red-300 hover:border-red-500/60 hover:bg-red-500/10"
@@ -194,6 +198,7 @@ export function PlatformMfaDisableCard({ onDisabled }: PlatformMfaDisableCardPro
 
       <RecoveryCodesModal
         open={freshCodes !== null}
+        // Stryker disable next-line ArrayDeclaration: the `?? []` fallback is observed only when `freshCodes === null`, in which case `open={false}` ensures the modal renders nothing. Mutating to `?? ["Stryker"]` cannot leak through a closed modal.
         codes={freshCodes ?? []}
         onClose={handleCodesModalClose}
       />

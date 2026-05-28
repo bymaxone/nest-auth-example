@@ -201,6 +201,80 @@ describe('PrismaUserRepository.createWithOAuth — blocked-status guards', () =>
 
   // ─── Unknown status default (createWithOAuth) ────────────────────────────
 
+  it('forwards a recognised status string verbatim to createWithOAuth upsert', async () => {
+    /*
+     * Scenario: the library hands the repository a known
+     * UserStatus value (e.g. `'ACTIVE'`). The repository must
+     * resolve it to the corresponding enum member, not
+     * silently coerce every OAuth signup to ACTIVE. A
+     * regression that always returned ACTIVE would mask a
+     * library-side status drift instead of catching it.
+     */
+    userFindUnique.mockResolvedValue(null);
+    userUpsert.mockResolvedValue(makeUserRow({ status: UserStatus.ACTIVE }));
+
+    await repo.createWithOAuth({
+      ...TEST_OAUTH_DATA,
+      status: 'ACTIVE',
+    });
+
+    expect(userUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ status: UserStatus.ACTIVE }),
+      }),
+    );
+  });
+
+  it('preserves a non-default valid status (PENDING) verbatim through createWithOAuth', async () => {
+    /*
+     * Scenario: a custom registration flow hands createWithOAuth
+     * a PENDING status (e.g. for a tenant that requires admin
+     * approval before activation). The repository MUST forward
+     * PENDING — collapsing it to ACTIVE would skip the approval
+     * gate. Using a status OTHER than the enum's first value
+     * also distinguishes this from any predicate that always
+     * matches (which would return the enum's first member
+     * regardless of input).
+     */
+    userFindUnique.mockResolvedValue(null);
+    userUpsert.mockResolvedValue(makeUserRow({ status: UserStatus.PENDING }));
+
+    await repo.createWithOAuth({
+      ...TEST_OAUTH_DATA,
+      status: 'PENDING',
+    });
+
+    expect(userUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ status: UserStatus.PENDING }),
+      }),
+    );
+  });
+
+  it('lowercases the email before passing it to the createWithOAuth upsert', async () => {
+    /*
+     * Scenario: an OAuth provider returns the user's email in
+     * a case that does not match the canonical lower-case form
+     * stored in the database. The repository MUST normalise to
+     * lower case so the (tenantId, email) unique index keeps a
+     * single row per email — without normalisation a typo in
+     * casing would create duplicate accounts.
+     */
+    userFindUnique.mockResolvedValue(null);
+    userUpsert.mockResolvedValue(makeUserRow());
+
+    await repo.createWithOAuth({
+      ...TEST_OAUTH_DATA,
+      email: 'Mixed@Example.TEST',
+    });
+
+    expect(userUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ email: 'mixed@example.test' }),
+      }),
+    );
+  });
+
   it('defaults status to ACTIVE when an unknown status string is supplied to createWithOAuth', async () => {
     // A forward-compatible or unrecognised status from the library must default to
     // ACTIVE (not PENDING as in create()) so the OAuth user can immediately sign in
@@ -559,6 +633,91 @@ describe('PrismaUserRepository.create', () => {
 
     expect(userCreate).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ email: 'alice@example.test' }) }),
+    );
+  });
+
+  it('forwards a recognised status string verbatim to prisma.user.create', async () => {
+    /*
+     * Scenario: the library hands the repository a known UserStatus
+     * value (e.g. `'ACTIVE'`). The repository must resolve it to
+     * the corresponding enum member — the same value, not the
+     * default `PENDING`. A regression that swapped the find lookup
+     * for a constant would silently store every new account as
+     * PENDING and require manual admin activation.
+     */
+    const row = makeUserRow({ status: UserStatus.ACTIVE });
+    userCreate.mockResolvedValue(row);
+
+    await repo.create({
+      email: 'carol@example.test',
+      name: 'Carol',
+      passwordHash: 'hash',
+      role: 'MEMBER',
+      status: 'ACTIVE',
+      tenantId: 'acme',
+    });
+
+    expect(userCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: UserStatus.ACTIVE }),
+      }),
+    );
+  });
+
+  it('defaults emailVerified to false when the payload omits the flag', async () => {
+    /*
+     * Scenario: a standard registration through the credentials
+     * flow leaves emailVerified unset — the user must verify by
+     * clicking the link in the verification email before their
+     * account becomes usable. A drift that flipped the default to
+     * `true` would skip the verification gate entirely.
+     */
+    const row = makeUserRow({ emailVerified: false });
+    userCreate.mockResolvedValue(row);
+
+    await repo.create({
+      email: 'dave@example.test',
+      name: 'Dave',
+      passwordHash: 'hash',
+      role: 'MEMBER',
+      status: 'ACTIVE',
+      tenantId: 'acme',
+      // emailVerified deliberately omitted to exercise the default.
+    });
+
+    expect(userCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ emailVerified: false }),
+      }),
+    );
+  });
+
+  it('preserves emailVerified=true when the payload sets it explicitly', async () => {
+    /*
+     * Scenario: an invitation flow accepts the invitee with
+     * pre-verified email (the invitation link itself proves
+     * the email is reachable). The repository must forward
+     * `emailVerified: true` verbatim — a regression that always
+     * coerced to `false` would require the invitee to verify
+     * their email again after accepting the invitation.
+     */
+    const row = makeUserRow({ emailVerified: true });
+    userCreate.mockResolvedValue(row);
+
+    await repo.create({
+      email: 'invitee@example.test',
+      name: 'Invitee',
+      passwordHash: 'hash',
+      role: 'MEMBER',
+      status: 'ACTIVE',
+      tenantId: 'acme',
+      emailVerified: true,
+    });
+
+    expect(userCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ emailVerified: true }),
+      }),
     );
   });
 });

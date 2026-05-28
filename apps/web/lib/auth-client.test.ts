@@ -1397,6 +1397,156 @@ describe('platformLogout', () => {
 
     sessionStorage.removeItem('platform_access_token');
   });
+
+  it('omits the Authorization header on platformLogout when no platform token is stored', async () => {
+    /*
+     * Scenario: an admin clicks Logout but the sessionStorage token
+     * already evaporated (e.g. background tab cleanup). The helper must
+     * still POST the logout — without inventing a `Bearer null` /
+     * `Bearer undefined` Authorization header. Pinning the negative
+     * space defends the `if (token !== null)` guard.
+     */
+    sessionStorage.removeItem('platform_access_token');
+    const mockFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    vi.stubGlobal('fetch', mockFetch);
+
+    await platformLogout('refresh-token');
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers['Authorization']).toBeUndefined();
+  });
+
+  it('sends Content-Type: application/json and credentials: include on platformLogout', async () => {
+    /*
+     * Scenario: platformLogout MUST set `Content-Type: application/json`
+     * (Express's `express.json()` parser otherwise rejects the body
+     * silently and the refresh-token never reaches the server) AND
+     * `credentials: 'include'` so any cookie-based auth fallback still
+     * forwards. Pinning the verbatim header value AND the credentials
+     * mode defends both invariants.
+     */
+    const mockFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    vi.stubGlobal('fetch', mockFetch);
+
+    await platformLogout('refresh-token');
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers['Content-Type']).toBe('application/json');
+    expect(init.credentials).toBe('include');
+  });
+});
+
+describe('platformApiFetch — Content-Type + credentials + 204 boundary', () => {
+  it('sends Content-Type: application/json + credentials: include on every platform API call', async () => {
+    /*
+     * Scenario: every platformApiFetch call (including bearer-auth GET
+     * requests with no body) must carry `Content-Type: application/json`
+     * AND `credentials: 'include'`. The Content-Type header keeps the
+     * server's parser happy on POSTs; credentials:'include' keeps any
+     * cookie-based fallback channel alive. Pinning both verbatim values
+     * defends the request-shape invariants for the whole platform
+     * surface in a single test.
+     */
+    sessionStorage.setItem('platform_access_token', 'tok');
+    const mockFetch = vi.fn<typeof fetch>().mockResolvedValueOnce(makeJsonResponse([]));
+    vi.stubGlobal('fetch', mockFetch);
+
+    await listPlatformTenants();
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers['Content-Type']).toBe('application/json');
+    expect(init.credentials).toBe('include');
+
+    sessionStorage.removeItem('platform_access_token');
+  });
+
+  it('returns the parsed body (NOT undefined) for a 200 OK with a JSON payload', async () => {
+    /*
+     * Scenario: pins the falsy arm of `if (response.status === 204)`
+     * inside platformApiFetch — a mutated `if (true)` would short-
+     * circuit every payload to undefined, silently dropping every
+     * platform API response.
+     */
+    sessionStorage.setItem('platform_access_token', 'tok');
+    const payload = [{ id: 't-1', name: 'Acme' }];
+    const mockFetch = vi.fn<typeof fetch>().mockResolvedValueOnce(makeJsonResponse(payload));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await listPlatformTenants();
+    expect(result).not.toBeUndefined();
+    expect(result).toEqual(payload);
+
+    sessionStorage.removeItem('platform_access_token');
+  });
+});
+
+describe('platform MFA helpers use POST verbatim', () => {
+  it('platformMfaDisable uses the verbatim "POST" method', async () => {
+    /*
+     * Scenario: each MFA helper is a thin wrapper around platformApiFetch
+     * that pins the HTTP method as the literal string `'POST'`. A
+     * regression that mutated the literal to `""` or another verb would
+     * silently downgrade the request to a GET (no body sent) and the
+     * server would reject the missing TOTP. Pinning the verbatim method
+     * defends each helper. (platformMfaVerifyEnable + platformMfaRegenerateRecoveryCodes
+     * are pinned by the existing path+body tests, which would fail if
+     * the body went out without POST; this test adds the explicit
+     * method pin to defend the literal directly.)
+     */
+    sessionStorage.setItem('platform_access_token', 'tok');
+    const mockFetch = vi.fn<typeof fetch>().mockResolvedValueOnce(make204Response());
+    vi.stubGlobal('fetch', mockFetch);
+
+    await import('./auth-client.js').then((m) => m.platformMfaDisable('123456'));
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(init.method).toBe('POST');
+
+    sessionStorage.removeItem('platform_access_token');
+  });
+
+  it('platformMfaVerifyEnable uses the verbatim "POST" method', async () => {
+    /*
+     * Scenario: companion pin for the verify-enable helper. Same
+     * reasoning as above — defends the literal `'POST'` against a
+     * silent downgrade.
+     */
+    sessionStorage.setItem('platform_access_token', 'tok');
+    const mockFetch = vi.fn<typeof fetch>().mockResolvedValueOnce(make204Response());
+    vi.stubGlobal('fetch', mockFetch);
+
+    await import('./auth-client.js').then((m) => m.platformMfaVerifyEnable('123456'));
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(init.method).toBe('POST');
+
+    sessionStorage.removeItem('platform_access_token');
+  });
+
+  it('platformMfaRegenerateRecoveryCodes uses the verbatim "POST" method', async () => {
+    /*
+     * Scenario: companion pin for the regenerate-recovery-codes helper.
+     */
+    sessionStorage.setItem('platform_access_token', 'tok');
+    const mockFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(makeJsonResponse({ recoveryCodes: ['x'] }));
+    vi.stubGlobal('fetch', mockFetch);
+
+    await import('./auth-client.js').then((m) => m.platformMfaRegenerateRecoveryCodes('123456'));
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(init.method).toBe('POST');
+
+    sessionStorage.removeItem('platform_access_token');
+  });
 });
 
 describe('listPlatformTenants', () => {
@@ -1894,5 +2044,225 @@ describe('resolveTenantForLogin', () => {
     const result = await resolveTenantForLogin('acme');
 
     expect(result).toBe('acme');
+  });
+
+  it('throws a TenantNotFoundError carrying the verbatim "Tenant not found: <slug>" message and a stable .name', async () => {
+    /*
+     * Scenario: pinning both the verbatim Error.message template and the
+     * `.name` property — error-tracking dashboards group by `name` and
+     * support docs link to the exact message string. Truncating either
+     * would silently break the grouping AND the docs cross-reference.
+     */
+    const mockFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const thrown = (await resolveTenantForLogin('globex').catch(
+      (err: unknown) => err,
+    )) as TenantNotFoundError;
+
+    expect(thrown).toBeInstanceOf(TenantNotFoundError);
+    expect(thrown.message).toBe('Tenant not found: globex');
+    expect(thrown.name).toBe('TenantNotFoundError');
+  });
+});
+
+// ── Stryker-killing strengthenings ───────────────────────────────────────────
+
+describe('tenantAwareFetch — cookie discrimination and init merging', () => {
+  it('does NOT inject X-Tenant-Id when document.cookie contains a different cookie than tenant_id', async () => {
+    /*
+     * Scenario: another cookie (e.g. `other_id=foo`) is set but
+     * `tenant_id` is absent. The `getCookie` helper iterates
+     * `document.cookie.split('; ')` and uses `part.startsWith(prefix)`
+     * to find the matching cookie — without the startsWith guard, a
+     * mutated `if (true)` would return the FIRST cookie's value
+     * regardless of name, and tenantAwareFetch would inject the wrong
+     * value into the X-Tenant-Id header. Pinning the negative space
+     * (no header) defends the startsWith guard.
+     */
+    setCookieValue('other_id', 'wrong-value');
+    clearCookie('tenant_id');
+    mockInnerFetch.mockResolvedValueOnce(makeJsonResponse([]));
+
+    await listSessions();
+
+    const [, init] = mockInnerFetch.mock.calls[0] as [string, RequestInit | undefined];
+    if (init?.headers instanceof Headers) {
+      expect(init.headers.get('X-Tenant-Id')).toBeNull();
+    } else if (init?.headers && typeof init.headers === 'object') {
+      expect((init.headers as Record<string, string>)['X-Tenant-Id']).toBeUndefined();
+    }
+    clearCookie('other_id');
+  });
+
+  it('preserves other init fields (method, body) when injecting the X-Tenant-Id header', async () => {
+    /*
+     * Scenario: a caller passes init with `method: 'POST'` and a body.
+     * The `init !== undefined ? { ...init, headers } : { headers }`
+     * spread must preserve those fields — a mutated `false ?` would
+     * fall to `{ headers }` only, silently dropping the method and
+     * body so the request degrades to GET with no payload. Pins the
+     * truthy arm of the init-spread conditional.
+     */
+    setCookieValue('tenant_id', 'tenant-merge');
+    mockInnerFetch.mockResolvedValueOnce(makeJsonResponse({}));
+
+    await capturedTenantAwareFetch.fn!('/test-path', {
+      method: 'POST',
+      body: JSON.stringify({ probe: true }),
+    });
+
+    const [, init] = mockInnerFetch.mock.calls[0] as [string, RequestInit];
+    expect(init.method).toBe('POST');
+    expect(init.body).toBe(JSON.stringify({ probe: true }));
+    const headers = init.headers as Headers;
+    expect(headers.get('X-Tenant-Id')).toBe('tenant-merge');
+
+    clearCookie('tenant_id');
+  });
+});
+
+describe('apiFetch — 204 short-circuit boundary', () => {
+  it('returns the parsed body (NOT undefined) for a 200 OK with a JSON payload', async () => {
+    /*
+     * Scenario: a 200 with a real body must parse the body. Pins the
+     * falsy arm of `if (response.status === 204)` — a mutated
+     * `if (true)` would short-circuit every response to undefined,
+     * silently dropping every successful payload. The negative
+     * assertion (NOT undefined, IS the expected array) defends the
+     * 204-specific short-circuit.
+     */
+    const payload = [{ id: 'sess-1' }];
+    mockInnerFetch.mockResolvedValueOnce(makeJsonResponse(payload));
+
+    const result = await listSessions();
+    expect(result).not.toBeUndefined();
+    expect(result).toEqual(payload);
+  });
+});
+
+describe('buildAuthClientError — body.error verbatim empty string', () => {
+  it('sets body.error to the empty string when Shape 1 (flat envelope) builds the body', async () => {
+    /*
+     * Scenario: the Shape 1 builder pins `error: ''` because the flat
+     * envelope does not carry a separate `error` field (NestJS uses
+     * that field only in the Shape 3 ValidationPipe envelope). Pinning
+     * the verbatim empty string defends against a regression that
+     * stuffed `'Stryker'` or the status name into that slot — both
+     * would surface in error-tracking dashboards as a false breadcrumb.
+     */
+    mockInnerFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ code: 'auth.unknown', message: 'boom', statusCode: 500 }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const thrown = (await listUsers().catch((err: unknown) => err)) as AuthClientError;
+    expect(thrown.body?.error).toBe('');
+  });
+
+  it('sets body.error to the empty string when Shape 2 (nested envelope) builds the body', async () => {
+    /*
+     * Scenario: same empty-string pin for the Shape 2 builder. Both
+     * builders use the same `''` literal — pinning each one
+     * independently defends against a divergence where one was
+     * silently changed.
+     */
+    mockInnerFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: { code: 'auth.unknown', message: 'boom' } }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const thrown = (await listUsers().catch((err: unknown) => err)) as AuthClientError;
+    expect(thrown.body?.error).toBe('');
+  });
+
+  it('falls back to body.error="" when Shape 3 body has a non-string `error` field', async () => {
+    /*
+     * Scenario: a NestJS-style envelope where `error` is a number or
+     * boolean (defensive — never happens in well-behaved APIs, but the
+     * guard exists). The `typeof parsed.error === 'string' ? ... : ''`
+     * ternary's falsy arm must run, producing `body.error = ''`. Pins
+     * both the type-check ternary AND the empty-string fallback.
+     */
+    mockInnerFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ statusCode: 400, message: 'boom', error: 42 }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const thrown = (await listUsers().catch((err: unknown) => err)) as AuthClientError;
+    expect(thrown.body?.message).toBe('boom');
+    expect(thrown.body?.error).toBe('');
+  });
+});
+
+describe('buildAuthClientError — Shape 2 envelope type-guard', () => {
+  it('falls through Shape 2 to Shape 3 when parsed.error is a NUMBER (not an object)', async () => {
+    /*
+     * Scenario: a hostile or buggy server returns `{ error: 42, message:
+     * 'fail' }`. The `typeof envelope === 'object'` guard MUST reject the
+     * number — otherwise the cast `(envelope as Record).code` would
+     * surface `undefined` downstream and crash the typeof check. Pins
+     * the `typeof envelope === 'object'` clause of the Shape 2 guard
+     * by asserting the parser falls through to Shape 3 (which reads
+     * the top-level `message`).
+     */
+    mockInnerFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 42, message: 'fell through to shape 3' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const thrown = (await listUsers().catch((err: unknown) => err)) as AuthClientError;
+    expect(thrown.body?.message).toBe('fell through to shape 3');
+  });
+
+  it('falls through Shape 2 to Shape 3 when parsed.error is NULL', async () => {
+    /*
+     * Scenario: same guard, different bad shape — `{ error: null, ... }`
+     * must reject the null because `typeof null === 'object'` is true,
+     * so the secondary `envelope !== null` check carries the
+     * disambiguation. Pinning that the parser falls through to Shape 3
+     * defends the `envelope !== null` clause.
+     */
+    mockInnerFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: null, message: 'null envelope falls through' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const thrown = (await listUsers().catch((err: unknown) => err)) as AuthClientError;
+    expect(thrown.body?.message).toBe('null envelope falls through');
+  });
+
+  it('falls through Shape 2 to Shape 3 when parsed.error.code is a NUMBER (not a string)', async () => {
+    /*
+     * Scenario: the Shape 2 envelope's `code` field is the wrong type
+     * (e.g. a numeric status mistakenly serialized in the slot). The
+     * `typeof (envelope as Record).code === 'string'` guard must
+     * reject non-string codes so the parser falls through. Defends the
+     * code-type clause of the Shape 2 guard.
+     */
+    mockInnerFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: { code: 500, message: 'numeric code falls through' },
+          message: 'numeric code falls through',
+        }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    const thrown = (await listUsers().catch((err: unknown) => err)) as AuthClientError;
+    expect(thrown.body?.message).toBe('numeric code falls through');
   });
 });

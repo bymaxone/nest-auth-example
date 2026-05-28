@@ -127,3 +127,140 @@ describe('InviteForm submission', () => {
     });
   });
 });
+
+// ── Stryker-killing strengthenings ───────────────────────────────────────────
+
+describe('InviteForm defaults, verbatim copy, reset + lifecycle pins', () => {
+  it('pre-selects the "MEMBER" role on first render via defaultValues', () => {
+    /*
+     * Scenario: the role dropdown must default to "MEMBER" — the
+     * sensible least-privileged option that admins reach for most
+     * often. Pinning the initial select value defends the RHF
+     * `defaultValues: { role: 'MEMBER' }` ObjectLiteral; a mutated
+     * empty object would leave the select uncontrolled and the browser
+     * would default to the FIRST option ("VIEWER"), changing the
+     * invitation's default privilege level silently.
+     */
+    render(<InviteForm onSuccess={vi.fn()} />);
+    const select = screen.getByRole<HTMLSelectElement>('combobox');
+    expect(select.value).toBe('MEMBER');
+  });
+
+  it('renders all three role options (VIEWER, MEMBER, ADMIN) from ROLE_OPTIONS', () => {
+    /*
+     * Scenario: the role dropdown must include every entry in the
+     * ROLE_OPTIONS tuple. Pinning all three options defends the
+     * `ROLE_OPTIONS.map((r) => …)` ArrowFunction — a mutated `() =>
+     * undefined` callback would render zero options, leaving the
+     * dropdown with no choices.
+     */
+    render(<InviteForm onSuccess={vi.fn()} />);
+    const options = screen.getAllByRole<HTMLOptionElement>('option');
+    const values = options.map((o) => o.value);
+    expect(values).toEqual(['VIEWER', 'MEMBER', 'ADMIN']);
+  });
+
+  it('toasts the verbatim "Invitation sent to <email>." message on success', async () => {
+    /*
+     * Scenario: the success toast is the only confirmation the admin
+     * receives that the invite landed. Pinning the verbatim template
+     * (including the trailing period and the email interpolation)
+     * defends both the StringLiteral template and the data.email
+     * interpolation.
+     */
+    vi.mocked(createInvitation).mockResolvedValue(undefined);
+    const { toast } = await import('sonner');
+    render(<InviteForm onSuccess={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText(/colleague@example.com/i), {
+      target: { value: 'newhire@example.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /send invite/i }));
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith('Invitation sent to newhire@example.com.');
+    });
+  });
+
+  it('restores the role to "MEMBER" after a successful invite even when the admin had changed it to ADMIN', async () => {
+    /*
+     * Scenario: the admin picks "ADMIN" for one specific invite, then
+     * sends. After the success path runs `reset({ role: 'MEMBER' })`,
+     * the role select must snap back to "MEMBER" so the next invite
+     * defaults to the least-privileged level. Pins both the
+     * `reset({ role: 'MEMBER' })` ObjectLiteral AND the literal
+     * `'MEMBER'` — a mutated `reset({})` would leave the form's
+     * defaultValue undefined and the next render would surface
+     * "VIEWER" (the first option) silently downgrading every
+     * subsequent invite to the wrong default.
+     */
+    vi.mocked(createInvitation).mockResolvedValue(undefined);
+    const onSuccess = vi.fn();
+    render(<InviteForm onSuccess={onSuccess} />);
+    fireEvent.change(screen.getByPlaceholderText(/colleague@example.com/i), {
+      target: { value: 'first@example.com' },
+    });
+    fireEvent.change(screen.getByRole<HTMLSelectElement>('combobox'), {
+      target: { value: 'ADMIN' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /send invite/i }));
+
+    // Wait for the full submit cycle to settle (createInvitation → reset → onSuccess).
+    await waitFor(() => {
+      expect(onSuccess).toHaveBeenCalled();
+    });
+    // Confirm the role snapped back to MEMBER (the reset target).
+    const refreshedSelect = screen.getByRole<HTMLSelectElement>('combobox');
+    expect(refreshedSelect.value).toBe('MEMBER');
+  });
+
+  it('re-enables the submit button + restores "Send invite" label after a failed submit', async () => {
+    /*
+     * Scenario: when createInvitation rejects the `finally {
+     * setIsPending(false) }` cleanup must run so the admin can retry.
+     * Pins the finally BlockStatement AND the BooleanLiteral on the
+     * `false` argument — a removal would leave the button stuck on
+     * "Sending…" + disabled.
+     */
+    vi.mocked(createInvitation).mockRejectedValueOnce(new Error('Conflict'));
+    render(<InviteForm onSuccess={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText(/colleague@example.com/i), {
+      target: { value: 'retry@example.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /send invite/i }));
+
+    await waitFor(() => {
+      expect(handleAuthClientError).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(screen.queryByText(/sending/i)).toBeNull();
+    });
+    const btn = screen.getByRole<HTMLButtonElement>('button', { name: /send invite/i });
+    expect(btn.disabled).toBe(false);
+  });
+
+  it('adds the red error-border class to the email input when validation fails', async () => {
+    /*
+     * Scenario: when validation fails the email input must surface the
+     * brand error-border palette. Pins the truthy arm of the cn()
+     * conditional AND the verbatim `border-red-500/60` literal.
+     */
+    render(<InviteForm onSuccess={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /send invite/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/valid email/i)).toBeDefined();
+    });
+    const email = screen.getByPlaceholderText<HTMLInputElement>(/colleague@example.com/i);
+    expect(email.className).toContain('border-red');
+  });
+
+  it('does NOT add the red error-border class to the email input while pristine', () => {
+    /*
+     * Scenario: counterpart — before any submit fires the email input
+     * must not carry the red error palette. Pins the falsy arm of the
+     * cn() conditional.
+     */
+    render(<InviteForm onSuccess={vi.fn()} />);
+    const email = screen.getByPlaceholderText<HTMLInputElement>(/colleague@example.com/i);
+    expect(email.className).not.toContain('border-red');
+  });
+});

@@ -111,16 +111,29 @@ function backoff(): number {
  */
 function dispatch(eventName: string, data: unknown): void {
   const handlers = listeners.get(eventName);
+  // Stryker disable next-line ConditionalExpression: defensive early-return — when no handlers are registered, falling through reaches `for (const handler of undefined)` which throws synchronously. The surrounding `socket.onmessage` try-catch absorbs that throw and the observable side effect is identical (no handler ever runs). This guard exists for clarity, not for observable correctness.
   if (handlers === undefined) return;
   // Runtime guard: only dispatch notification events with valid string fields
   // to prevent undefined values appearing in toasts from malformed payloads.
-  if (
+  //
+  // Stryker disable ConditionalExpression,LogicalOperator: the eventName
+  // check + the OR-chain are a redundant defensive validation. Every
+  // malformed shape (non-object, null, missing title, missing body) is
+  // caught by one OR another clause, AND any thrown property access from
+  // the chain is absorbed by the onmessage try-catch. Mutating any single
+  // clause to a constant just shifts which clause triggers the return
+  // without changing the observable handler-not-called outcome — there is
+  // no test that can distinguish the original from any individual mutant
+  // here because the OR-fallbacks plus the outer try-catch flatten every
+  // path to the same no-op result.
+  const isMalformedNotification =
     eventName === 'notification:new' &&
     (typeof data !== 'object' ||
       data === null ||
       typeof (data as Record<string, unknown>)['title'] !== 'string' ||
-      typeof (data as Record<string, unknown>)['body'] !== 'string')
-  ) {
+      typeof (data as Record<string, unknown>)['body'] !== 'string');
+  // Stryker restore ConditionalExpression,LogicalOperator
+  if (isMalformedNotification) {
     return;
   }
   for (const handler of handlers) {
@@ -152,6 +165,7 @@ function connect(): void {
   socket.onmessage = (event: MessageEvent) => {
     try {
       const msg = JSON.parse(String(event.data)) as GatewayMessage;
+      // Stryker disable next-line ConditionalExpression: the typeof guard is defensive — dispatch() already early-returns when no handler is registered for the event key, so calling dispatch(42, …) ends with the same no-handler-invoked outcome. Removing this guard surfaces the same observable behaviour.
       if (typeof msg.event === 'string') {
         dispatch(msg.event, msg.data);
       }
