@@ -209,34 +209,55 @@ jobs:
         run: docker compose -f docker-compose.test.yml down -v
 
   # ── e2e-web ────────────────────────────────────────────────────────────────
-  # Playwright end-to-end suite.  The Playwright config (playwright.config.ts)
-  # manages webServer lifecycle — it starts both the NestJS API and the Next.js
-  # dev server before the suite runs and tears them down after.
-  # The test infrastructure (postgres, redis, mailpit) is started here so the
-  # API webServer can connect.
+  # Playwright end-to-end suite using the official Playwright container image.
+  # mcr.microsoft.com/playwright has Chromium pre-installed — no browser
+  # download step needed, which eliminates the APT lock and slow-network issues
+  # that caused playwright install --with-deps to hang on ubuntu-latest runners.
+  #
+  # Services (postgres, redis, mailpit) are defined as GitHub Actions service
+  # containers, reachable inside the job container by service hostname.
   e2e-web:
     name: E2E — Web (Playwright)
     needs: e2e-api
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
+      options: --user root
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: example_app_test
+        options: >-
+          --health-cmd "pg_isready -U postgres -d example_app_test"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 10
+      mailpit:
+        image: axllent/mailpit@sha256:757f22b56c1da03570afdb3d259effe5091018008a81bbedc8158cee7e16fdbc
     env:
-      # Test database and cache — matches the ports in docker-compose.test.yml.
-      DATABASE_URL: postgresql://postgres:postgres@localhost:55432/example_app_test?schema=public
-      REDIS_URL: redis://localhost:56379
-      # JWT secret — min 64 chars with >= 16 unique chars (entropy check).
+      # Inside a container job services are reachable by service name, not
+      # localhost — postgres:5432, redis:6379, mailpit:1025.
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/example_app_test?schema=public
+      REDIS_URL: redis://redis:6379
       JWT_SECRET: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       AUTH_JWT_SECRET_FOR_PROXY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
-      # AES-256 key for TOTP encryption — base64(32 bytes).
       MFA_ENCRYPTION_KEY: QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWY=
-      # Email — test mailpit runs on non-standard ports to avoid conflicts.
       EMAIL_PROVIDER: mailpit
-      SMTP_HOST: localhost
-      SMTP_PORT: '51025'
+      SMTP_HOST: mailpit
+      SMTP_PORT: '1025'
       SMTP_FROM: no-reply@ci.test
-      # API server settings.
       API_PORT: '4000'
       WEB_ORIGIN: http://localhost:3000
-      # Web app env — required by lib/env.ts.
       INTERNAL_API_URL: http://localhost:4000
       NEXT_PUBLIC_API_URL: http://localhost:3000/api
       NEXT_PUBLIC_WS_URL: ws://localhost:3000
@@ -258,8 +279,6 @@ jobs:
       - name: Generate Prisma client
         run: pnpm --filter @nest-auth-example/api run prisma:generate
 
-      # Cache the Next.js build artefacts so incremental builds take ~30s
-      # instead of ~3 min on subsequent runs with unchanged source files.
       - name: Cache Next.js build
         uses: actions/cache@v4
         with:
@@ -269,51 +288,11 @@ jobs:
             nextjs-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}-
             nextjs-${{ runner.os }}-
 
-      # Pre-build both apps.  playwright.config.ts uses production servers in
-      # CI (node dist/main.js + next start) which start in seconds vs the
-      # 5-10 min cold compile of next dev / nest --watch.
       - name: Build API
         run: pnpm --filter @nest-auth-example/api run build
 
       - name: Build web
         run: pnpm --filter @nest-auth-example/web run build
-
-      - name: Start test infrastructure
-        run: docker compose -f docker-compose.test.yml up -d --wait
-
-      # Ubuntu runners hold the APT lock via unattended-upgrades when the job
-      # starts; kill it so apt-get inside playwright install doesn't hang.
-      - name: Stop unattended-upgrades (prevents APT lock hang)
-        run: |
-          sudo systemctl stop unattended-upgrades 2>/dev/null || true
-          sudo systemctl disable unattended-upgrades 2>/dev/null || true
-          sudo killall apt-get apt dpkg 2>/dev/null || true
-          sudo rm -f /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend \
-                     /var/lib/apt/lists/lock /var/cache/apt/archives/lock
-          sudo dpkg --configure -a 2>/dev/null || true
-
-      # Cache the Chromium binary (~130 MB) to avoid re-downloading on every
-      # run.  The key is based on the lockfile (which pins @playwright/test).
-      # On a cache miss the browser is downloaded once and stored; on a hit
-      # only the OS system libraries are (re)installed — fast.
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
-
-      # First run or dep change: download browser + install system deps.
-      # timeout-minutes covers the browser download (apt-get itself is ~14s).
-      - name: Install Playwright browsers + system deps
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        timeout-minutes: 15
-        run: DEBIAN_FRONTEND=noninteractive pnpm --filter @nest-auth-example/web exec playwright install --with-deps chromium
-
-      # Cache hit: browser binary already present, only reinstall OS packages.
-      - name: Install Playwright system deps (browser cached)
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: DEBIAN_FRONTEND=noninteractive pnpm --filter @nest-auth-example/web exec playwright install-deps chromium
 
       - name: Run Playwright tests
         run: pnpm --filter @nest-auth-example/web run test:e2e
@@ -325,10 +304,6 @@ jobs:
           name: playwright-traces
           path: apps/web/test-results/
           retention-days: 7
-
-      - name: Stop test infrastructure
-        if: always()
-        run: docker compose -f docker-compose.test.yml down -v
 
   # ── coverage-report ────────────────────────────────────────────────────────
   # Aggregates coverage artefacts from the unit job and uploads a combined
