@@ -155,6 +155,11 @@ jobs:
       - name: Append row to RELEASES.md
         run: |
           TAG="${{ github.ref_name }}"
+          # Idempotency: skip if this tag is already recorded.
+          if grep -qF "| \`${TAG}\`" docs/RELEASES.md; then
+            echo "Tag ${TAG} already present in RELEASES.md — skipping."
+            exit 0
+          fi
           LIB_VERSION=$(node -e "
             const pkg = require('./apps/api/package.json');
             const v = pkg.dependencies['@bymax-one/nest-auth'] ?? '';
