@@ -148,10 +148,6 @@ jobs:
           ref: main
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-
       - name: Append row to RELEASES.md
         run: |
           TAG="${{ github.ref_name }}"
@@ -160,11 +156,7 @@ jobs:
             echo "Tag ${TAG} already present in RELEASES.md — skipping."
             exit 0
           fi
-          LIB_VERSION=$(node -e "
-            const pkg = require('./apps/api/package.json');
-            const v = pkg.dependencies['@bymax-one/nest-auth'] ?? '';
-            process.stdout.write(v.replace(/^[^0-9]*/, '') + '\n');
-          ")
+          LIB_VERSION=$(jq -r '.dependencies["@bymax-one/nest-auth"] // ""' apps/api/package.json | sed 's/^[^0-9]*//')
           DATE=$(date -u +%Y-%m-%d)
           python3 - "$TAG" "$LIB_VERSION" "$DATE" << 'PYEOF'
           import sys, re, pathlib
