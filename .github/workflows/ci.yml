@@ -73,6 +73,14 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      # prisma.config.ts calls env('DATABASE_URL') at load time; a syntactically
+      # valid placeholder satisfies the check — prisma generate never opens a connection.
+      - name: Generate Prisma client
+        run: pnpm --filter @nest-auth-example/api run prisma:generate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ci_placeholder
+
       - run: pnpm lint
 
   # ── typecheck ──────────────────────────────────────────────────────────────
@@ -94,6 +102,14 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      # prisma.config.ts calls env('DATABASE_URL') at load time; seed.ts imports
+      # @prisma/client types that only exist after code generation.
+      - name: Generate Prisma client
+        run: pnpm --filter @nest-auth-example/api run prisma:generate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ci_placeholder
+
       - run: pnpm typecheck
 
   # ── unit ───────────────────────────────────────────────────────────────────
@@ -121,6 +137,8 @@ jobs:
       # The API unit tests import @prisma/client types; generate first.
       - name: Generate Prisma client
         run: pnpm --filter @nest-auth-example/api run prisma:generate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ci_placeholder
 
       - name: Run unit tests with coverage
         run: pnpm test:cov
@@ -165,8 +183,12 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Generate must run before docker compose; placeholder URL satisfies
+      # prisma.config.ts without requiring a live database connection.
       - name: Generate Prisma client
         run: pnpm --filter @nest-auth-example/api run prisma:generate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ci_placeholder
 
       - name: Start test infrastructure
         run: docker compose -f docker-compose.test.yml up -d --wait
