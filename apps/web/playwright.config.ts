@@ -38,6 +38,13 @@ function readEnvKey(filePath: string, key: string): string | undefined {
 const apiJwtSecret = readEnvKey(path.join(__dirname, '../api/.env'), 'JWT_SECRET');
 
 /**
+ * True when Playwright is invoked inside GitHub Actions (or any CI environment
+ * where `CI=true`).  Used to switch between development servers (fast feedback
+ * locally) and pre-built production servers (reproducible, fast-start in CI).
+ */
+const isCI = !!process.env['CI'];
+
+/**
  * Playwright configuration — targets the Next.js dev server managed by webServer.
  *
  * @see https://playwright.dev/docs/test-configuration
@@ -81,21 +88,29 @@ export default defineConfig({
   ],
 
   /**
-   * Starts both the Nest API (:4000) and the Next.js webpack dev server (:3000)
-   * before any test file runs. Both are required: Playwright drives the web UI,
-   * and the web proxies every `/api/*` call to the Nest API.
+   * Starts both the Nest API (:4000) and the Next.js server (:3000) before
+   * any test file runs.  Both are required: Playwright drives the web UI, and
+   * the web proxies every `/api/*` call to the Nest API.
    *
-   * `reuseExistingServer: true` lets developers pre-start either server manually
-   * for faster iteration — Playwright connects to whichever is already healthy
-   * instead of spawning a duplicate. Set to `false` on CI to guarantee a clean
-   * process pair per run.
+   * Two modes:
+   *  - **Local dev** (`CI` unset): dev servers with hot-reload, pre-start
+   *    allowed via `reuseExistingServer: true` for faster iteration.
+   *  - **CI** (`CI=true`): pre-built production servers.  `next dev` and
+   *    `nest start --watch` take 5-10 min to compile on CI runners; production
+   *    servers start in seconds from the pre-built `dist/` and `.next/` artefacts
+   *    produced by the build steps that precede this Playwright job.
    */
   webServer: [
     {
-      command: 'pnpm --filter @nest-auth-example/api dev',
+      // CI: node dist/main.js (pre-built by the CI build step, starts instantly).
+      // Local: nest start --watch (dev server with TypeScript compilation + watch).
+      command: isCI
+        ? 'node ../../apps/api/dist/main.js'
+        : 'pnpm --filter @nest-auth-example/api dev',
       url: 'http://localhost:4000/api/health',
-      reuseExistingServer: !process.env['CI'],
-      timeout: 120_000,
+      reuseExistingServer: !isCI,
+      // Production server starts in <10s; dev server needs up to 2 min.
+      timeout: isCI ? 30_000 : 120_000,
       stdout: 'ignore',
       stderr: 'pipe',
       env: {
@@ -119,10 +134,12 @@ export default defineConfig({
       },
     },
     {
-      command: 'pnpm dev',
+      // CI: next start (serves pre-built .next/, starts in ~2s).
+      // Local: next dev (hot-reload, starts webpack compilation).
+      command: isCI ? 'pnpm start' : 'pnpm dev',
       url: 'http://localhost:3000',
-      reuseExistingServer: !process.env['CI'],
-      timeout: 120_000,
+      reuseExistingServer: !isCI,
+      timeout: isCI ? 30_000 : 120_000,
       env: {
         // Required by lib/env.ts — schema validation rejects startup without these.
         INTERNAL_API_URL: process.env['INTERNAL_API_URL'] ?? 'http://localhost:4000',

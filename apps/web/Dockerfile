@@ -66,7 +66,12 @@ COPY . .
 # They are provided inline so that they never persist as a Docker image layer
 # (unlike ENV, inline RUN env vars are ephemeral and not visible in image history).
 # Real values are injected exclusively at container run time via -e or compose.
-RUN INTERNAL_API_URL=http://build-placeholder:4000 \
+# NEXT_STANDALONE=true activates `output: 'standalone'` in next.config.mjs,
+# producing the self-contained server.js tree consumed by the runtime stage.
+# INTERNAL_API_URL and AUTH_JWT_SECRET_FOR_PROXY are provided inline so that
+# secrets never persist as an image layer (not visible in docker history).
+RUN NEXT_STANDALONE=true \
+    INTERNAL_API_URL=http://build-placeholder:4000 \
     AUTH_JWT_SECRET_FOR_PROXY=00000000000000000000000000000000 \
     pnpm --filter @nest-auth-example/web run build
 

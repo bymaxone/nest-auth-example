@@ -34,16 +34,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Produces a minimal server.js + traced node_modules bundle for Docker.
-  // See apps/web/Dockerfile for how this output is consumed.
-  output: 'standalone',
-
-  // Trace file dependencies relative to the monorepo root so that pnpm's
-  // virtual-store node_modules paths resolve correctly inside the standalone
-  // output.  Without this, Next.js roots the trace at apps/web/ and misses
-  // packages that pnpm hoists to the workspace root.
-  // Note: this is a stable top-level option since Next.js 13 (not experimental).
-  outputFileTracingRoot: path.resolve(__dirname, '../..'),
+  // 'standalone' is only activated when building the Docker image (the
+  // Dockerfile sets NEXT_STANDALONE=true).  In local dev and CI Playwright
+  // runs, `next start` is used instead — it requires standard output and is
+  // incompatible with standalone mode (standalone must be served via server.js).
+  ...(process.env['NEXT_STANDALONE'] === 'true'
+    ? {
+        output: 'standalone',
+        // Trace deps relative to monorepo root so pnpm's virtual-store paths
+        // resolve correctly inside the standalone tree (stable option since Next 13).
+        outputFileTracingRoot: path.resolve(__dirname, '../..'),
+      }
+    : {}),
 
   async rewrites() {
     const internalApiUrl = process.env['INTERNAL_API_URL'] ?? 'http://localhost:4000';
