@@ -281,9 +281,8 @@ jobs:
       - name: Start test infrastructure
         run: docker compose -f docker-compose.test.yml up -d --wait
 
-      # Ubuntu runners start unattended-upgrades in the background which holds
-      # the APT lock.  playwright install --with-deps calls apt-get and hangs
-      # indefinitely waiting for the lock.  Stop it before installing.
+      # Ubuntu runners hold the APT lock via unattended-upgrades when the job
+      # starts; kill it so apt-get inside playwright install doesn't hang.
       - name: Stop unattended-upgrades (prevents APT lock hang)
         run: |
           sudo systemctl stop unattended-upgrades 2>/dev/null || true
@@ -293,9 +292,28 @@ jobs:
                      /var/lib/apt/lists/lock /var/cache/apt/archives/lock
           sudo dpkg --configure -a 2>/dev/null || true
 
-      - name: Install Playwright browsers
-        timeout-minutes: 8
+      # Cache the Chromium binary (~130 MB) to avoid re-downloading on every
+      # run.  The key is based on the lockfile (which pins @playwright/test).
+      # On a cache miss the browser is downloaded once and stored; on a hit
+      # only the OS system libraries are (re)installed — fast.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+
+      # First run or dep change: download browser + install system deps.
+      # timeout-minutes covers the browser download (apt-get itself is ~14s).
+      - name: Install Playwright browsers + system deps
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 15
         run: DEBIAN_FRONTEND=noninteractive pnpm --filter @nest-auth-example/web exec playwright install --with-deps chromium
+
+      # Cache hit: browser binary already present, only reinstall OS packages.
+      - name: Install Playwright system deps (browser cached)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: DEBIAN_FRONTEND=noninteractive pnpm --filter @nest-auth-example/web exec playwright install-deps chromium
 
       - name: Run Playwright tests
         run: pnpm --filter @nest-auth-example/web run test:e2e
