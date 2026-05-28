@@ -64,7 +64,7 @@ FROM build AS deploy
 #     npm-style node_modules — smaller than copying the pnpm virtual store.
 #   • Copies non-gitignored source files (including prisma/schema.prisma).
 #   • Does NOT copy dist/ (gitignored) — we copy it manually below.
-RUN pnpm --filter @nest-auth-example/api deploy --prod /prod/api
+RUN pnpm --filter @nest-auth-example/api deploy --prod --legacy /prod/api
 
 # Copy compiled output.  dist/ is gitignored so pnpm deploy excludes it.
 RUN cp -r /workspace/apps/api/dist /prod/api/dist
