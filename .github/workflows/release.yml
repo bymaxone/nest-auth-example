@@ -127,8 +127,8 @@ jobs:
           # NEXT_PUBLIC_* vars must be provided at image build time via
           # repository variables (Settings → Variables → Actions).
           build-args: |
-            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || '/api' }}
-            NEXT_PUBLIC_WS_URL=${{ vars.NEXT_PUBLIC_WS_URL || '/' }}
+            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || 'https://example.com/api' }}
+            NEXT_PUBLIC_WS_URL=${{ vars.NEXT_PUBLIC_WS_URL || 'wss://example.com' }}
             NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED=${{ vars.NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED || 'false' }}
 
   # ── update-releases-doc ────────────────────────────────────────────────────
