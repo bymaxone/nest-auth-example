@@ -262,6 +262,8 @@ jobs:
       NEXT_PUBLIC_API_URL: http://localhost:3000/api
       NEXT_PUBLIC_WS_URL: ws://localhost:3000
       NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED: 'true'
+      # Mailpit HTTP API — inside container job use service hostname, not localhost.
+      MAILPIT_URL: http://mailpit:8025
     steps:
       - uses: actions/checkout@v5
 
