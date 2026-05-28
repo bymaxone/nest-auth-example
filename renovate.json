@@ -1,0 +1,29 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:base"],
+  "dependencyDashboard": true,
+  "schedule": ["every weekend"],
+  "packageRules": [
+    {
+      "description": "@bymax-one/nest-auth — pin exact version, one PR per major to review breaking changes deliberately.",
+      "matchPackageNames": ["@bymax-one/nest-auth"],
+      "rangeStrategy": "pin",
+      "separateMajorMinor": true,
+      "labels": ["nest-auth", "dependencies"]
+    },
+    {
+      "description": "Group all Dockerfile base-image updates into a single weekly PR.",
+      "matchManagers": ["dockerfile"],
+      "groupName": "Docker base images",
+      "schedule": ["every weekend"],
+      "labels": ["docker", "dependencies"]
+    },
+    {
+      "description": "Group all GitHub Actions version bumps into a single weekly PR.",
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions",
+      "schedule": ["every weekend"],
+      "labels": ["github-actions", "dependencies"]
+    }
+  ]
+}

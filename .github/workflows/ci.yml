@@ -1,0 +1,313 @@
+# CI pipeline — runs on every push and pull_request targeting main / next.
+#
+# Job names are contractual: branch-protection rules and the export-usage-check
+# script reference them by name.  Do not rename without updating those references.
+#
+# Job order
+#   install ──┬── lint
+#             ├── typecheck
+#             ├── unit
+#             ├── e2e-api ── e2e-web ──┐
+#             └── export-usage-check   │
+#                                      └── coverage-report
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - next
+  pull_request:
+    branches:
+      - main
+      - next
+
+# Cancel in-progress runs for the same ref so only the latest commit runs.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ── install ────────────────────────────────────────────────────────────────
+  # Resolves and caches the pnpm store so every subsequent job avoids
+  # re-downloading packages.  Each job still runs `pnpm install` to populate
+  # its own node_modules from the cached store (GitHub runners don't share FS).
+  install:
+    name: Install dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+  # ── lint ───────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint
+    needs: install
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+
+  # ── typecheck ──────────────────────────────────────────────────────────────
+  typecheck:
+    name: Type-check
+    needs: install
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+
+  # ── unit ───────────────────────────────────────────────────────────────────
+  # Runs the full unit + integration test suites with coverage.
+  # Coverage reports are uploaded as artifacts for the coverage-report job.
+  unit:
+    name: Unit tests
+    needs: install
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The API unit tests import @prisma/client types; generate first.
+      - name: Generate Prisma client
+        run: pnpm --filter @nest-auth-example/api run prisma:generate
+
+      - name: Run unit tests with coverage
+        run: pnpm test:cov
+
+      - name: Upload API coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-unit-api
+          path: apps/api/coverage/
+          retention-days: 7
+
+      - name: Upload web coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-unit-web
+          path: apps/web/coverage/
+          retention-days: 7
+
+  # ── e2e-api ────────────────────────────────────────────────────────────────
+  # Boots the CI test stack (postgres:18 on :55432, redis:7 on :56379,
+  # mailpit on :51025/:58025) via docker-compose.test.yml, then runs the
+  # NestJS supertest suite.  The pretest:e2e hook in apps/api/package.json
+  # runs `prisma migrate deploy` automatically before the suite starts.
+  e2e-api:
+    name: E2E — API
+    needs: install
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm --filter @nest-auth-example/api run prisma:generate
+
+      - name: Start test infrastructure
+        run: docker compose -f docker-compose.test.yml up -d --wait
+
+      - name: Run API e2e tests
+        run: pnpm --filter @nest-auth-example/api run test:e2e
+
+      - name: Upload e2e API test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-api-results
+          path: apps/api/test-results/
+          retention-days: 7
+
+      - name: Stop test infrastructure
+        if: always()
+        run: docker compose -f docker-compose.test.yml down -v
+
+  # ── e2e-web ────────────────────────────────────────────────────────────────
+  # Playwright end-to-end suite.  The Playwright config (playwright.config.ts)
+  # manages webServer lifecycle — it starts both the NestJS API and the Next.js
+  # dev server before the suite runs and tears them down after.
+  # The test infrastructure (postgres, redis, mailpit) is started here so the
+  # API webServer can connect.
+  e2e-web:
+    name: E2E — Web (Playwright)
+    needs: e2e-api
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Test database and cache — matches the ports in docker-compose.test.yml.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:55432/example_app_test?schema=public
+      REDIS_URL: redis://localhost:56379
+      # JWT secret — min 64 chars with >= 16 unique chars (entropy check).
+      JWT_SECRET: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      AUTH_JWT_SECRET_FOR_PROXY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      # AES-256 key for TOTP encryption — base64(32 bytes).
+      MFA_ENCRYPTION_KEY: QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWY=
+      # Email — test mailpit runs on non-standard ports to avoid conflicts.
+      EMAIL_PROVIDER: mailpit
+      SMTP_HOST: localhost
+      SMTP_PORT: '51025'
+      SMTP_FROM: no-reply@ci.test
+      # API server settings.
+      API_PORT: '4000'
+      WEB_ORIGIN: http://localhost:3000
+      # Web app env — required by lib/env.ts.
+      INTERNAL_API_URL: http://localhost:4000
+      NEXT_PUBLIC_API_URL: http://localhost:3000/api
+      NEXT_PUBLIC_WS_URL: ws://localhost:3000
+      NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED: 'true'
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm --filter @nest-auth-example/api run prisma:generate
+
+      - name: Start test infrastructure
+        run: docker compose -f docker-compose.test.yml up -d --wait
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @nest-auth-example/web exec playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        run: pnpm --filter @nest-auth-example/web run test:e2e
+
+      - name: Upload Playwright traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: apps/web/test-results/
+          retention-days: 7
+
+      - name: Stop test infrastructure
+        if: always()
+        run: docker compose -f docker-compose.test.yml down -v
+
+  # ── coverage-report ────────────────────────────────────────────────────────
+  # Aggregates coverage artefacts from the unit job and uploads a combined
+  # report.  Fails only if upstream jobs failed (via needs).
+  coverage-report:
+    name: Coverage report
+    needs: [unit, e2e-api, e2e-web]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Download API coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-unit-api
+          path: coverage/api
+        continue-on-error: true
+
+      - name: Download web coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-unit-web
+          path: coverage/web
+        continue-on-error: true
+
+      - name: Upload combined coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-combined
+          path: coverage/
+          retention-days: 30
+
+  # ── export-usage-check ─────────────────────────────────────────────────────
+  # Audits that every public export from @bymax-one/nest-auth is referenced
+  # at least once in the apps/ tree.  Full implementation ships in Phase 20;
+  # the current script is a stub that always exits 0.
+  export-usage-check:
+    name: Export usage check
+    needs: install
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/audit-library-exports.mjs

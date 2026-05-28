@@ -1,0 +1,48 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# .dockerignore — shared exclusions for all Docker builds in this monorepo.
+#
+# Applies to every `docker build` that uses the repo root as the build context
+# (i.e. both apps/api/Dockerfile and apps/web/Dockerfile built via
+# `docker build -f apps/*/Dockerfile .`).
+#
+# Rule: exclude anything that is either rebuilt inside the image or must never
+# reach the image layer cache (secrets, local tooling state, CI artefacts).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── VCS / CI metadata ──────────────────────────────────────────────────────
+.git
+.github
+.husky
+
+# ── Dependencies (rebuilt inside each stage) ───────────────────────────────
+**/node_modules
+node_modules
+**/.pnpm-store
+.pnpm-store
+
+# ── Compiled artefacts (rebuilt inside each stage) ─────────────────────────
+**/dist
+**/.next
+**/*.tsbuildinfo
+**/stryker-incremental.json
+
+# ── Environment / secrets — NEVER bake into images ─────────────────────────
+.env
+.env.*
+**/.env
+**/.env.*
+
+# ── Test and coverage output ────────────────────────────────────────────────
+**/coverage
+**/reports
+**/playwright-report
+**/test-results
+**/e2e
+
+# ── Local dev infrastructure config (not needed at runtime) ────────────────
+docker
+docker-compose*.yml
+
+# ── Documentation ───────────────────────────────────────────────────────────
+docs
+*.md

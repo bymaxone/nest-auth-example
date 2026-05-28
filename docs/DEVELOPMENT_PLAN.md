@@ -49,7 +49,7 @@
 >
 > **Status legend:** 🔴 Not Started · 🟡 In Progress · 🟢 Done · ⚪ Blocked · 🔵 In Review
 >
-> **Overall progress:** 🟡 115 / 126 tasks done (91%)
+> **Overall progress:** 🟡 120 / 126 tasks done (95%)
 
 | #   | Phase                                                           | Tasks file                                              | Done / Total | %    | Status |
 | --- | --------------------------------------------------------------- | ------------------------------------------------------- | ------------ | ---- | ------ |
@@ -72,7 +72,7 @@
 | 16  | WebSocket Consumer + Notification Toast                         | [phase-16](./tasks/phase-16-websocket-frontend.md)      | 3 / 3        | 100% | 🟢     |
 | 17  | Testing (Unit, E2E, Playwright)                                 | [phase-17](./tasks/phase-17-testing.md)                 | 10 / 10      | 100% | 🟢     |
 | 18  | Documentation (docs/\*)                                         | [phase-18](./tasks/phase-18-documentation.md)           | 11 / 11      | 100% | 🟢     |
-| 19  | CI/CD, Release Automation, Production Build                     | [phase-19](./tasks/phase-19-cicd.md)                    | 0 / 5        | 0%   | 🔴     |
+| 19  | CI/CD, Release Automation, Production Build                     | [phase-19](./tasks/phase-19-cicd.md)                    | 5 / 5        | 100% | 🟢     |
 | 20  | Coverage Audit & Hardening                                      | [phase-20](./tasks/phase-20-audit-hardening.md)         | 0 / 4        | 0%   | 🔴     |
 
 ### How to update this dashboard

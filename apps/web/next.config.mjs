@@ -17,14 +17,34 @@
  *   that the library is consumed from npm rather than a `link:../nest-auth`
  *   workspace. Earlier revisions of this file mandated `--webpack` to work
  *   around a Turbopack symlink-resolution issue — that is no longer needed.
+ * - `output: 'standalone'` produces a self-contained server.js for production
+ *   Docker images (Phase 19).  `outputFileTracingRoot` is set to the monorepo
+ *   root so that Next.js traces dependencies relative to the workspace root,
+ *   keeping the standalone output's node_modules path structure consistent with
+ *   how pnpm resolves packages — avoids broken symlink references at runtime.
  *
  * @module next.config
  */
 
+import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Produces a minimal server.js + traced node_modules bundle for Docker.
+  // See apps/web/Dockerfile for how this output is consumed.
+  output: 'standalone',
+
+  // Trace file dependencies relative to the monorepo root so that pnpm's
+  // virtual-store node_modules paths resolve correctly inside the standalone
+  // output.  Without this, Next.js roots the trace at apps/web/ and misses
+  // packages that pnpm hoists to the workspace root.
+  // Note: this is a stable top-level option since Next.js 13 (not experimental).
+  outputFileTracingRoot: path.resolve(__dirname, '../..'),
+
   async rewrites() {
     const internalApiUrl = process.env['INTERNAL_API_URL'] ?? 'http://localhost:4000';
     return [

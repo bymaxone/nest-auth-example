@@ -15,6 +15,40 @@ Build production images with the multi-stage, non-root Dockerfiles introduced in
 
 ---
 
+## Production smoke test (local)
+
+Before shipping a release, reproduce the full production topology on a local machine:
+
+```bash
+# 1. Pull the release images (or build them locally first — see Dockerfiles).
+docker compose -f docker-compose.prod.yml pull
+
+# 2. Copy the example env file and fill in real secrets.
+cp .env.prod.example .env.prod
+# Edit .env.prod: set POSTGRES_PASSWORD, JWT_SECRET, MFA_ENCRYPTION_KEY,
+# AUTH_JWT_SECRET_FOR_PROXY, WEB_ORIGIN, RESEND_API_KEY, etc.
+
+# 3. Start all four services (postgres, redis, api, web) and wait for health.
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --wait
+
+# 4. Apply database migrations (run once per release or whenever schema changes).
+docker compose -f docker-compose.prod.yml --env-file .env.prod \
+  exec api node_modules/.bin/prisma migrate deploy
+
+# 5. Verify the stack is healthy.
+curl -sf http://localhost:4000/api/health | jq .
+# Expect: { "status": "ok", "deps": { "postgres": "ok", "redis": "ok" } }
+curl -sf -o /dev/null -w "%{http_code}" http://localhost:3000
+# Expect: 200
+
+# 6. Tear down when done.
+docker compose -f docker-compose.prod.yml --env-file .env.prod down
+```
+
+> **Note on migrations.** `prisma` is a devDependency and is not in the production image. Run migrations as a pre-deploy step using the workspace CLI (on the deploy host) or via a separate migration container that has the full workspace available. Never rely on the app container to self-migrate — the app will fail to start if applied migrations are missing.
+
+---
+
 ## Cookies
 
 The library issues `access_token`, `refresh_token`, and `has_session` cookies. In production ([`auth.config.ts`](../apps/api/src/auth/auth.config.ts)):

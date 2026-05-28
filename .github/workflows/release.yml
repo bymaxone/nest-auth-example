@@ -1,0 +1,181 @@
+# Release workflow — triggers on v* tags and:
+#   1. Builds production Docker images for apps/api and apps/web.
+#   2. Pushes them to GHCR as ghcr.io/bymaxone/nest-auth-example-{api,web}:<tag>.
+#   3. Appends a row to docs/RELEASES.md via a bot commit on main.
+#
+# Idempotency: both images are checked independently.  A step is skipped only
+# when its corresponding image already exists in GHCR, so a partial failure
+# (API pushed, web failed) can be retried without overwriting the API image.
+#
+# Prerequisites: apps/api/Dockerfile and apps/web/Dockerfile (Phase 19).
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Minimal top-level permissions — jobs declare only what they need.
+permissions:
+  contents: read
+
+jobs:
+  # ── build-and-push ──────────────────────────────────────────────────────────
+  build-and-push:
+    name: Build and push Docker images
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      # id-token is scoped here so only this job can exchange OIDC tokens.
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      # Idempotency guard for the API image.
+      - name: Check if API image already exists
+        id: api-exists
+        run: |
+          if docker manifest inspect "ghcr.io/bymaxone/nest-auth-example-api:${{ github.ref_name }}" \
+              > /dev/null 2>&1; then
+            echo "exists=true" >> "${GITHUB_OUTPUT}"
+            echo "API image already exists — skipping API build."
+          else
+            echo "exists=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      # Idempotency guard for the web image — checked independently so a
+      # partial failure (API ok, web failed) can be retried cleanly.
+      - name: Check if web image already exists
+        id: web-exists
+        run: |
+          if docker manifest inspect "ghcr.io/bymaxone/nest-auth-example-web:${{ github.ref_name }}" \
+              > /dev/null 2>&1; then
+            echo "exists=true" >> "${GITHUB_OUTPUT}"
+            echo "Web image already exists — skipping web build."
+          else
+            echo "exists=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Log in to GHCR
+        if: >-
+          steps.api-exists.outputs.exists != 'true' ||
+          steps.web-exists.outputs.exists != 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── API image ─────────────────────────────────────────────────────────
+      - name: Generate API image metadata
+        id: api-meta
+        if: steps.api-exists.outputs.exists != 'true'
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/bymaxone/nest-auth-example-api
+          # latest tag follows the highest semver on main (flavor.latest=auto).
+          flavor: |
+            latest=auto
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build and push API image
+        if: steps.api-exists.outputs.exists != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: true
+          tags: ${{ steps.api-meta.outputs.tags }}
+          labels: ${{ steps.api-meta.outputs.labels }}
+
+      # ── Web image ─────────────────────────────────────────────────────────
+      - name: Generate web image metadata
+        id: web-meta
+        if: steps.web-exists.outputs.exists != 'true'
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/bymaxone/nest-auth-example-web
+          flavor: |
+            latest=auto
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build and push web image
+        if: steps.web-exists.outputs.exists != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: true
+          tags: ${{ steps.web-meta.outputs.tags }}
+          labels: ${{ steps.web-meta.outputs.labels }}
+          # NEXT_PUBLIC_* vars must be provided at image build time via
+          # repository variables (Settings → Variables → Actions).
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || '/api' }}
+            NEXT_PUBLIC_WS_URL=${{ vars.NEXT_PUBLIC_WS_URL || '/' }}
+            NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED=${{ vars.NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED || 'false' }}
+
+  # ── update-releases-doc ────────────────────────────────────────────────────
+  # Appends a row to docs/RELEASES.md and bot-commits it on main so the table
+  # stays authoritative without manual edits after each release.
+  update-releases-doc:
+    name: Update RELEASES.md
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Append row to RELEASES.md
+        run: |
+          TAG="${{ github.ref_name }}"
+          LIB_VERSION=$(node -e "
+            const pkg = require('./apps/api/package.json');
+            const v = pkg.dependencies['@bymax-one/nest-auth'] ?? '';
+            process.stdout.write(v.replace(/^[^0-9]*/, '') + '\n');
+          ")
+          DATE=$(date -u +%Y-%m-%d)
+          python3 - "$TAG" "$LIB_VERSION" "$DATE" << 'PYEOF'
+          import sys, re, pathlib
+          tag, lib, date = sys.argv[1], sys.argv[2], sys.argv[3]
+          path = pathlib.Path('docs/RELEASES.md')
+          content = path.read_text()
+          new_row = f'| `{tag}` | `@bymax-one/nest-auth@{lib}` | {date} | | [CHANGELOG](../CHANGELOG.md) |\n'
+          content = re.sub(r'(?m)(^\| `v)', new_row + r'\1', content, count=1)
+          path.write_text(content)
+          PYEOF
+
+      - name: Push bot commit
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'chore(release): record ${{ github.ref_name }} in RELEASES.md [skip ci]'
+          commit_user_name: github-actions[bot]
+          commit_user_email: github-actions[bot]@users.noreply.github.com
+          file_pattern: docs/RELEASES.md
+          skip_dirty_check: false
