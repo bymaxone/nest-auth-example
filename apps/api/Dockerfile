@@ -46,7 +46,11 @@ FROM deps AS build
 COPY . .
 
 # Generate the Prisma client (schema-specific types + adapter-pg wiring).
-RUN pnpm --filter @nest-auth-example/api run prisma:generate
+# prisma.config.ts calls env('DATABASE_URL') even though prisma generate never
+# connects to the database when using driver adapters. A credential-free
+# placeholder satisfies the config loader without triggering secret scanners.
+RUN DATABASE_URL=postgresql://localhost/prisma \
+    pnpm --filter @nest-auth-example/api run prisma:generate
 
 # Compile TypeScript to dist/.
 RUN pnpm --filter @nest-auth-example/api run build
@@ -71,7 +75,8 @@ RUN cp -r /workspace/apps/api/dist /prod/api/dist
 # JS files must be generated here.  The workspace's prisma CLI (a devDep,
 # unavailable in the prod tree) is used with the schema from the deploy
 # output; Prisma resolves the output path relative to the schema location.
-RUN /workspace/apps/api/node_modules/.bin/prisma generate \
+RUN DATABASE_URL=postgresql://localhost/prisma \
+    /workspace/apps/api/node_modules/.bin/prisma generate \
       --schema /prod/api/prisma/schema.prisma
 
 # ── Stage 5: runtime ──────────────────────────────────────────────────────
