@@ -404,10 +404,11 @@ describe('UsersService', () => {
        */
       findById.mockResolvedValue(null);
 
-      await expect(service.findById('missing-user', 'acme')).rejects.toThrow(NotFoundException);
-      await expect(service.findById('missing-user', 'acme')).rejects.toThrow(
-        "User 'missing-user' not found",
-      );
+      // Assert the type and the verbatim message against a single rejected
+      // promise so the lookup runs exactly once.
+      const lookup = service.findById('missing-user', 'acme');
+      await expect(lookup).rejects.toThrow(NotFoundException);
+      await expect(lookup).rejects.toThrow("User 'missing-user' not found");
     });
 
     it('calls the repository with the correct id and tenantId', async () => {
