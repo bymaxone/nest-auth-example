@@ -1,4 +1,43 @@
 {
+  // Formatting model (conflict-free) for this pnpm monorepo
+  // (apps/api = NestJS 11, apps/web = Next.js 16 + React 19 + Tailwind):
+  // - Prettier (esbenp.prettier-vscode, reads .prettierrc.mjs) owns formatting.
+  // - ESLint 10 flat config (eslint.config.mjs) auto-fixes lint + import order on
+  //   save; eslint-config-prettier disables stylistic ESLint rules so the two
+  //   never fight.
+  // - Indentation / EOL / final-newline / trailing-whitespace come from
+  //   .editorconfig (install EditorConfig.EditorConfig) — not duplicated here.
+  // - Per-language formatters stop VS Code's built-in formatters from clashing,
+  //   covering React/TSX and CSS (Tailwind).
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+  "editor.rulers": [100],
+
+  "[typescript]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+  "[typescriptreact]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+  "[javascript]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+  "[javascriptreact]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+  "[json]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+  "[jsonc]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+  "[css]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+  "[yaml]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+  "[markdown]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+
+  // ESLint 10 flat config; "auto" working directories resolve each workspace package.
+  "eslint.useFlatConfig": true,
+  "eslint.workingDirectories": [{ "mode": "auto" }],
+
   "typescript.tsdk": "node_modules/typescript/lib",
-  "typescript.enablePromptUseWorkspaceTsdk": true
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+
+  "search.exclude": {
+    "**/dist": true,
+    "**/coverage": true,
+    "**/.stryker-tmp": true,
+    "**/.next": true,
+    "**/pnpm-lock.yaml": true
+  }
 }

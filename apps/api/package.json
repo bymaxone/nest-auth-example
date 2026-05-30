@@ -42,7 +42,7 @@
     "prisma:studio": "prisma studio"
   },
   "dependencies": {
-    "@bymax-one/nest-auth": "^1.0.10",
+    "@bymax-one/nest-auth": "^1.0.11",
     "@nestjs/common": "^11.1.19",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.1.19",
