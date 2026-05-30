@@ -398,11 +398,17 @@ describe('UsersService', () => {
        * Scenario: the requested user does not exist in the caller's tenant (either
        * a wrong id or a cross-tenant probe). The service must return 404 rather
        * than leaking cross-tenant existence via a 403.
-       * Rule: findById returns NotFoundException (not ForbiddenException) on miss.
+       * Rule: findById returns NotFoundException (not ForbiddenException) on miss,
+       * and the 404 message names the requested id verbatim so the client can tell
+       * which lookup failed.
        */
       findById.mockResolvedValue(null);
 
-      await expect(service.findById('missing-user', 'acme')).rejects.toThrow(NotFoundException);
+      // Assert the type and the verbatim message against a single rejected
+      // promise so the lookup runs exactly once.
+      const lookup = service.findById('missing-user', 'acme');
+      await expect(lookup).rejects.toThrow(NotFoundException);
+      await expect(lookup).rejects.toThrow("User 'missing-user' not found");
     });
 
     it('calls the repository with the correct id and tenantId', async () => {

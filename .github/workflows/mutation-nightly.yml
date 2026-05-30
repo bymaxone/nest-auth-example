@@ -44,6 +44,12 @@ jobs:
       - name: Generate Prisma client
         working-directory: apps/api
         run: pnpm prisma:generate
+        # Prisma 7 resolves `env('DATABASE_URL')` in prisma.config.ts at CLI
+        # load time, so `prisma generate` fails without it even though it
+        # never connects to the database. A placeholder is enough — this
+        # mirrors the same step in ci.yml.
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ci_placeholder
 
       # `--incremental false` overrides the config so we get a true cold
       # baseline — no cache, no incremental file is consulted.
