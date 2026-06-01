@@ -51,11 +51,11 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ci_placeholder
 
-      # `--no-incremental` overrides the config so we get a true cold
-      # baseline — no cache, no incremental file is consulted.
+      # `--force` makes Stryker run all mutants even if an incremental file
+      # exists, giving a true cold baseline without relying on any cache.
       - name: Run full mutation testing (api)
         working-directory: apps/api
-        run: pnpm exec stryker run --no-incremental
+        run: pnpm exec stryker run --force
 
       - name: Upload full mutation HTML report (api)
         if: always()
@@ -87,7 +87,7 @@ jobs:
 
       - name: Run full mutation testing (web)
         working-directory: apps/web
-        run: pnpm exec stryker run --no-incremental
+        run: pnpm exec stryker run --force
 
       - name: Upload full mutation HTML report (web)
         if: always()
