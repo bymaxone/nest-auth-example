@@ -1,19 +1,17 @@
 import { WsAdapter } from '@nestjs/platform-ws';
 /**
  * @file status-enforcement.e2e-spec.ts
- * @description Phase 17 e2e spec for account status enforcement.
+ * @description End-to-end spec for account status enforcement.
  *
  * Verifies that the `UserStatusGuard` blocks suspended users on every
  * authenticated request, and that re-activating a suspended user restores
  * their ability to log in.
  *
- * Covers FCM row #23 (account status enforcement — UserStatusGuard wiring).
  *
  * Requires `docker-compose.test.yml` services to be running (Postgres at 55432,
  * Redis at 56379, Mailpit SMTP at 51025, Mailpit UI at 58025).
  *
  * @layer test
- * @see docs/DEVELOPMENT_PLAN.md §Phase 17 P17-7
  * @see test/helpers/mailpit.ts
  */
 

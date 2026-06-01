@@ -1,7 +1,7 @@
 import { WsAdapter } from '@nestjs/platform-ws';
 /**
  * @file jwt-revocation.e2e-spec.ts
- * @description Phase 17 e2e spec for JWT revocation and session invalidation.
+ * @description End-to-end spec for JWT revocation and session invalidation.
  *
  * Covers:
  *  1. DELETE /api/auth/sessions/all revokes all active sessions; GET /me returns 401.
@@ -11,7 +11,6 @@ import { WsAdapter } from '@nestjs/platform-ws';
  * Redis at 56379, Mailpit SMTP at 51025, Mailpit UI at 58025).
  *
  * @layer test
- * @see docs/DEVELOPMENT_PLAN.md §Phase 17 P17-4
  * @see test/helpers/mailpit.ts
  */
 

@@ -2,10 +2,10 @@
  * @file projects.controller.ts
  * @description HTTP controller for tenant-scoped project endpoints.
  *
- * Demonstrates FCM rows:
- * - #18 (RBAC): `@Roles('ADMIN')` gates project creation.
- * - #19 (decorators): `@CurrentUser()` injects the authenticated user.
- * - #20 (multi-tenant): every service call passes `user.tenantId` so rows are
+ * Demonstrates library patterns:
+ * - RBAC: `@Roles('ADMIN')` gates project creation.
+ * - Decorators: `@CurrentUser()` injects the authenticated user.
+ * - Multi-tenant isolation: every service call passes `user.tenantId` so rows are
  *   always scoped to the current tenant — never a bare `findMany`.
  *
  * `DELETE /:id` is open to any authenticated tenant member — tenant isolation is

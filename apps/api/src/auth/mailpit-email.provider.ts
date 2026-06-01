@@ -13,9 +13,6 @@
  * - Template rendering uses simple `{{var}}` string replacement; no eval or
  *   dynamic code execution.
  *
- * Covers FCM rows #5 (email verification), #6/#7 (password reset), #15 (new-session
- * alert), #21 (invitations), #31 (custom email provider).
- *
  * @layer auth
  * @see docs/guidelines/email-guidelines.md
  * @see docs/guidelines/logging-guidelines.md

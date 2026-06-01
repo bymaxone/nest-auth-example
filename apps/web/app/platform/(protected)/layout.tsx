@@ -7,8 +7,6 @@
  *
  * Route: `/platform/*` (excluding `/platform/login` which has its own standalone layout).
  *
- * FCM row #22 — Platform admin context.
- *
  * @layer layouts
  */
 

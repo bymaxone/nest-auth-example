@@ -16,12 +16,9 @@
  * - `passwordHash`, `mfaSecret`, and `mfaRecoveryCodes` are NEVER included in any
  *   field returned by this service. All user reads use an explicit `select` block.
  *
- * Covers FCM row #22 (Platform admin context).
- *
  * @layer platform
  * @see docs/guidelines/nestjs-guidelines.md
  * @see docs/guidelines/observability-guidelines.md
- * @see docs/DEVELOPMENT_PLAN.md §Phase 9 P9-2
  */
 
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';

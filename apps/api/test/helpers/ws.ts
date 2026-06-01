@@ -14,7 +14,6 @@
  * obtained by POSTing to `POST /api/auth/login`.
  *
  * @layer test
- * @see docs/DEVELOPMENT_PLAN.md §Phase 10 P10-3
  * @see apps/api/test/websocket-auth.e2e-spec.ts
  */
 

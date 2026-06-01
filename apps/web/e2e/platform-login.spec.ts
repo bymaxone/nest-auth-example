@@ -24,7 +24,7 @@ test.describe('Platform login', () => {
 
   /**
    * Happy path: valid credentials redirect to /platform/tenants.
-   * Protects: P15-1 — submit → platformLogin() → redirect on success.
+   * Protects: the platform login form authenticates a valid platform admin and navigates to the platform dashboard.
    */
   test('logs in with valid credentials and redirects to /platform/tenants', async ({ page }) => {
     await page.getByLabel('Email').fill(PLATFORM_EMAIL);
@@ -36,7 +36,7 @@ test.describe('Platform login', () => {
 
   /**
    * Wrong password: form stays visible with an error message.
-   * Protects: P15-1 — translateAuthError renders INVALID_CREDENTIALS.
+   * Protects: the platform login form surfaces an error message when invalid credentials are submitted and does not redirect.
    */
   test('shows error on wrong password', async ({ page }) => {
     await page.getByLabel('Email').fill(PLATFORM_EMAIL);

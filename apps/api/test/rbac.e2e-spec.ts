@@ -1,19 +1,17 @@
 import { WsAdapter } from '@nestjs/platform-ws';
 /**
  * @file rbac.e2e-spec.ts
- * @description Phase 17 e2e spec for Role-Based Access Control (RBAC).
+ * @description End-to-end spec for Role-Based Access Control (RBAC).
  *
  * Verifies that the `@Roles` decorator and `RolesGuard` wiring enforce the
  * role hierarchy (OWNER > ADMIN > MEMBER > VIEWER) for the project creation
  * endpoint (`POST /api/projects`, gated at `ADMIN`).
  *
- * Covers FCM row #18 (RBAC — role hierarchy enforcement).
  *
  * Requires `docker-compose.test.yml` services to be running (Postgres at 55432,
  * Redis at 56379, Mailpit SMTP at 51025, Mailpit UI at 58025).
  *
  * @layer test
- * @see docs/DEVELOPMENT_PLAN.md §Phase 17 P17-7
  * @see test/helpers/mailpit.ts
  */
 

@@ -12,7 +12,6 @@
  *  3. Confirming that service tokens are importable for DI composition
  *     (`SessionService`, `OtpService`, `PasswordResetService`).
  *
- * @see docs/DEVELOPMENT_PLAN.md §Appendix B — Library Export → Example File Map
  * @layer test
  */
 

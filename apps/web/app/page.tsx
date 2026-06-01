@@ -9,7 +9,7 @@
  *   - Monospace typography for headings
  *
  * This is a pure server component — no client-side JS required for the
- * landing surface. Auth logic starts at Phase 12.
+ * landing surface.
  */
 
 import Link from 'next/link';

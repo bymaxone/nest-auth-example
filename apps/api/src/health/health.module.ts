@@ -2,13 +2,11 @@
  * @file health.module.ts
  * @description NestJS module that registers the upgraded health-check controller.
  *
- * Phase 5 additions:
- * - Imports `PrismaModule` to give `HealthController` access to `PrismaService`.
- * - The Redis client is injected via the global `RedisModule` registered in `AppModule`;
- *   no explicit import is required here.
- * - Registers `ThrottlerModule.forRoot` locally so `GET /api/health/throttle-demo`
- *   can exercise `@Throttle(AUTH_THROTTLE_CONFIGS.login)` in isolation.
- *   Phase 7 will migrate throttle registration to `AppModule` as a global guard.
+ * Imports `PrismaModule` to give `HealthController` access to `PrismaService`.
+ * The Redis client is injected via the global `RedisModule` registered in `AppModule`;
+ * no explicit import is required here.
+ * Registers `ThrottlerModule.forRoot` locally so `GET /api/health/throttle-demo`
+ * can exercise `@Throttle(AUTH_THROTTLE_CONFIGS.login)` in isolation.
  *
  * @layer infrastructure
  */
@@ -24,7 +22,7 @@ import { HealthController } from './health.controller.js';
  *
  * Exposes:
  * - `GET /api/health` — aggregate Postgres + Redis readiness probe.
- * - `GET /api/health/throttle-demo` — throttle demonstration (FCM row #17).
+ * - `GET /api/health/throttle-demo` — IP-based rate-limiting demonstration.
  *
  * The Redis client (`BYMAX_AUTH_REDIS_CLIENT`) is resolved via the global
  * `RedisModule`; `PrismaService` is resolved via the explicit `PrismaModule` import.

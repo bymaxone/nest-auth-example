@@ -20,7 +20,7 @@ import type { CreateTenantDto } from './dto/create-tenant.dto.js';
  * Service that manages tenant CRUD operations.
  *
  * Only exposes operations that are safe for authenticated tenant users —
- * platform-level tenant management (Phase 9) lives in `platform/`.
+ * platform-level tenant management lives in `platform/`.
  *
  * @public
  */

@@ -40,7 +40,7 @@ const envSchema = z.object({
   NEXT_PUBLIC_API_URL: z.string().url(),
 
   /**
-   * WebSocket base URL for the browser WS client (Phase 16).
+   * WebSocket base URL for the browser WS client.
    * Must be same-origin (e.g. `ws://localhost:3000` in dev) so that the
    * HttpOnly access_token cookie is automatically forwarded on the WS upgrade
    * request. Next.js proxies `/ws/:path*` to the NestJS gateway.

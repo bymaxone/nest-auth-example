@@ -15,7 +15,6 @@
  * ```
  *
  * @layer test/e2e/fixtures
- * @see docs/DEVELOPMENT_PLAN.md §Phase 17 P17-10
  */
 
 import path from 'node:path';

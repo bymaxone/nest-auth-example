@@ -29,7 +29,7 @@ async function loginAsPlatformAdmin(page: Page): Promise<void> {
 test.describe('Platform shell', () => {
   /**
    * PLATFORM ADMIN badge is visible in the topbar after login.
-   * Protects: P15-2 — platform-topbar.tsx renders the "PLATFORM ADMIN" label.
+   * Protects: the platform shell renders the topbar "PLATFORM ADMIN" label for an authenticated platform admin.
    */
   test('shows PLATFORM ADMIN header after login', async ({ page }) => {
     await loginAsPlatformAdmin(page);
@@ -42,7 +42,7 @@ test.describe('Platform shell', () => {
 
   /**
    * Sidebar contains Tenants and Users navigation links.
-   * Protects: P15-2 — platform-sidebar.tsx nav items present.
+   * Protects: the platform shell renders the sidebar navigation links for an authenticated platform admin.
    */
   test('renders Tenants and Users sidebar links', async ({ page }) => {
     await loginAsPlatformAdmin(page);
@@ -53,7 +53,7 @@ test.describe('Platform shell', () => {
 
   /**
    * Visiting /platform/tenants without a session redirects to /platform/login.
-   * Protects: P15-2 — platform-shell.tsx guards bearer token on mount.
+   * Protects: the platform shell redirects unauthenticated visitors to the platform login page.
    */
   test('redirects to /platform/login when not authenticated', async ({ page }) => {
     await page.goto('/platform/tenants');

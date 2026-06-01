@@ -12,7 +12,6 @@
  *   - Creates an `AuditLog` row after the transaction commits, with correct fields.
  *   - Swallows `AuditLog` write failures and logs an error instead of propagating.
  *
- * FCM row covered: #22 (Platform admin context).
  *
  * @layer test
  * @see apps/api/src/platform/platform.service.ts

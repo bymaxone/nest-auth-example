@@ -2,7 +2,7 @@
  * @file users.controller.ts
  * @description HTTP controller for user-management endpoints.
  *
- * Demonstrates FCM row #23 (account status enforcement): admins can update
+ * Demonstrates account status enforcement: admins can update
  * a tenant member's status so that `UserStatusGuard` blocks them on their
  * next authenticated request.
  *

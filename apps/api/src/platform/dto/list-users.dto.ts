@@ -8,7 +8,6 @@
  *
  * @layer platform
  * @see docs/guidelines/validation-guidelines.md
- * @see docs/DEVELOPMENT_PLAN.md §Phase 9 P9-2
  */
 
 import { IsNotEmpty, IsString, MaxLength } from 'class-validator';

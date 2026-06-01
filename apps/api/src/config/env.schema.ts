@@ -11,7 +11,6 @@
  *
  * @layer config
  * @see docs/guidelines/environment-guidelines.md
- * @see docs/DEVELOPMENT_PLAN.md Appendix A
  */
 
 import { z } from 'zod';
@@ -179,7 +178,7 @@ const base = z.object({
    * Password reset delivery method.
    *
    * `token` (default) sends a signed link; `otp` sends a short numeric code.
-   * Both modes are available in this example to cover FCM rows #6 and #7.
+   * Both modes are available in this example to demonstrate token-link and OTP flows.
    */
   PASSWORD_RESET_METHOD: z
     .enum(['token', 'otp'])

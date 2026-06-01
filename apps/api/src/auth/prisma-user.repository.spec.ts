@@ -12,7 +12,7 @@
  * - `findByOAuthId` — provider + providerId scoped to tenant.
  * - `linkOAuth` — OAuth fields update call.
  *
- * These paths are security-critical (FCM #12, #23, #32): regressions here would
+ * These paths are security-critical: regressions here would
  * break tenant isolation, allow blocked accounts to receive tokens, or corrupt
  * user credentials.
  *
@@ -350,7 +350,7 @@ describe('PrismaUserRepository.findById', () => {
 
   it('returns AuthUser scoped to tenantId when tenantId is provided', async () => {
     // findById must pass both `id` and `tenantId` in the WHERE clause when
-    // tenantId is supplied — this is the tenant-isolation requirement (FCM #32).
+    // tenantId is supplied — this is the tenant-isolation requirement.
     userFindFirst.mockResolvedValue(makeUserRow());
 
     const result = await repo.findById('user-1', 'acme');

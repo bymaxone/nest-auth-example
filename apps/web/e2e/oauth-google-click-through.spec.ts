@@ -1,5 +1,5 @@
 /**
- * @fileoverview E2E: Google OAuth click-through (FCM #12, browser layer).
+ * @fileoverview Google OAuth click-through end-to-end spec — browser layer.
  *
  * The full OAuth handshake (token exchange + userinfo fetch) is covered
  * server-side by `apps/api/test/oauth-link.e2e-spec.ts` using the

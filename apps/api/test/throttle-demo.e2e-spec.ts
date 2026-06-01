@@ -1,20 +1,18 @@
 import { WsAdapter } from '@nestjs/platform-ws';
 /**
  * @file throttle-demo.e2e-spec.ts
- * @description Phase 17 e2e spec for IP-based rate limiting on the throttle-demo
+ * @description End-to-end spec for IP-based rate limiting on the throttle-demo
  * endpoint (`GET /api/health/throttle-demo`).
  *
  * The endpoint is `@Public()` (no auth required) and applies the `login`
  * throttle tier: 5 requests per 60 seconds per IP. The 6th request from the
  * same IP must receive HTTP 429 Too Many Requests.
  *
- * Covers FCM row #17 (IP-based rate limiting / throttle-demo).
  *
  * Requires `docker-compose.test.yml` services to be running (Postgres at 55432,
  * Redis at 56379, Mailpit SMTP at 51025, Mailpit UI at 58025).
  *
  * @layer test
- * @see docs/DEVELOPMENT_PLAN.md §Phase 17 P17-6
  */
 
 // Set test env vars BEFORE importing AppModule so ConfigService sees them.

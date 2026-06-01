@@ -18,7 +18,6 @@ import { WsAdapter } from '@nestjs/platform-ws';
  * the same error code as a known-email / wrong-password login, so the
  * response does not leak account existence.
  *
- * FCM rows covered: security hardening (Phase 20 P20-3).
  *
  * @layer test
  * @see apps/api/src/main.ts (helmet registration)

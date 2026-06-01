@@ -1,5 +1,5 @@
 /**
- * @fileoverview E2E (FCM #34): MFA disable via the dashboard security UI.
+ * @fileoverview E2E: MFA disable via the dashboard security UI.
  *
  * Mirrors `mfa-enroll-and-login.spec.ts` for the inverse transition — enrolls
  * MFA inline (so the test is self-contained against a clean seeded user),
@@ -67,7 +67,7 @@ test.describe('MFA disable via UI', () => {
     page,
   }) => {
     /**
-     * Full enroll → disable lifecycle on the dashboard UI (FCM #34, complement
+     * Full enroll → disable lifecycle on the dashboard UI
      * to the mfa-disable lib e2e spec). The test enrolls first so it does not
      * depend on any other spec leaving state behind — Playwright runs files
      * serially with `workers: 1` but the test is self-contained either way.

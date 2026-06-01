@@ -16,7 +16,6 @@ import { WsAdapter } from '@nestjs/platform-ws';
  * Mailpit SMTP at 51025, Mailpit UI at 58025).
  *
  * @layer test
- * @see docs/DEVELOPMENT_PLAN.md §Phase 17 P17-5
  * @see test/helpers/mailpit.ts
  */
 

@@ -11,7 +11,6 @@
  * linking to an existing user (if found) or creating a new account.
  * `NoOpEmailProvider` — resolves all delivery methods without doing anything.
  *
- * @see docs/DEVELOPMENT_PLAN.md §Appendix B — Library Export → Example File Map
  * @layer test
  */
 

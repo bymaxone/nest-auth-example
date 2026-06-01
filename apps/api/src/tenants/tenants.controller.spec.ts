@@ -9,7 +9,6 @@
  * - `@Roles('OWNER')` metadata is present on the `create` handler so that a
  *   regression removing the decorator causes this test to fail.
  *
- * FCM rows covered: #18 (RBAC decorator), #19 (CurrentUser), #20 (tenant scoping).
  *
  * @layer test
  * @see apps/api/src/tenants/tenants.controller.ts

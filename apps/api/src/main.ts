@@ -7,10 +7,6 @@
  * cookie delivery by @bymax-one/nest-auth), the `/api` global prefix, a global
  * ValidationPipe, and graceful shutdown hooks.
  *
- * Phase 5: Migrates `API_PORT` and `WEB_ORIGIN` from `process.env.*` reads to
- * `ConfigService<Env, true>`, eliminating the risk of silent `undefined` values
- * that bypassed Zod validation.
- *
  * @layer bootstrap
  */
 

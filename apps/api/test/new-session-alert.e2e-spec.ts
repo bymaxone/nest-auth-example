@@ -1,7 +1,7 @@
 import { WsAdapter } from '@nestjs/platform-ws';
 /**
  * @file new-session-alert.e2e-spec.ts
- * @description e2e spec for FCM #15 — new-session security email alert.
+ * @description End-to-end spec for the new-session security email alert.
  *
  * The library never invokes `IEmailProvider.sendNewSessionAlert` itself —
  * consumers are responsible for dispatching the email from the `onNewSession`

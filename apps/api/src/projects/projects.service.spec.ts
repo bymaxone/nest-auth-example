@@ -8,7 +8,6 @@
  * - `delete` uses an atomic `deleteMany({ id, tenantId })` and throws
  *   `NotFoundException` when no row is affected — preventing cross-tenant leaks.
  *
- * FCM rows covered: #18 (RBAC), #20 (multi-tenant isolation).
  *
  * @layer test
  * @see apps/api/src/projects/projects.service.ts

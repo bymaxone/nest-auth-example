@@ -4,10 +4,10 @@
  *
  * Verifies that:
  * - `GET /users` calls `UsersService.listByTenant` with the authenticated user's
- *   `tenantId` (cross-tenant access prevention, FCM #20).
+ *   `tenantId` (cross-tenant access prevention.
  * - `PATCH /users/:id/status` calls `UsersService.updateStatus` with the correct
  *   argument order: targetId, dto, admin.tenantId, admin.id, ip, userAgent.
- * - `@Roles('ADMIN')` metadata is present on `updateStatus` (FCM #18).
+ * - `@Roles('ADMIN')` metadata is present on `updateStatus`.
  * - `ip` and `userAgent` default to empty strings when the header is absent.
  *
  * @layer test
@@ -106,7 +106,7 @@ describe('UsersController', () => {
   describe('listByTenant', () => {
     it('calls service.listByTenant with user.tenantId and returns the result', async () => {
       // Scoping by JWT tenantId prevents cross-tenant data leakage regardless
-      // of what the X-Tenant-Id header contains (FCM #20).
+      // of what the X-Tenant-Id header contains.
       const users = [makeUserRecord()];
       listByTenant.mockResolvedValue(users);
       const admin = makeAdmin({ tenantId: 'tenant-99' });
@@ -168,7 +168,7 @@ describe('UsersController', () => {
 
     it('has @Roles("ADMIN") metadata so RolesGuard enforces the role gate', () => {
       // Removing @Roles would allow MEMBER/VIEWER users to ban or suspend
-      // other members, violating RBAC (FCM #18).
+      // other members, violating RBAC.
       const roles = Reflect.getMetadata(
         'roles',
         UsersController.prototype.updateStatus as object,

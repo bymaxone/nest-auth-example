@@ -15,7 +15,6 @@
  * ```
  *
  * @layer test
- * @see docs/DEVELOPMENT_PLAN.md §Phase 17 P17-8
  * @see test/helpers/db.ts
  * @see test/helpers/redis.ts
  */

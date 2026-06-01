@@ -9,7 +9,6 @@
  * keys intact when multiple test suites run concurrently.
  *
  * @layer test
- * @see docs/DEVELOPMENT_PLAN.md §Phase 17 P17-8
  * @see docs/guidelines/redis-guidelines.md
  */
 

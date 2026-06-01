@@ -1,7 +1,7 @@
 /**
  * @file auth.config.ts
  * @description Factory that builds `BymaxAuthModuleOptions` from the Zod-validated
- * environment, consumed by `BymaxAuthModule.registerAsync` in Phase 7.
+ * environment, consumed by `BymaxAuthModule.registerAsync`.
  *
  * Keeps configuration concerns separate from module wiring: this file answers
  * "what are the options?" while `auth.module.ts` answers "how is the module wired?".
@@ -14,7 +14,6 @@
  *
  * @layer auth
  * @see docs/guidelines/nest-auth-guidelines.md
- * @see docs/DEVELOPMENT_PLAN.md §Phase 6.1
  */
 
 import type { Request } from 'express';
@@ -27,12 +26,7 @@ import { BLOCKED_USER_STATUSES } from './auth.constants.js';
 /**
  * Builds the `BymaxAuthModuleOptions` object for `BymaxAuthModule.registerAsync`.
  *
- * Every option group directly maps to the development plan §6.1 spec. The function
- * is pure — no side effects, no logging, no secret values emitted anywhere.
- *
- * FCM rows covered: #3 (refresh grace), #5 (email verification), #13 (sessions),
- * #14 (FIFO eviction), #16 (brute-force), #18/#19 (RBAC), #20 (tenant resolver),
- * #23 (blocked statuses).
+ * The function is pure — no side effects, no logging, no secret values emitted anywhere.
  *
  * @param config - Zod-validated `ConfigService<Env, true>`. Every required variable
  *   is guaranteed present because the app refuses to start on an invalid config.

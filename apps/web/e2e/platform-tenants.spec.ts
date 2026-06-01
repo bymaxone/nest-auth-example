@@ -27,7 +27,7 @@ async function loginAsPlatformAdmin(page: Page): Promise<void> {
 test.describe('Platform tenants page', () => {
   /**
    * Both seeded tenants are listed in the table.
-   * Protects: P15-3 — listPlatformTenants() returns data; TenantsTable renders rows.
+   * Protects: the tenants list page fetches and displays all tenants for an authenticated platform admin.
    */
   test('lists the two seeded tenants', async ({ page }) => {
     await loginAsPlatformAdmin(page);
@@ -38,7 +38,7 @@ test.describe('Platform tenants page', () => {
 
   /**
    * Tenant slug badges are shown for both tenants.
-   * Protects: P15-3 — slug column renders correctly.
+   * Protects: the tenants list page displays the slug badge for each tenant row.
    */
   test('displays slug badges', async ({ page }) => {
     await loginAsPlatformAdmin(page);
@@ -51,7 +51,7 @@ test.describe('Platform tenants page', () => {
 
   /**
    * Clicking "View users" for Acme Corp navigates to /platform/users?tenantId=<id>.
-   * Protects: P15-3 — row/action button navigation to the users page works.
+   * Protects: the tenants list page allows navigation to the users page for a selected tenant.
    */
   test('navigates to users page when View users is clicked', async ({ page }) => {
     await loginAsPlatformAdmin(page);

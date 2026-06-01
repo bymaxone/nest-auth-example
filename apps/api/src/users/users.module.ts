@@ -8,7 +8,6 @@
  * need user reads/writes without duplicating Prisma logic.
  *
  * @layer users
- * @see docs/DEVELOPMENT_PLAN.md §Phase 7 P7-6
  */
 
 import { Module } from '@nestjs/common';
@@ -25,7 +24,7 @@ import { UsersService } from './users.service.js';
  *
  * Imports `NotificationsModule` so that `UsersService` can call
  * `NotificationsGateway.maybeDisconnectBlockedUser` when a user's status is
- * changed to a blocked value (FCM row #24 — suspend disconnects the WS session).
+ * changed to a blocked value.
  *
  * @public
  */

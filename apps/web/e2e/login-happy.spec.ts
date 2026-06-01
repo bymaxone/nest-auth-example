@@ -7,7 +7,6 @@
  * Prerequisites: full stack running (`pnpm infra:up` + API + web dev server).
  *
  * @layer test/e2e
- * @see docs/DEVELOPMENT_PLAN.md §Phase 17 P17-10
  */
 
 import { test, expect } from '@playwright/test';
@@ -29,7 +28,7 @@ test.describe('Login — happy path', () => {
   test('logs in with valid credentials and redirects to /dashboard', async ({ page }) => {
     /**
      * Submit canonical seeded member credentials and expect a redirect to /dashboard.
-     * Protects the register → verify → login → dashboard flow (FCM #2).
+     * Protects the register → verify → login → dashboard flow.
      */
     await page.getByLabel(/email/i).fill(MEMBER_EMAIL);
     await page.getByLabel(/password/i).fill(MEMBER_PASSWORD);
@@ -41,7 +40,7 @@ test.describe('Login — happy path', () => {
   test('dashboard renders the authenticated user email or name after login', async ({ page }) => {
     /**
      * After a successful login the dashboard must display the user's identity
-     * (name or email), proving the session is actually populated (FCM #29).
+     * (name or email), proving the session is actually populated.
      */
     await page.getByLabel(/email/i).fill(MEMBER_EMAIL);
     await page.getByLabel(/password/i).fill(MEMBER_PASSWORD);

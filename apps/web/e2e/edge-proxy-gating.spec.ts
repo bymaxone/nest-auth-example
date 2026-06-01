@@ -1,5 +1,5 @@
 /**
- * @fileoverview E2E (FCM #40): Next.js edge proxy gating — public routes
+ * @fileoverview Next.js edge proxy gating end-to-end spec — public routes
  * vs protected routes vs role-gated routes.
  *
  * Verifies the three classes of routes declared in `apps/web/proxy.ts`:

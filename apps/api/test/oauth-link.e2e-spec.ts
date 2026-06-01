@@ -1,13 +1,12 @@
 import { WsAdapter } from '@nestjs/platform-ws';
 /**
  * @file oauth-link.e2e-spec.ts
- * @description Phase 8 e2e spec that verifies the OAuth account-linking guarantee:
+ * @description End-to-end spec verifying the OAuth account-linking guarantee:
  * a user who first registers with email+password, then signs in via Google OAuth
  * with the same email address, ends up on the **same** `users` row — with
  * `oauthProvider = 'google'` and `oauthProviderId` populated — rather than a
  * duplicate row being created.
  *
- * Covers FCM row #12 (OAuth Google sign-in & link — the linking half).
  *
  * Requires `docker-compose.test.yml` services to be running (Postgres at 55432,
  * Redis at 56379, Mailpit SMTP at 51025, Mailpit UI at 58025).
@@ -16,7 +15,6 @@ import { WsAdapter } from '@nestjs/platform-ws';
  * `accounts.google.com` or `googleapis.com` requests are made.
  *
  * @layer test
- * @see docs/DEVELOPMENT_PLAN.md §Phase 8 P8-3
  * @see test/helpers/fake-google.ts
  * @see test/helpers/mailpit.ts
  */

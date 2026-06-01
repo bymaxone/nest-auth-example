@@ -1,7 +1,7 @@
 import { WsAdapter } from '@nestjs/platform-ws';
 /**
  * @file refresh-rotation.e2e-spec.ts
- * @description Phase 17 e2e spec for JWT refresh-token rotation.
+ * @description End-to-end spec for JWT refresh-token rotation.
  *
  * Covers:
  *  1. POST /api/auth/refresh rotates the access_token cookie (200 + new Set-Cookie).
@@ -16,7 +16,6 @@ import { WsAdapter } from '@nestjs/platform-ws';
  * (jwt.refreshGraceWindowSeconds: 30).
  *
  * @layer test
- * @see docs/DEVELOPMENT_PLAN.md §Phase 17 P17-4
  * @see test/helpers/mailpit.ts
  */
 

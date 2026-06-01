@@ -12,8 +12,6 @@
  * - Every query that returns a user is scoped by `tenantId` to prevent cross-tenant leaks.
  * - Email is stored lower-case on write and returned as-is from the DB.
  *
- * Covers FCM row #32 (custom user repository).
- *
  * @layer auth
  * @see docs/guidelines/prisma-guidelines.md
  * @see docs/guidelines/nest-auth-guidelines.md
@@ -36,7 +34,7 @@ import { BLOCKED_USER_STATUSES } from './auth.constants.js';
 /**
  * Prisma-backed user repository for the tenant (dashboard) auth context.
  *
- * Injected via `BYMAX_AUTH_USER_REPOSITORY` token in Phase 7's `AuthModule`.
+ * Injected via `BYMAX_AUTH_USER_REPOSITORY` token in `AuthModule`.
  * Repositories are the only layer that imports `PrismaService` directly.
  *
  * @public

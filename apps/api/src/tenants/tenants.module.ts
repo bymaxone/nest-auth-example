@@ -7,7 +7,6 @@
  * available globally via the `APP_GUARD` providers registered in `AppModule`.
  *
  * @layer tenants
- * @see docs/DEVELOPMENT_PLAN.md §Phase 7 P7-3
  */
 
 import { Module } from '@nestjs/common';

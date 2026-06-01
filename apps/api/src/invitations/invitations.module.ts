@@ -7,7 +7,6 @@
  * the `@Global() RedisModule` and does not need a separate import.
  *
  * @layer invitations
- * @see docs/DEVELOPMENT_PLAN.md §Phase 14 P14-6
  */
 
 import { Module } from '@nestjs/common';

@@ -5,7 +5,6 @@
  * Prerequisites: full stack + Mailpit running at http://localhost:58025.
  *
  * @layer test/e2e
- * @see docs/DEVELOPMENT_PLAN.md §Phase 17 P17-10
  */
 
 import { test, expect } from '@playwright/test';
@@ -26,7 +25,7 @@ test.describe('Forgot password flow', () => {
     page,
   }) => {
     /**
-     * Complete token-based password-reset flow (FCM #6).
+     * Complete token-based password-reset flow.
      * Depends on Mailpit capturing the reset email so the token can be extracted.
      */
     // 1. Navigate to forgot-password page.

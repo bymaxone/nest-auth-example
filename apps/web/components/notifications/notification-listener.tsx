@@ -15,7 +15,6 @@
  * Renders nothing — this component is purely a side-effect host.
  *
  * @layer components/notifications
- * @see docs/DEVELOPMENT_PLAN.md §Phase 16 P16-2
  */
 
 'use client';

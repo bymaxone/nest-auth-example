@@ -11,7 +11,6 @@
  *   uninstallFakeGoogle();
  *
  * @layer test
- * @see docs/DEVELOPMENT_PLAN.md §Phase 8 P8-3
  */
 
 /** Google token endpoint intercepted by this stub. */

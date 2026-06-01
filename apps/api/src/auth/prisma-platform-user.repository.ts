@@ -11,8 +11,6 @@
  * - Platform users are never mixed with tenant users — different Prisma models,
  *   different JWT payloads, different guards.
  *
- * Covers FCM row #22 (platform admin backing repository).
- *
  * @layer auth
  * @see docs/guidelines/prisma-guidelines.md
  * @see docs/guidelines/nest-auth-guidelines.md
@@ -31,7 +29,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 /**
  * Prisma-backed repository for the platform admin auth context.
  *
- * Injected via `BYMAX_AUTH_PLATFORM_USER_REPOSITORY` token in Phase 7's `AuthModule`.
+ * Injected via `BYMAX_AUTH_PLATFORM_USER_REPOSITORY` token in `AuthModule`.
  * No `tenantId` filtering — platform users are not tenant-scoped.
  *
  * @public

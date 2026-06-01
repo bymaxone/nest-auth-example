@@ -18,7 +18,6 @@
  * inject it for status-change disconnect propagation.
  *
  * @layer notifications
- * @see docs/DEVELOPMENT_PLAN.md §Phase 10 P10-1, P10-2
  */
 
 import { Module } from '@nestjs/common';

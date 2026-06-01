@@ -6,7 +6,6 @@
  * The page must NOT redirect to `/dashboard` on failure.
  *
  * @layer test/e2e
- * @see docs/DEVELOPMENT_PLAN.md §Phase 17 P17-10
  */
 
 import { test, expect } from '@playwright/test';
@@ -22,7 +21,7 @@ test.describe('Login — wrong password', () => {
   test('shows an error message and stays on the login page', async ({ page }) => {
     /**
      * Wrong password must surface the INVALID_CREDENTIALS message from auth-errors.ts
-     * and keep the user on the login page (FCM #29, anti-enumeration).
+     * and keep the user on the login page.
      */
     await page.getByLabel(/email/i).fill(MEMBER_EMAIL);
     await page.getByLabel(/password/i).fill('definitly-wrong-password-999');
@@ -42,7 +41,7 @@ test.describe('Login — wrong password', () => {
   }) => {
     /**
      * Anti-enumeration: an attacker must not be able to determine whether an
-     * email exists by observing different error messages (FCM #29).
+     * email exists by observing different error messages.
      */
     await page.getByLabel(/email/i).fill('nobody@nonexistent.example.test');
     await page.getByLabel(/password/i).fill('SomePassword123!');

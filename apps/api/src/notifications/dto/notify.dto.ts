@@ -7,8 +7,6 @@
  *   both fields default server-side when omitted.
  *
  * @layer notifications
- * @see docs/DEVELOPMENT_PLAN.md §Phase 10 P10-2
- * @see docs/DEVELOPMENT_PLAN.md §Phase 16 P16-3
  */
 
 import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';

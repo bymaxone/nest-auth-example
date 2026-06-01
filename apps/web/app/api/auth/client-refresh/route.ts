@@ -5,7 +5,6 @@
  * 401 from the API. The handler forwards the refresh cookie to NestJS and sets fresh
  * cookies on the response so the next request carries valid credentials.
  *
- * @see FCM rows #27 (client-refresh).
  * @layer api/auth
  */
 

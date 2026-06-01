@@ -1,12 +1,12 @@
 /**
- * @fileoverview Sign-out button — posts to the logout route handler and refreshes.
+ * @file sign-out-button.tsx
+ * @fileoverview Sign-out button — posts to the logout route handler and redirects.
  *
  * Client component that posts to `POST /api/auth/logout` (the `createLogoutHandler`
- * endpoint from Phase 12). The handler owns cookie clearing and the redirect to
- * `/auth/login`; this component only triggers the request and reflects loading state.
+ * endpoint). The handler owns cookie clearing and the redirect to `/auth/login`;
+ * this component only triggers the request and reflects loading state.
  *
- * Used in the dashboard header dropdown (Phase 14). Shipping it here makes Phase 12's
- * auth wiring end-to-end testable without the full dashboard being built.
+ * Can be composed in any layout that needs a sign-out affordance.
  *
  * @layer components/auth
  */

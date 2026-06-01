@@ -9,7 +9,6 @@
  * On failure (refresh token absent or revoked), the handler clears auth cookies and
  * redirects to the login page per the library's documented behaviour.
  *
- * @see FCM rows #27 (silent-refresh).
  * @layer api/auth
  */
 

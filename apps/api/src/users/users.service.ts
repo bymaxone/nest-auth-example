@@ -5,13 +5,11 @@
  *
  * The audit log entry is written directly via `PrismaService` in this service
  * rather than through `AppAuthHooks`, which is an acceptable "equivalent direct
- * write" explicitly permitted by the development plan §P7-6.
- * `AppAuthHooks` owns lifecycle hooks fired by the auth library; this service
- * owns admin-initiated mutations that are outside the library's responsibility.
+ * write". `AppAuthHooks` owns lifecycle hooks fired by the auth library; this
+ * service owns admin-initiated mutations that are outside the library's responsibility.
  *
  * @layer users
  * @see docs/guidelines/nestjs-guidelines.md
- * @see docs/DEVELOPMENT_PLAN.md §Phase 7 P7-6
  */
 
 import { ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
@@ -46,7 +44,7 @@ export interface TenantUserRecord {
  * Service that handles user-admin operations.
  *
  * Only exposes operations that are safe for tenant admins to perform.
- * Platform-level user management lives in `platform/` (Phase 9).
+ * Platform-level user management lives in `platform/`.
  *
  * @public
  */
