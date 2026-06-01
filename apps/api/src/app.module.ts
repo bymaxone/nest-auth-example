@@ -2,30 +2,16 @@
  * @file app.module.ts
  * @description Root NestJS module for `@nest-auth-example/api`.
  *
- * Phase 7 adds:
- * - `AuthModule` — wires `BymaxAuthModule.registerAsync` with all four
- *   implementation bindings and mounts `/api/auth/*` controllers.
- * - `ThrottlerModule.forRoot(AUTH_THROTTLE_CONFIGS)` — rate-limiting applied
- *   globally (auth routes use the library's throttle configs).
- * - `TenantsModule` and `ProjectsModule` — example domain modules that
- *   demonstrate RBAC, multi-tenant scoping, and library decorators.
- * - `UsersModule` — exposes `PATCH /api/users/:id/status` for the admin
- *   suspension demo (FCM row #23).
- * - `PlatformModule` — exposes `/api/platform/*` endpoints protected by
- *   `JwtPlatformGuard` + `PlatformRolesGuard` (FCM row #22).
- * - `DebugModule` (non-production only) — dev helper for brute-force lockout
- *   demo (FCM row #16).
- * - `NotificationsModule` — WebSocket gateway at `/ws/notifications` protected by
- *   `WsJwtGuard`; includes the dev-only `POST /api/debug/notify/:userId` trigger
- *   (FCM row #24).
- * - Five global `APP_GUARD` providers registered in the exact order mandated by
- *   `docs/guidelines/nest-auth-guidelines.md`: JwtAuthGuard → UserStatusGuard →
- *   MfaRequiredGuard → TenantMfaPolicyGuard → RolesGuard. The new
- *   `TenantMfaPolicyGuard` is app-owned (see `auth/tenant-mfa-policy.guard.ts`)
- *   and forces every user in the tenants listed in `MFA_REQUIRED_TENANT_SLUGS`
- *   to enrol in MFA before they can touch protected endpoints; it composes
- *   with the lib's `MfaRequiredGuard` rather than replacing it. Order must
- *   not be changed without an ADR.
+ * Wires infrastructure, auth, and all feature modules. Registers five global
+ * `APP_GUARD` providers in the exact order mandated by
+ * `docs/guidelines/nest-auth-guidelines.md`: JwtAuthGuard → UserStatusGuard →
+ * MfaRequiredGuard → TenantMfaPolicyGuard → RolesGuard. Order must not be
+ * changed without an ADR.
+ *
+ * `TenantMfaPolicyGuard` is app-owned and forces every user in the tenants
+ * listed in `MFA_REQUIRED_TENANT_SLUGS` to enrol in MFA before reaching
+ * protected endpoints; it composes with the library's `MfaRequiredGuard`
+ * rather than replacing it.
  *
  * Import order is intentional:
  * 1. `AppConfigModule` must be first — registers `ConfigService` globally.
@@ -37,7 +23,6 @@
  *
  * @layer root
  * @see docs/guidelines/nest-auth-guidelines.md §Decorators & guards
- * @see docs/DEVELOPMENT_PLAN.md §Phase 7 P7-2
  */
 
 import { Module } from '@nestjs/common';
@@ -101,13 +86,12 @@ import { DebugModule } from './debug/debug.module.js';
     TenantsModule,
     ProjectsModule,
     UsersModule,
-    // Phase 9 — Platform admin context (FCM #22). Mounts /api/platform/* routes
-    // that are protected by JwtPlatformGuard + PlatformRolesGuard.
+    // Platform admin endpoints under /api/platform/*, protected by
+    // JwtPlatformGuard + PlatformRolesGuard.
     PlatformModule,
-    // Phase 10 — WebSocket notifications gateway (FCM #24). Mounts the
-    // /ws/notifications WebSocket endpoint guarded by WsJwtGuard. The dev-only
-    // POST /api/debug/notify/:userId controller is included by NotificationsModule
-    // itself when NODE_ENV !== 'production'.
+    // WebSocket notifications gateway at /ws/notifications, guarded by WsJwtGuard.
+    // The dev-only POST /api/debug/notify/:userId trigger is included by
+    // NotificationsModule itself when NODE_ENV !== 'production'.
     NotificationsModule,
     // DebugModule is conditionally included only outside of production to
     // keep brute-force demo helpers out of production deployments.

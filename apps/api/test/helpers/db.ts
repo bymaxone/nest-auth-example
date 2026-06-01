@@ -10,7 +10,6 @@
  * the FK constraints intact — see the `keepRows` note below.
  *
  * @layer test
- * @see docs/DEVELOPMENT_PLAN.md §Phase 17 P17-8
  */
 
 import type { PrismaClient } from '@prisma/client';

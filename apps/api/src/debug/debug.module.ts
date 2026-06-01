@@ -11,7 +11,6 @@
  *
  * @layer debug
  * @see debug.controller.ts
- * @see docs/DEVELOPMENT_PLAN.md §Phase 7 P7-5
  */
 
 import { Module } from '@nestjs/common';

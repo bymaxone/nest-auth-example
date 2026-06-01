@@ -11,13 +11,10 @@
  *   - `POST /api/debug/notify/:userId` — admin-only; pushes to any user in the
  *     same tenant. Covered by the class-level `@Roles('ADMIN')`.
  *
- * Covers FCM row #24 (WebSocket auth + `WsJwtGuard`) — this controller is the
- * trigger side of the demo loop: a call here → gateway emits to user's sockets →
- * client receives `notification:new` → `sonner` toast appears.
+ * This controller is the trigger side of the demo loop: a call here → gateway
+ * emits to user's sockets → client receives `notification:new` → `sonner` toast appears.
  *
  * @layer notifications
- * @see docs/DEVELOPMENT_PLAN.md §Phase 10 P10-2
- * @see docs/DEVELOPMENT_PLAN.md §Phase 16 P16-3
  */
 
 import {

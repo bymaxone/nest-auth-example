@@ -10,8 +10,6 @@
  *
  * Columns: Name · Email · Role · Status · Actions.
  *
- * FCM row #22 — Platform admin context.
- *
  * @layer components/platform
  */
 
@@ -57,17 +55,17 @@ interface PlatformUsersTableProps {
  *
  * @param tenantId - Tenant to fetch users for (from URL search param).
  */
-/**
- * Static dependency arrays for `useCallback` / `useEffect`. Extracted so
- * Stryker disable directives can land on a single-AST-node line — when the
- * deps array sits on the closing `}, [...]);` of a hook call, Stryker
- * attributes the ArrayDeclaration mutant to the parent hook's start line and
- * a `next-line` directive there cannot reach it.
- */
-// Hooks reading these arrays still re-fire when their `useCallback`-wrapped
-// closure changes, so the underlying dependency contract is unchanged.
-
 export function PlatformUsersTable({ tenantId }: PlatformUsersTableProps) {
+  /*
+   * Static dependency arrays for `useCallback` / `useEffect`. Extracted so
+   * Stryker disable directives can land on a single-AST-node line — when the
+   * deps array sits on the closing `}, [...]);` of a hook call, Stryker
+   * attributes the ArrayDeclaration mutant to the parent hook's start line and
+   * a `next-line` directive there cannot reach it.
+   *
+   * Hooks reading these arrays still re-fire when their `useCallback`-wrapped
+   * closure changes, so the underlying dependency contract is unchanged.
+   */
   const [users, setUsers] = useState<PlatformUserInfo[]>([]);
   // Stryker disable next-line BooleanLiteral: initial `true` is a belt-and-suspenders flag — even if mutated to `false`, the `users.length === 0` empty-state guard later still renders the loading-equivalent empty paragraph until the fetch settles. The two guards cover overlapping failure modes (network-pending vs empty-response).
   const [isLoading, setIsLoading] = useState(true);

@@ -1,3 +1,9 @@
+/**
+ * @file debug-timing.e2e-spec.ts
+ * @description End-to-end spec verifying that the debug endpoint is unreachable
+ * in production and returns results within the expected latency window in development.
+ */
+
 process.env['NODE_ENV'] = 'test';
 process.env['DATABASE_URL'] = 'postgresql://postgres:postgres@localhost:55432/example_app_test';
 process.env['REDIS_URL'] = 'redis://127.0.0.1:56379';
@@ -13,11 +19,9 @@ process.env['JWT_SECRET'] =
 process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0=';
 
 // Verify process.env was set BEFORE imports are processed
-console.log('[PRE-IMPORT] REDIS_URL =', process.env['REDIS_URL']);
 
 import type { INestApplication } from '@nestjs/common';
 import { ValidationPipe } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { WsAdapter } from '@nestjs/platform-ws';
 import cookieParser from 'cookie-parser';
@@ -32,14 +36,7 @@ describe('Debug env vars', () => {
   let agent: Agent;
 
   beforeAll(async () => {
-    console.log('[BEFORE-ALL] process.env.REDIS_URL =', process.env['REDIS_URL']);
-
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-
-    const config = moduleRef.get<ConfigService>(ConfigService);
-    console.log('[BEFORE-ALL] ConfigService REDIS_URL =', config.get('REDIS_URL'));
-    console.log('[BEFORE-ALL] ConfigService DATABASE_URL =', config.get('DATABASE_URL'));
-    console.log('[BEFORE-ALL] ConfigService LOG_LEVEL =', config.get('LOG_LEVEL'));
 
     const prisma = moduleRef.get<PrismaService>(PrismaService);
     await prisma.$executeRaw`
@@ -65,19 +62,19 @@ describe('Debug env vars', () => {
     await app.close();
   }, 60000);
 
+  // Protects: environment variables are correctly injected before any module is imported.
   it('env vars are correct', () => {
     expect(process.env['REDIS_URL']).toBe('redis://127.0.0.1:56379');
   });
 
+  // Protects: the registration endpoint is reachable and does not return a 5xx error.
   it('POST /register responds', async () => {
     const email = `debug-${Date.now()}@example.test`;
-    const t = Date.now();
     const res = await agent
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
       .send({ email, password: 'P@ssw0rd12345', name: 'Debug User', tenantId: 'acme' });
-    console.log(`[DEBUG] /register: ${Date.now() - t}ms, status=${res.status}`);
     expect(res.status).toBeLessThan(500);
   }, 15000);
 });

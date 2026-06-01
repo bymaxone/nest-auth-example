@@ -9,7 +9,6 @@
  *
  * @layer platform
  * @see docs/guidelines/validation-guidelines.md
- * @see docs/DEVELOPMENT_PLAN.md §Phase 9 P9-2
  */
 
 import { IsIn, IsNotEmpty, IsString } from 'class-validator';

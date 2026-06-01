@@ -1,5 +1,5 @@
 /**
- * @fileoverview E2E (FCM #39): logout button + RBAC nav visibility.
+ * @fileoverview Logout button and RBAC navigation visibility end-to-end spec.
  *
  * Exercises two concerns that share the same UI surface:
  *

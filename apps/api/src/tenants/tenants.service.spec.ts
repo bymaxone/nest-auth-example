@@ -7,7 +7,6 @@
  * - `create` writes name and slug, propagates unknown DB errors, and converts
  *   Prisma `P2002` (unique violation) to `ConflictException` — race-safe slug check.
  *
- * FCM rows covered: #18 (RBAC), #20 (multi-tenant isolation).
  *
  * @layer test
  * @see apps/api/src/tenants/tenants.service.ts

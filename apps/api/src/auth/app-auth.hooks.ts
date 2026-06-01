@@ -24,8 +24,6 @@
  *   oauth.login |
  *   invitation.accepted
  *
- * Covers FCM row #30 (audit / lifecycle hooks).
- *
  * @layer auth
  * @see docs/guidelines/observability-guidelines.md
  * @see docs/guidelines/nest-auth-guidelines.md
@@ -51,7 +49,7 @@ import { isBlockedStatus } from './auth.constants.js';
 /**
  * Auth lifecycle hooks that write immutable `AuditLog` rows for every event.
  *
- * Injected via `BYMAX_AUTH_HOOKS` token in Phase 7's `AuthModule`. The hooks
+ * Injected via `BYMAX_AUTH_HOOKS` token in `AuthModule`. The hooks
  * class also dispatches the new-session security email — the library does not
  * call `IEmailProvider.sendNewSessionAlert` automatically; consumers wire it
  * inside their own `onNewSession` hook.
@@ -232,7 +230,7 @@ export class AppAuthHooks implements IAuthHooks {
       device: sessionInfo.device,
     });
 
-    // Dispatch the new-session security email (FCM #15). The library never
+    // Dispatch the new-session security email. The library never
     // calls `sendNewSessionAlert` itself — consumers are responsible for the
     // dispatch, typically from this hook. Wrap in try/catch so an email
     // failure never blocks the login response.
@@ -283,7 +281,7 @@ export class AppAuthHooks implements IAuthHooks {
    *   to `PrismaUserRepository.createWithOAuth`, which performs an upsert on
    *   `(tenantId, email)`. If a user registered via email/password with the same
    *   address, their OAuth fields are updated in-place rather than creating a
-   *   duplicate row — implementing the account-linking guarantee (FCM #12).
+   *   duplicate row — implementing the account-linking guarantee.
    *
    * @param profile - Normalised OAuth profile from the provider.
    * @param existingUser - Existing user found by OAuth provider ID, or null.

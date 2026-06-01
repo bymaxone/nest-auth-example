@@ -1,6 +1,6 @@
 /**
  * @file websocket-auth.e2e-spec.ts
- * @description End-to-end spec for WebSocket authentication (FCM row #24).
+ * @description End-to-end spec for WebSocket authentication and notifications.
  *
  * Proves:
  *  1. Happy path — a valid dashboard JWT in `Authorization: Bearer` allows
@@ -28,7 +28,6 @@
  * `WsJwtGuard` from `@bymax-one/nest-auth` is the library-side guard used here.
  *
  * @layer test
- * @see docs/DEVELOPMENT_PLAN.md §Phase 10 P10-3
  * @see apps/api/src/notifications/notifications.gateway.ts
  */
 

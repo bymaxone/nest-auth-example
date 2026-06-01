@@ -13,7 +13,6 @@
  * The tenant_id cookie is set automatically by the TenantSwitcher on dashboard load.
  *
  * @layer test/e2e/notifications
- * @see docs/DEVELOPMENT_PLAN.md §Phase 16 P16-3
  */
 
 import { test, expect, type Browser } from '@playwright/test';
@@ -71,15 +70,16 @@ test.describe('Notifications — per-user isolation', () => {
      * Scenario: clicking "Send test notification" in Context A (member) fires a
      * WS notification only to that user's own sockets. Context B (admin, same
      * tenant) must see no toast after 3 seconds.
-     * Protects: P16-3 — WsJwtGuard + per-userId socket map prevent cross-user leakage.
+     * Protects: WsJwtGuard and the per-userId socket map prevent WebSocket
+     * notifications from leaking across users in the same tenant.
      *
      * Skipped in CI/production builds because SendTestNotificationButton returns
      * null when NODE_ENV=production (it is a dev-only debug helper). The WebSocket
-     * infrastructure itself is exercised by the API e2e suite (Phase 17).
+     * infrastructure itself is exercised by the API e2e suite.
      */
     // In CI the web app is pre-built (next build bakes NODE_ENV=production),
     // which hides SendTestNotificationButton at the component level.
-    // The WebSocket infrastructure is covered by the API e2e suite (Phase 17).
+    // The WebSocket infrastructure is covered by the API e2e suite.
     testInfo.skip(
       !!process.env['CI'],
       'SendTestNotificationButton is hidden in production Next.js builds (dev-only debug helper)',

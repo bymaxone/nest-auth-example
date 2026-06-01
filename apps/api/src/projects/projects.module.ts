@@ -7,7 +7,6 @@
  * providers in `AppModule` — no need to import `AuthModule` here.
  *
  * @layer projects
- * @see docs/DEVELOPMENT_PLAN.md §Phase 7 P7-4
  */
 
 import { Module } from '@nestjs/common';

@@ -4,7 +4,7 @@
  *
  * Every query is scoped to a `tenantId` parameter — no operation touches
  * rows belonging to another tenant. This file is a reference implementation
- * of tenant-safe data access for FCM row #20 (multi-tenant isolation).
+ * of tenant-safe data access (multi-tenant isolation).
  *
  * Repositories are the only layer that calls `PrismaService` directly.
  * Projects has no separate repository class because the queries are trivial and

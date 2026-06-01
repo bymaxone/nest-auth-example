@@ -8,7 +8,6 @@
  *   maybeDisconnectBlockedUser called; AuditLog write failure swallowed.
  * - `listByTenant`: delegates to prisma.user.findMany scoped by tenantId.
  *
- * FCM rows covered: #20 (multi-tenant isolation), #21 (audit logging),
  * #24 (blocked-user disconnect).
  *
  * @layer test

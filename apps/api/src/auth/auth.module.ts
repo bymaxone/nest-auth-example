@@ -1,6 +1,6 @@
 /**
  * @file auth.module.ts
- * @description Phase 7 module that wires `BymaxAuthModule.registerAsync` with all
+ * @description NestJS module that wires `BymaxAuthModule.registerAsync` with all
  * five required implementation bindings: user repository, platform user repository,
  * Redis client, email provider, and auth hooks.
  *
@@ -15,11 +15,8 @@
  *   validates this eagerly and does not check `imports`. The global `RedisModule` provides
  *   a separate client instance for other feature modules (e.g. NotificationsModule).
  *
- * Covers FCM rows #1–#5, #13–#20, #23, #29–#32 (module-level wiring layer).
- *
  * @layer auth
  * @see docs/guidelines/nest-auth-guidelines.md
- * @see docs/DEVELOPMENT_PLAN.md §Phase 7 P7-1
  */
 
 import { Module } from '@nestjs/common';

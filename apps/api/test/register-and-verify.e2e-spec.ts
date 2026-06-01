@@ -1,7 +1,7 @@
 import { WsAdapter } from '@nestjs/platform-ws';
 /**
  * @file register-and-verify.e2e-spec.ts
- * @description Phase 17 e2e spec for user registration and email-verification flow.
+ * @description End-to-end spec for user registration and email-verification flow.
  *
  * Covers:
  *  1. POST /api/auth/register returns 201 with PENDING status; Mailpit receives
@@ -14,7 +14,6 @@ import { WsAdapter } from '@nestjs/platform-ws';
  * Redis at 56379, Mailpit SMTP at 51025, Mailpit UI at 58025).
  *
  * @layer test
- * @see docs/DEVELOPMENT_PLAN.md §Phase 17 P17-4
  * @see test/helpers/mailpit.ts
  */
 

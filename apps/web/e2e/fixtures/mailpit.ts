@@ -5,7 +5,6 @@
  * until a matching email arrives (or the timeout elapses).
  *
  * @layer test/e2e/fixtures
- * @see docs/DEVELOPMENT_PLAN.md §Phase 17 P17-10
  */
 
 /** Base URL for the Mailpit API (matches docker-compose.yml dev stack port). */

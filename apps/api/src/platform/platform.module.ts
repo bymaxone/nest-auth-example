@@ -9,11 +9,9 @@
  * `JwtPlatformGuard` and `PlatformRolesGuard` singleton instances created inside
  * `BymaxAuthModule` are available for `@UseGuards()` in `PlatformController`.
  *
- * Covers FCM row #22 (Platform admin context).
  *
  * @layer platform
  * @see docs/guidelines/nestjs-guidelines.md
- * @see docs/DEVELOPMENT_PLAN.md §Phase 9 P9-2
  */
 
 import { Module } from '@nestjs/common';

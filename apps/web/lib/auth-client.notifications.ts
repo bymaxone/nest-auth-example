@@ -4,7 +4,7 @@
  * Wraps the dev-only `POST /api/debug/notify/self` endpoint that pushes
  * a `notification:new` WebSocket event to all open sockets for the
  * authenticated user. Used by the dashboard's "Send test notification"
- * button to demonstrate the FCM #24 WebSocket-auth flow without
+ * button to demonstrate the WebSocket-auth flow without
  * requiring a real backend event.
  *
  * Split out of `auth-client.ts` to keep the parent module under the

@@ -2,10 +2,10 @@
  * @file platform.controller.ts
  * @description HTTP controller for platform admin endpoints.
  *
- * Demonstrates FCM row #22 (Platform admin context): a platform super-admin
- * can list all tenants, list users in any tenant, and mutate a user's status
- * across tenant boundaries — capabilities that the tenant-scoped `UsersController`
- * intentionally does not allow.
+ * Demonstrates platform admin capabilities: a platform super-admin can list all
+ * tenants, list users in any tenant, and mutate a user's status across tenant
+ * boundaries — capabilities that the tenant-scoped `UsersController` intentionally
+ * does not allow.
  *
  * Guard pipeline (applied at class level):
  *   1. `JwtPlatformGuard` — verifies the platform-specific JWT cookie. Rejects
@@ -20,7 +20,6 @@
  * @layer platform
  * @see docs/guidelines/nestjs-guidelines.md
  * @see docs/guidelines/nest-auth-guidelines.md §Decorators & guards
- * @see docs/DEVELOPMENT_PLAN.md §Phase 9 P9-2
  */
 
 import { Body, Controller, Get, Headers, Ip, Param, Patch, Query, UseGuards } from '@nestjs/common';

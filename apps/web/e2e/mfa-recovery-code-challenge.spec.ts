@@ -1,5 +1,5 @@
 /**
- * @fileoverview E2E (FCM #33): MFA recovery-code path on the challenge UI.
+ * @fileoverview E2E: MFA recovery-code path on the challenge UI.
  *
  * Exercises the failure-mode branch of the MFA flow — when a user has lost
  * their authenticator app and must fall back to one of the eight recovery
@@ -52,7 +52,7 @@ test.describe('MFA recovery code via challenge UI', () => {
 
   test('signs in with a recovery code on the MFA challenge page', async ({ page }) => {
     /**
-     * Full recovery-code flow (FCM #33, browser layer). Mirrors the lib's
+     * Full recovery-code flow. Mirrors the lib's
      * recovery-code service test but at the UI surface — proves the
      * challenge page exposes the recovery-code branch and that the response
      * is processed by the same `mfaChallenge` client helper.

@@ -12,7 +12,6 @@
  * Slack-style logout-and-relogin behaviour; that path is now reserved for the
  * MFA-fallback case only.)
  *
- * Coverage: FCM #20 (multi-tenant workspace switching).
  *
  * @layer test/e2e
  */
@@ -29,7 +28,7 @@ test.describe('Workspace switcher', () => {
     page,
   }) => {
     /*
-     * Silent switch flow (FCM #20, lib v1.0.10+).
+     * Silent switch flow.
      *
      * 1. Login as `admin@example.dev` against the source tenant (acme).
      * 2. Open the workspace switcher in the topbar.

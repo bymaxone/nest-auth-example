@@ -5,7 +5,6 @@
  * auth cookies and redirects the browser to the login page. The revocation call to
  * NestJS blacklists the refresh token in Redis so it cannot be reused.
  *
- * @see FCM rows #28 (logout).
  * @layer api/auth
  */
 

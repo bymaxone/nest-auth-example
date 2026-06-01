@@ -45,7 +45,7 @@ async function loginAndGoToAcmeUsers(page: Page): Promise<void> {
 test.describe('Platform users — suspend/unsuspend', () => {
   /**
    * Suspend a seeded member and assert the row's status badge flips to "Suspended".
-   * Protects: P15-4 — platformUpdateUserStatus PATCH call + optimistic update renders.
+   * Protects: a platform admin can suspend a user and the status badge reflects the change immediately in the users table.
    */
   test('suspends a seeded member and status badge flips to Suspended', async ({ page }) => {
     await loginAndGoToAcmeUsers(page);
@@ -63,7 +63,7 @@ test.describe('Platform users — suspend/unsuspend', () => {
 
   /**
    * Unsuspend the member after suspending, restoring Active status.
-   * Protects: P15-4 — toggle from SUSPENDED → ACTIVE via Unsuspend button.
+   * Protects: a platform admin can unsuspend a previously suspended user and the status badge reverts to Active.
    */
   test('unsuspends a suspended member and status badge flips to Active', async ({ page }) => {
     await loginAndGoToAcmeUsers(page);
@@ -88,7 +88,7 @@ test.describe('Platform users — suspend/unsuspend', () => {
 
   /**
    * The current platform admin's row has a disabled Suspend button.
-   * Protects: P15-4 — self-suspension prevention (getPlatformAdmin().id comparison).
+   * Protects: a platform admin cannot suspend their own account — the Suspend button is disabled on their own row.
    */
   test('platform admin row has disabled Suspend button (self-suspension prevention)', async ({
     page,

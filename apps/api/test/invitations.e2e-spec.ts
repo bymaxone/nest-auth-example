@@ -1,18 +1,16 @@
 import { WsAdapter } from '@nestjs/platform-ws';
 /**
  * @file invitations.e2e-spec.ts
- * @description Phase 8 e2e spec for the full user-invitation flow:
+ * @description End-to-end spec for the user-invitation flow:
  * an ADMIN creates an invitation → Mailpit captures the email → the invitee
  * extracts the accept token → calls the accept endpoint → a new `users` row
  * is created with the correct `tenantId`, `role`, and `emailVerified = true`.
  *
- * Covers FCM row #21 (User invitations).
  *
  * Requires `docker-compose.test.yml` services to be running (Postgres at 55432,
  * Redis at 56379, Mailpit SMTP at 51025, Mailpit UI at 58025).
  *
  * @layer test
- * @see docs/DEVELOPMENT_PLAN.md §Phase 8 P8-5
  * @see test/helpers/mailpit.ts
  */
 

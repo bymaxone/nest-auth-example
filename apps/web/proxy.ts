@@ -5,8 +5,8 @@
  * entry point. Next.js discovers this file at the project root and wires the
  * exported `proxy` function + `config.matcher` into the edge runtime automatically.
  *
- * Instantiates `createAuthProxy` from `@bymax-one/nest-auth/nextjs` with the full
- * §12.3 config from `docs/DEVELOPMENT_PLAN.md`.
+ * Instantiates `createAuthProxy` from `@bymax-one/nest-auth/nextjs` with
+ * the route-gating configuration described below.
  *
  * Route precedence (first match wins, so specifics come first):
  *   /dashboard/team/:path* → OWNER, ADMIN only

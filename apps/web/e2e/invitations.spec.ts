@@ -6,7 +6,6 @@
  * link and completes registration.
  *
  * @layer test/e2e
- * @see docs/DEVELOPMENT_PLAN.md §Phase 17 P17-10
  */
 
 import { test, expect } from '@playwright/test';
@@ -26,7 +25,7 @@ test.describe('Invitation flow', () => {
     browser,
   }) => {
     /**
-     * Full invitation flow (FCM #21).
+     * Full invitation flow.
      * Admin context sends the invite; a new browser context simulates the
      * invitee opening the invite link from their email client.
      */

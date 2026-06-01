@@ -1,7 +1,6 @@
 /**
- * @fileoverview E2E (FCM #1 + #5): registration form + email verification UI.
+ * @fileoverview E2E: registration form + email verification UI.
  *
- * Closes the two FCM rows that previously had only API-layer coverage
  * (`apps/api/test/register-and-verify.e2e-spec.ts`) and no Playwright spec.
  * Walks the full new-user onboarding journey:
  *
@@ -42,7 +41,7 @@ test.describe('Register + verify email', () => {
 
   test('registers a fresh account, verifies the OTP, and signs in', async ({ page }) => {
     /**
-     * Full onboarding flow at the browser layer (FCM #1 + #5). The
+     * Full onboarding flow at the browser layer. The
      * library returns 201 on register and stays silent on the verify
      * round-trip; this spec proves the UI surfaces both steps correctly
      * and that the verified flag actually persists (the sign-in at the
@@ -68,7 +67,7 @@ test.describe('Register + verify email', () => {
     await page.getByLabel(/display name/i).fill(name);
     await page.getByLabel(/password/i).fill(password);
 
-    // Tenant dropdown — defaults to acme (FCM #20 maps the seeded slugs).
+    // Tenant dropdown — defaults to acme.
     // The dropdown is a `<select>` of slug values (`acme`, `globex`); pick
     // the value directly so the test does not break if the visible label
     // is edited.

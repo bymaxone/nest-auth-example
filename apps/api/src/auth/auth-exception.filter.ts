@@ -13,11 +13,8 @@
  * NestJS's built-in exception handler. Stack traces and internal Prisma/Redis
  * diagnostics are never included in the response body.
  *
- * Covers FCM row #29 (shared error codes, anti-enumeration).
- *
  * @layer auth
  * @see docs/guidelines/security-privacy-guidelines.md
- * @see docs/DEVELOPMENT_PLAN.md §Phase 7 P7-7
  */
 
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';

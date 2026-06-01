@@ -13,7 +13,6 @@
  * Pipes (`ParseUUIDPipe`) are bypassed by calling the handler directly with a pre-
  * validated UUID string — this is correct controller-layer testing practice.
  *
- * FCM row covered: #22 (Platform admin context).
  *
  * @layer test
  * @see apps/api/src/platform/platform.controller.ts

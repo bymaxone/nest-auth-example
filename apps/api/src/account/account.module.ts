@@ -8,7 +8,6 @@
  * guard configuration is required.
  *
  * @layer account
- * @see docs/DEVELOPMENT_PLAN.md §Phase 14 P14-2
  */
 
 import { Module } from '@nestjs/common';

@@ -7,9 +7,8 @@
  *   - After successful registration: "Check your email" confirmation screen with
  *     a Resend button (60-second client-side cooldown, persisted in sessionStorage)
  *
- * The tenant dropdown is populated with a static list because a public tenants API
- * is not yet available.
- * TODO(P14): replace the static list with a fetch from `/api/tenants/public`.
+ * The tenant dropdown uses a static list intentionally — see `lib/tenants.ts`
+ * for the design rationale and the note on production tenant-discovery patterns.
  *
  * @layer pages/auth
  */

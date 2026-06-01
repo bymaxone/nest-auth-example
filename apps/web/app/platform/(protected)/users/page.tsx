@@ -6,8 +6,6 @@
  * Selecting a tenant updates the URL via `router.replace` which triggers a re-render
  * with the new `tenantId`.
  *
- * FCM row #22 — Platform admin context.
- *
  * @layer pages/platform
  */
 

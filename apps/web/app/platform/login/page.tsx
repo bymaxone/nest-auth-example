@@ -9,8 +9,6 @@
  * Platform auth and tenant auth are completely separate contexts: a tenant-authenticated
  * user who navigates to this URL will see the form, not an automatic redirect.
  *
- * FCM row #22 — Platform admin context (`controllers.platform: true`).
- *
  * @layer pages/platform
  */
 

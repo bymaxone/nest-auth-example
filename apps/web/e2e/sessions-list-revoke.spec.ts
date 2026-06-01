@@ -1,6 +1,6 @@
 /**
- * @fileoverview E2E (FCM #35): sessions list + per-row revoke via the
- * dashboard UI.
+ * @fileoverview Sessions list and per-row revoke end-to-end spec —
+ * exercises the dashboard UI.
  *
  * Exercises three properties of `/dashboard/sessions`:
  *

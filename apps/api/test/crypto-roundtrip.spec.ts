@@ -5,12 +5,11 @@
  *
  * These tests demonstrate and verify the library's `encrypt`/`decrypt`
  * (AES-256-GCM), `hmacSha256`, `timingSafeCompare`, and `sleep` utilities.
- * The functions are consumed here via their public export so the Phase 20 audit
- * confirms every symbol is reachable from application code.
+ * The functions are consumed here via their public export to confirm every
+ * symbol is reachable from application code.
  *
  * All keys and test inputs are synthetic — never use these values in production.
  *
- * @see docs/DEVELOPMENT_PLAN.md §Appendix B — Library Export → Example File Map
  * @layer test
  */
 

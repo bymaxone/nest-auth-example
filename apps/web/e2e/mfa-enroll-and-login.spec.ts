@@ -8,7 +8,6 @@
  * Uses `otplib` to generate a valid TOTP code from the displayed secret.
  *
  * @layer test/e2e
- * @see docs/DEVELOPMENT_PLAN.md §Phase 17 P17-10
  */
 
 import { test, expect } from '@playwright/test';
@@ -47,7 +46,7 @@ test.describe('MFA enroll and login', () => {
     page,
   }) => {
     /**
-     * Full MFA enrollment + login challenge flow (FCM #8, #9).
+     * Full MFA enrollment + login challenge flow.
      * The TOTP secret is extracted from the QR page so otplib can generate a
      * valid code without hardcoding any secret.
      */

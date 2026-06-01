@@ -2,7 +2,7 @@
  * @file tenants.controller.ts
  * @description HTTP controller for tenant-management endpoints.
  *
- * Demonstrates FCM rows #19 (library decorators) and #20 (multi-tenant isolation):
+ * Demonstrates library patterns (decorators and multi-tenant isolation):
  * - `@CurrentUser()` extracts the authenticated user without touching `req.user` directly.
  * - `@Roles('OWNER')` uses the library's `RolesGuard` and role hierarchy from auth.config.ts.
  *

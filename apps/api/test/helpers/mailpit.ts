@@ -8,7 +8,6 @@
  * Mailpit API base: `http://localhost:58025` (test-stack port from docker-compose.test.yml).
  *
  * @layer test
- * @see docs/DEVELOPMENT_PLAN.md §Phase 7 P7-8
  */
 
 /** Base URL for the Mailpit REST API running on the test stack. */

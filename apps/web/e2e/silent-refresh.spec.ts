@@ -1,5 +1,5 @@
 /**
- * @fileoverview E2E (FCM #37): client-refresh handler triggers in the
+ * @fileoverview Silent refresh end-to-end spec — client-refresh handler triggers in the
  * browser when the access cookie is expired (or absent) but the refresh
  * cookie is still valid.
  *

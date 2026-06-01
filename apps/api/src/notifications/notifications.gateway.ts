@@ -22,10 +22,7 @@
  *  is called (via `UsersService` and `PlatformService`). All sockets belonging to
  *  that user are forcibly closed.
  *
- * Covers FCM row #24 (WebSocket auth + `WsJwtGuard`).
- *
  * @layer notifications
- * @see docs/DEVELOPMENT_PLAN.md §Phase 10 P10-1
  * @see docs/guidelines/nest-auth-guidelines.md §Decorators & guards
  */
 

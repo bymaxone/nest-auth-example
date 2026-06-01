@@ -10,13 +10,12 @@
  * Endpoints:
  * - `POST /api/debug/lockout` — forces brute-force lockout for a given
  *   `(tenantId, email)` pair so QA can demo the lockout flow without
- *   manually exhausting failed attempts. Covers FCM row #16.
+ *   manually exhausting failed attempts.
  *
  * The lockout key format mirrors the library's internal Redis key:
  *   `<redisNamespace>:lf:<sha256(tenantId + ':' + email.toLowerCase())>`
  *
  * @layer debug
- * @see docs/DEVELOPMENT_PLAN.md §Phase 7 P7-5
  */
 
 import {

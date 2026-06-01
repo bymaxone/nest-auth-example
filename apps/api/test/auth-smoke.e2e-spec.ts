@@ -1,18 +1,16 @@
 import { WsAdapter } from '@nestjs/platform-ws';
 /**
  * @file auth-smoke.e2e-spec.ts
- * @description Phase 7 smoke e2e test that exercises the core auth flow end-to-end:
+ * @description End-to-end smoke spec exercising the core auth flow end-to-end:
  * register → verify email → login → /me → /projects → logout → refresh.
  *
  * Requires `docker-compose.test.yml` services to be running (Postgres at 55432,
  * Redis at 56379, Mailpit SMTP at 51025, Mailpit UI at 58025).
  *
- * FCM rows covered: #1 (register), #2 (login), #3 (JWT rotation), #4 (revocation
  * via logout), #5 (email verification), #13 (session implied), #20 (tenant-scoped
  * project listing), #29 (error envelope path).
  *
  * @layer test
- * @see docs/DEVELOPMENT_PLAN.md §Phase 7 P7-8
  * @see test/helpers/mailpit.ts
  */
 

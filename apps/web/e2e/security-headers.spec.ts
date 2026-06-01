@@ -12,8 +12,6 @@
  * because security headers are a transport-layer concern, not a DOM element.
  * Runs against the full running web dev server (`next dev`).
  *
- * Phase 20 P20-3 — pre-release security hardening.
- *
  * @layer test/e2e
  * @see apps/web/next.config.mjs (headers() configuration)
  * @see docs/DEPLOYMENT.md (security header documentation)

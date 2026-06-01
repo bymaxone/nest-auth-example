@@ -2,8 +2,6 @@
  * @file health.types.ts
  * @description Shared types for the health-check module.
  *
- * Upgraded in Phase 5 to include Postgres, Redis, and library-version status.
- *
  * @layer infrastructure
  */
 

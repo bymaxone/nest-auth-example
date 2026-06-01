@@ -1,20 +1,18 @@
 import { WsAdapter } from '@nestjs/platform-ws';
 /**
  * @file tenant-isolation.e2e-spec.ts
- * @description Phase 17 e2e spec for multi-tenant data isolation.
+ * @description End-to-end spec for multi-tenant data isolation.
  *
  * Verifies that users in different tenants cannot see each other's projects or
  * user lists. Every query in the application is scoped by `tenantId` — this
  * spec confirms that wiring at the HTTP layer correctly prevents cross-tenant
  * data leakage.
  *
- * Covers FCM row #20 (multi-tenant data isolation).
  *
  * Requires `docker-compose.test.yml` services to be running (Postgres at 55432,
  * Redis at 56379, Mailpit SMTP at 51025, Mailpit UI at 58025).
  *
  * @layer test
- * @see docs/DEVELOPMENT_PLAN.md §Phase 17 P17-7
  * @see test/helpers/mailpit.ts
  */
 

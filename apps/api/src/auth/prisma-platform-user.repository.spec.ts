@@ -7,7 +7,7 @@
  * - `findByEmail`: found/not-found, lower-case normalisation.
  * - `updateLastLogin`, `updateMfa`, `updatePassword`, `updateStatus`.
  *
- * Security-critical invariants validated here (FCM row #22):
+ * Security-critical invariants validated here:
  * - `mfaSecret` is absent (not undefined) when null in the DB.
  * - `mfaRecoveryCodes` is absent when `mfaEnabled=false`.
  * - `platformId` is absent when null in the DB.
@@ -77,7 +77,7 @@ describe('PrismaPlatformUserRepository.findById', () => {
 
   it('returns a mapped AuthPlatformUser when the row exists', async () => {
     // Happy path — the row must be mapped to AuthPlatformUser with all required
-    // fields populated correctly (FCM #22).
+    // fields populated correctly.
     platformUserFindUnique.mockResolvedValue(makePlatformUserRow());
 
     const result = await repo.findById('platform-user-1');

@@ -1,8 +1,7 @@
 import { WsAdapter } from '@nestjs/platform-ws';
 /**
  * @file platform-endpoints.e2e-spec.ts
- * @description Consolidated e2e spec for FCM #22 platform endpoints that were
- * previously uncovered by the suite:
+ * @description Consolidated e2e spec for the platform admin endpoints:
  *
  *   - POST /api/auth/platform/refresh         (rotates refresh, returns admin)
  *   - POST /api/auth/platform/logout          (revokes the session's tokens)

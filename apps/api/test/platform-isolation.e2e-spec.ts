@@ -1,10 +1,10 @@
 import { WsAdapter } from '@nestjs/platform-ws';
 /**
  * @file platform-isolation.e2e-spec.ts
- * @description Phase 9 e2e spec that proves platform-context tokens cannot access
+ * @description End-to-end spec proving platform-context tokens cannot access
  * dashboard routes, and dashboard tokens cannot access platform routes.
  *
- * This is the guard for FCM row #22: "platform admin context". If a platform JWT
+ * This spec guards the platform admin context isolation: if a platform JWT
  * ever passes `JwtAuthGuard` on a tenant route, or a tenant JWT ever passes
  * `JwtPlatformGuard` on a platform route, this spec fails — which is the point.
  *
@@ -17,10 +17,8 @@ import { WsAdapter } from '@nestjs/platform-ws';
  * Requires `docker-compose.test.yml` services to be running (Postgres at 55432,
  * Redis at 56379, Mailpit SMTP at 51025, Mailpit UI at 58025).
  *
- * Covers FCM row #22 (Platform admin context — isolation guarantee).
  *
  * @layer test
- * @see docs/DEVELOPMENT_PLAN.md §Phase 9 P9-3
  * @see test/helpers/mailpit.ts
  */
 
@@ -256,7 +254,7 @@ describe('Platform isolation — platform token cannot access dashboard routes a
     // Scenario: JwtAuthGuard is wired as a global guard for all routes EXCEPT
     // platform ones. A platform JWT (issued by /api/auth/platform/login) must be
     // rejected at the JwtAuthGuard boundary so that /api/projects returns 401 or 403.
-    // This guards against cross-context privilege escalation (FCM #22).
+    // This guards against cross-context privilege escalation.
     const res = await supertest
       .agent(app.getHttpServer())
       .get('/api/projects')
@@ -271,7 +269,7 @@ describe('Platform isolation — platform token cannot access dashboard routes a
     // Scenario: JwtPlatformGuard is applied at the PlatformController class level.
     // A tenant JWT (issued by /api/auth/login) must be rejected when used against
     // /api/platform/tenants — the guard verifies the JWT payload shape is a platform
-    // payload, not a tenant payload. Covers FCM #22 isolation guarantee.
+    // payload, not a tenant payload.
     const res = await dashboardAgent.get('/api/platform/tenants');
 
     // 401 or 403 — both are valid rejections of a non-platform token.
@@ -284,7 +282,7 @@ describe('Platform isolation — platform token cannot access dashboard routes a
     // Scenario: positive sanity check — the platform admin's bearer token must
     // successfully reach GET /api/platform/tenants and receive a 200 with an array.
     // Platform auth is bearer-only; the token is sent in the Authorization header.
-    // Confirms the guard pipeline works in the happy path (FCM #22).
+    // Confirms the guard pipeline works in the happy path.
     const res = await supertest
       .agent(app.getHttpServer())
       .get('/api/platform/tenants')
@@ -300,7 +298,7 @@ describe('Platform isolation — platform token cannot access dashboard routes a
   it('allows the dashboard token to access tenant-scoped project listing', async () => {
     // Scenario: positive sanity check — the dashboard agent logged in above must
     // successfully reach GET /api/projects (with X-Tenant-Id) and receive 200.
-    // Confirms that the dashboard guard pipeline still works correctly (FCM #20).
+    // Confirms that the dashboard guard pipeline still works correctly.
     const res = await dashboardAgent.get('/api/projects').set('X-Tenant-Id', TENANT_ID);
 
     expect(res.status).toBe(200);
@@ -313,7 +311,7 @@ describe('Platform isolation — platform token cannot access dashboard routes a
     // Scenario: the @PlatformRoles('SUPER_ADMIN') override on the PATCH endpoint
     // means SUPPORT users (who can read tenants and users) must be blocked from
     // status mutations. This guards against SUPPORT role privilege escalation
-    // to write operations (FCM #22 — authorization boundary).
+    // to write operations ( authorization boundary).
     const res = await supertest
       .agent(app.getHttpServer())
       .patch(`/api/platform/users/00000000-0000-4000-8000-000000000001/status`)
@@ -330,7 +328,7 @@ describe('Platform isolation — platform token cannot access dashboard routes a
     // Scenario: platform auth is bearer-only (tokens in response body, no cookies)
     // while dashboard auth uses HttpOnly cookies (no tokens in body). This separation
     // prevents a browser from accidentally sending a platform token on a dashboard route
-    // or vice versa (FCM #22 — isolation guarantee).
+    // or vice versa ( isolation guarantee).
     const freshPlatformAgent = supertest.agent(app.getHttpServer());
     const platformLogin = await freshPlatformAgent
       .post('/api/auth/platform/login')

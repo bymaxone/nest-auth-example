@@ -1,5 +1,5 @@
 /**
- * @fileoverview E2E (FCM #38): brute-force protection surfaces `ACCOUNT_LOCKED`
+ * @fileoverview Brute-force protection end-to-end spec — verifies that `ACCOUNT_LOCKED`
  * on the login form after the configured attempt threshold.
  *
  * The example API is configured with `bruteForce: { maxAttempts: 5,

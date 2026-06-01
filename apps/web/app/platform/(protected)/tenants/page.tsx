@@ -4,8 +4,6 @@
  * Lists every tenant in the system via `GET /api/platform/tenants`.
  * Accessible to both `SUPER_ADMIN` and `SUPPORT` roles.
  *
- * FCM row #22 — Platform admin context.
- *
  * @layer pages/platform
  */
 

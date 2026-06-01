@@ -24,7 +24,6 @@
  * so the user completes the destination tenant's MFA challenge through
  * the canonical password-login flow.
  *
- * Covers FCM row #20 (multi-tenant workspace switching).
  *
  * @layer components/auth
  */

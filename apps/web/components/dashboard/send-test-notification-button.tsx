@@ -9,7 +9,6 @@
  * into production builds. The underlying endpoint also enforces this server-side.
  *
  * @layer components/dashboard
- * @see docs/DEVELOPMENT_PLAN.md §Phase 16 P16-3
  */
 
 'use client';

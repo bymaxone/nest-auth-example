@@ -14,8 +14,6 @@
  * - Template rendering uses simple `{{var}}` string replacement; no eval or
  *   dynamic code execution.
  *
- * Covers FCM row #31 (custom email provider — production variant).
- *
  * @layer auth
  * @see docs/guidelines/email-guidelines.md
  * @see docs/guidelines/logging-guidelines.md
@@ -44,7 +42,7 @@ const TEMPLATE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), 'email-tem
  * Resend SDK-backed email provider for production deployments.
  *
  * Injected in place of `MailpitEmailProvider` when `EMAIL_PROVIDER=resend`.
- * Enabled and registered by the `AuthModule` in Phase 7.
+ * Enabled and registered by the `AuthModule`.
  *
  * @public
  */

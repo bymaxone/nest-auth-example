@@ -8,8 +8,6 @@
  * Columns: Name · Slug · Created · Actions.
  * Empty state, loading skeleton, and error toast are all handled.
  *
- * FCM row #22 — Platform admin context.
- *
  * @layer components/platform
  */
 

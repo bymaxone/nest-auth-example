@@ -1,7 +1,7 @@
 import { WsAdapter } from '@nestjs/platform-ws';
 /**
  * @file audit-hooks.e2e-spec.ts
- * @description e2e spec for FCM #30 — comprehensive `IAuthHooks` coverage via
+ * @description End-to-end spec for comprehensive `IAuthHooks` coverage via
  * the `AuditLog` table.
  *
  * Other specs already cover `session.new`, `session.evicted`, `oauth.login`,
@@ -222,7 +222,7 @@ describe('AppAuthHooks audit trail — FCM #30 (every lifecycle slug is recorded
     /*
      * Enrolling MFA fires `afterMfaEnabled`. This is the audit trail any
      * compliance audit will require to prove who turned on / off MFA on which
-     * account. Drives FCM #8.
+     * account.
      */
     const email = uniqueEmail('audit-mfa-on');
     const password = 'P@ssw0rd12345';

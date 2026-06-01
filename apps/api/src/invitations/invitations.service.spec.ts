@@ -13,7 +13,6 @@
  * `@bymax-one/nest-auth` helper functions are mocked via `jest.unstable_mockModule`
  * so tests run deterministically without real crypto or Redis connections.
  *
- * FCM rows covered: #20 (multi-tenant isolation), #4 (invitation flow).
  *
  * @layer test
  * @see apps/api/src/invitations/invitations.service.ts

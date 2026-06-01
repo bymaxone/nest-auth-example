@@ -1,18 +1,16 @@
 import { WsAdapter } from '@nestjs/platform-ws';
 /**
  * @file brute-force-lockout.e2e-spec.ts
- * @description Phase 17 e2e spec for brute-force account lockout protection.
+ * @description End-to-end spec for brute-force account lockout protection.
  *
  * Verifies that 5 consecutive wrong-password attempts lock the account, and
  * that repeated failures on an unknown email do not expose enumeration data.
  *
- * Covers FCM row #16 (brute-force / rate limiting per user).
  *
  * Requires `docker-compose.test.yml` services to be running (Postgres at 55432,
  * Redis at 56379, Mailpit SMTP at 51025, Mailpit UI at 58025).
  *
  * @layer test
- * @see docs/DEVELOPMENT_PLAN.md §Phase 17 P17-6
  * @see test/helpers/mailpit.ts
  */
 
