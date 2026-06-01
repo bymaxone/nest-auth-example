@@ -311,7 +311,7 @@ describe('Platform isolation — platform token cannot access dashboard routes a
     // Scenario: the @PlatformRoles('SUPER_ADMIN') override on the PATCH endpoint
     // means SUPPORT users (who can read tenants and users) must be blocked from
     // status mutations. This guards against SUPPORT role privilege escalation
-    // to write operations ( authorization boundary).
+    // to write operations — authorization boundary.
     const res = await supertest
       .agent(app.getHttpServer())
       .patch(`/api/platform/users/00000000-0000-4000-8000-000000000001/status`)
@@ -328,7 +328,7 @@ describe('Platform isolation — platform token cannot access dashboard routes a
     // Scenario: platform auth is bearer-only (tokens in response body, no cookies)
     // while dashboard auth uses HttpOnly cookies (no tokens in body). This separation
     // prevents a browser from accidentally sending a platform token on a dashboard route
-    // or vice versa ( isolation guarantee).
+    // or vice versa — context isolation guarantee.
     const freshPlatformAgent = supertest.agent(app.getHttpServer());
     const platformLogin = await freshPlatformAgent
       .post('/api/auth/platform/login')

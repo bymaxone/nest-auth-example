@@ -8,8 +8,6 @@
  *   maybeDisconnectBlockedUser called; AuditLog write failure swallowed.
  * - `listByTenant`: delegates to prisma.user.findMany scoped by tenantId.
  *
- * #24 (blocked-user disconnect).
- *
  * @layer test
  * @see apps/api/src/users/users.service.ts
  */

@@ -7,9 +7,6 @@ import { WsAdapter } from '@nestjs/platform-ws';
  * Requires `docker-compose.test.yml` services to be running (Postgres at 55432,
  * Redis at 56379, Mailpit SMTP at 51025, Mailpit UI at 58025).
  *
- * via logout), #5 (email verification), #13 (session implied), #20 (tenant-scoped
- * project listing), #29 (error envelope path).
- *
  * @layer test
  * @see test/helpers/mailpit.ts
  */
