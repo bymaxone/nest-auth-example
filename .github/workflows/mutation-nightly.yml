@@ -51,11 +51,11 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ci_placeholder
 
-      # `--incremental false` overrides the config so we get a true cold
+      # `--no-incremental` overrides the config so we get a true cold
       # baseline — no cache, no incremental file is consulted.
       - name: Run full mutation testing (api)
         working-directory: apps/api
-        run: pnpm exec stryker run --incremental false
+        run: pnpm exec stryker run --no-incremental
 
       - name: Upload full mutation HTML report (api)
         if: always()
@@ -87,7 +87,7 @@ jobs:
 
       - name: Run full mutation testing (web)
         working-directory: apps/web
-        run: pnpm exec stryker run --incremental false
+        run: pnpm exec stryker run --no-incremental
 
       - name: Upload full mutation HTML report (web)
         if: always()
