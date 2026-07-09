@@ -1,9 +1,8 @@
 # CI — thin caller of the org-wide reusable pipeline (bymaxone/.github).
 #
-# The generic pipeline (lint, typecheck, format, unit+coverage, API e2e,
-# web-build, export audit, mutation) lives in bymaxone/.github so every repo
-# shares one definition. The Playwright web smoke runs in the official Playwright
-# container against Postgres/Redis/Mailpit service containers, so it stays here.
+# The generic jobs (lint, typecheck, format, export audit, mutation) run via
+# node-ci.yml. This app's unit/e2e jobs need app-specific env, a Prisma client,
+# and a live Postgres/Redis/Mailpit stack, so they stay here (kept verbatim).
 # Mutation runs only on a push to main / manual dispatch, never on PRs or a schedule.
 name: CI
 
@@ -25,28 +24,121 @@ jobs:
   ci:
     uses: bymaxone/.github/.github/workflows/node-ci.yml@v1
     with:
-      # @bymax-one/nest-auth is consumed from the registry, so no sibling build.
       library-repo: ''
-      has-web: true
+      has-web: false # web is built inside the app-specific e2e-web job below
+      run-unit: false # app-specific unit job kept below (needs Prisma client + exact setup)
+      run-e2e-api: false # app-specific e2e-api job (live stack) kept below
       run-export-audit: true
       run-mutation: true
-      run-e2e-web: false # containerized Playwright job kept below
-      e2e-api-command: pnpm --filter @nest-auth-example/api run test:e2e
-      # Placeholder so prisma.config.ts (which reads DATABASE_URL at load time in
-      # lint/typecheck/unit/e2e-api) resolves; the live web e2e uses the service DB.
       database-url: postgresql://postgres:postgres@localhost:5432/ci_placeholder
-      # pnpm v10 ignores the prisma build script, so generate the client explicitly.
       post-install: pnpm --filter @nest-auth-example/api run prisma:generate
       mutation-source-globs: '^(apps/api/src/|apps/web/lib/|apps/web/components/)'
 
-  # App-specific web smoke: runs in the official Playwright container with Postgres,
-  # Redis, and Mailpit service containers, migrates + seeds, builds, then runs the
-  # journeys. Service containers can't be parameterized in a reusable, so it lives here.
-  e2e-web:
-    name: E2E — Web (Playwright)
+  unit:
+    name: Unit tests
     needs: ci
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The API unit tests import @prisma/client types; generate first.
+      - name: Generate Prisma client
+        run: pnpm --filter @nest-auth-example/api run prisma:generate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ci_placeholder
+
+      - name: Run unit tests with coverage
+        run: pnpm test:cov
+
+      - name: Upload API coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-unit-api
+          path: apps/api/coverage/
+          retention-days: 7
+
+      - name: Upload web coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-unit-web
+          path: apps/web/coverage/
+          retention-days: 7
+
+  # ── e2e-api ────────────────────────────────────────────────────────────────
+  # Boots the CI test stack (postgres:18 on :55432, redis:7 on :56379,
+  # mailpit on :51025/:58025) via docker-compose.test.yml, then runs the
+  # NestJS supertest suite.  The pretest:e2e hook in apps/api/package.json
+  # runs `prisma migrate deploy` automatically before the suite starts.
+  e2e-api:
+    name: E2E — API
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Generate must run before docker compose; placeholder URL satisfies
+      # prisma.config.ts without requiring a live database connection.
+      - name: Generate Prisma client
+        run: pnpm --filter @nest-auth-example/api run prisma:generate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ci_placeholder
+
+      - name: Start test infrastructure
+        run: docker compose -f docker-compose.test.yml up -d --wait
+
+      - name: Run API e2e tests
+        run: pnpm --filter @nest-auth-example/api run test:e2e
+
+      - name: Upload e2e API test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-api-results
+          path: apps/api/test-results/
+          retention-days: 7
+
+      - name: Stop test infrastructure
+        if: always()
+        run: docker compose -f docker-compose.test.yml down -v
+
+  # ── e2e-web ────────────────────────────────────────────────────────────────
+  # Playwright end-to-end suite using the official Playwright container image.
+  # mcr.microsoft.com/playwright has Chromium pre-installed — no browser
+  # download step needed, which eliminates the APT lock and slow-network issues
+  # that caused playwright install --with-deps to hang on ubuntu-latest runners.
+  #
+  # Services (postgres, redis, mailpit) are defined as GitHub Actions service
+  # containers, reachable inside the job container by service hostname.
+  e2e-web:
+    name: E2E — Web (Playwright)
+    needs: [ci, e2e-api]
+    runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.59.1-noble
       options: --user root
@@ -72,6 +164,8 @@ jobs:
       mailpit:
         image: axllent/mailpit@sha256:757f22b56c1da03570afdb3d259effe5091018008a81bbedc8158cee7e16fdbc
     env:
+      # Inside a container job services are reachable by service name, not
+      # localhost — postgres:5432, redis:6379, mailpit:1025.
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/example_app_test?schema=public
       REDIS_URL: redis://redis:6379
       JWT_SECRET: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
@@ -87,6 +181,7 @@ jobs:
       NEXT_PUBLIC_API_URL: http://localhost:3000/api
       NEXT_PUBLIC_WS_URL: ws://localhost:3000
       NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED: 'true'
+      # Mailpit HTTP API — inside container job use service hostname, not localhost.
       MAILPIT_URL: http://mailpit:8025
     steps:
       - uses: actions/checkout@v5
@@ -130,6 +225,10 @@ jobs:
           name: playwright-traces
           path: apps/web/test-results/
           retention-days: 7
+
+  # ── coverage-report ────────────────────────────────────────────────────────
+  # Aggregates coverage artefacts from the unit job and uploads a combined
+  # report.  Fails only if upstream jobs failed (via needs).
 
   security:
     if: github.event_name == 'pull_request' && github.event.repository.visibility == 'public'
