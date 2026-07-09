@@ -555,9 +555,9 @@ pnpm test
 
 **For changes touching `apps/api/src/`, `apps/web/lib/`, or
 `apps/web/components/`, also run the mutation suite for the affected
-workspace.** The repo enforces a 100 % mutation score gate in CI
-(`.github/workflows/mutation.yml`) — any surviving mutant on a touched
-file blocks the merge.
+workspace.** Mutation runs post-merge on `main` via the shared reusable CI
+(`bymaxone/.github` → node-ci), so run the affected suite locally before
+pushing — it no longer gates the PR.
 
 ```bash
 pnpm mutation:api          # 3-6 min cold, <1 min incremental

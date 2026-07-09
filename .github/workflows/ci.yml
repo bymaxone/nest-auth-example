@@ -1,29 +1,18 @@
-# CI pipeline — runs on every push and pull_request targeting main / next.
+# CI — thin caller of the org-wide reusable pipeline (bymaxone/.github).
 #
-# Job names are contractual: branch-protection rules and the export-usage-check
-# script reference them by name.  Do not rename without updating those references.
-#
-# Job order
-#   install ──┬── lint
-#             ├── typecheck
-#             ├── unit
-#             ├── e2e-api ── e2e-web ──┐
-#             └── export-usage-check   │
-#                                      └── coverage-report
-
+# The generic jobs (lint, typecheck, format, export audit, mutation) run via
+# node-ci.yml. This app's unit/e2e jobs need app-specific env, a Prisma client,
+# and a live Postgres/Redis/Mailpit stack, so they stay here (kept verbatim).
+# Mutation runs only on a push to main / manual dispatch, never on PRs or a schedule.
 name: CI
 
 on:
   push:
-    branches:
-      - main
-      - next
+    branches: [main]
   pull_request:
-    branches:
-      - main
-      - next
+    branches: [main]
+  workflow_dispatch:
 
-# Cancel in-progress runs for the same ref so only the latest commit runs.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -32,92 +21,22 @@ permissions:
   contents: read
 
 jobs:
-  # ── install ────────────────────────────────────────────────────────────────
-  # Resolves and caches the pnpm store so every subsequent job avoids
-  # re-downloading packages.  Each job still runs `pnpm install` to populate
-  # its own node_modules from the cached store (GitHub runners don't share FS).
-  install:
-    name: Install dependencies
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
+  ci:
+    uses: bymaxone/.github/.github/workflows/node-ci.yml@v1
+    with:
+      library-repo: ''
+      has-web: false # web is built inside the app-specific e2e-web job below
+      run-unit: false # app-specific unit job kept below (needs Prisma client + exact setup)
+      run-e2e-api: false # app-specific e2e-api job (live stack) kept below
+      run-export-audit: true
+      run-mutation: true
+      database-url: postgresql://postgres:postgres@localhost:5432/ci_placeholder
+      post-install: pnpm --filter @nest-auth-example/api run prisma:generate
+      mutation-source-globs: '^(apps/api/src/|apps/web/lib/|apps/web/components/)'
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.8.0
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-
-  # ── lint ───────────────────────────────────────────────────────────────────
-  lint:
-    name: Lint
-    needs: install
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.8.0
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-
-      # prisma.config.ts calls env('DATABASE_URL') at load time; a syntactically
-      # valid placeholder satisfies the check — prisma generate never opens a connection.
-      - name: Generate Prisma client
-        run: pnpm --filter @nest-auth-example/api run prisma:generate
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ci_placeholder
-
-      - run: pnpm lint
-
-  # ── typecheck ──────────────────────────────────────────────────────────────
-  typecheck:
-    name: Type-check
-    needs: install
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.8.0
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-
-      # prisma.config.ts calls env('DATABASE_URL') at load time; seed.ts imports
-      # @prisma/client types that only exist after code generation.
-      - name: Generate Prisma client
-        run: pnpm --filter @nest-auth-example/api run prisma:generate
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ci_placeholder
-
-      - run: pnpm typecheck
-
-  # ── unit ───────────────────────────────────────────────────────────────────
-  # Runs the full unit + integration test suites with coverage.
-  # Coverage reports are uploaded as artifacts for the coverage-report job.
   unit:
     name: Unit tests
-    needs: install
+    needs: ci
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -166,7 +85,7 @@ jobs:
   # runs `prisma migrate deploy` automatically before the suite starts.
   e2e-api:
     name: E2E — API
-    needs: install
+    needs: ci
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -218,7 +137,7 @@ jobs:
   # containers, reachable inside the job container by service hostname.
   e2e-web:
     name: E2E — Web (Playwright)
-    needs: e2e-api
+    needs: [ci, e2e-api]
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.59.1-noble
@@ -307,57 +226,8 @@ jobs:
           path: apps/web/test-results/
           retention-days: 7
 
-  # ── coverage-report ────────────────────────────────────────────────────────
-  # Aggregates coverage artefacts from the unit job and uploads a combined
-  # report.  Fails only if upstream jobs failed (via needs).
-  coverage-report:
-    name: Coverage report
-    needs: [unit, e2e-api, e2e-web]
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Download API coverage
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage-unit-api
-          path: coverage/api
-        continue-on-error: true
-
-      - name: Download web coverage
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage-unit-web
-          path: coverage/web
-        continue-on-error: true
-
-      - name: Upload combined coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-combined
-          path: coverage/
-          retention-days: 30
-
-  # ── export-usage-check ─────────────────────────────────────────────────────
-  # Audits that every public export from @bymax-one/nest-auth is referenced
-  # at least once in the apps/ tree.  Full implementation ships in Phase 20;
-  # the current script is a stub that always exits 0.
-  export-usage-check:
-    name: Export usage check
-    needs: install
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.8.0
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-      - run: node scripts/audit-library-exports.mjs
+  security:
+    if: github.event_name == 'pull_request' && github.event.repository.visibility == 'public'
+    uses: bymaxone/.github/.github/workflows/security.yml@v1
+    with:
+      fail-on-severity: high
