@@ -35,6 +35,8 @@ jobs:
       # Placeholder so prisma.config.ts (which reads DATABASE_URL at load time in
       # lint/typecheck/unit/e2e-api) resolves; the live web e2e uses the service DB.
       database-url: postgresql://postgres:postgres@localhost:5432/ci_placeholder
+      # pnpm v10 ignores the prisma build script, so generate the client explicitly.
+      post-install: pnpm --filter @nest-auth-example/api run prisma:generate
       mutation-source-globs: '^(apps/api/src/|apps/web/lib/|apps/web/components/)'
 
   # App-specific web smoke: runs in the official Playwright container with Postgres,
