@@ -136,11 +136,11 @@ pnpm mutation:incremental:api                  # faster iteration during the kil
 
 **Both workspaces are at 100.00 % mutation score** (Phase 1 complete
 2026-05-28 — 2120 mutants killed, zero behavioural survivors). CI
-enforces this on every PR via `.github/workflows/mutation.yml` with
-`thresholds.break = 100` in both `stryker.config.json` files —
-**a single surviving mutant blocks the merge**. The PR workflow uses
-Stryker's incremental cache (typically <2 min per workspace) and a
-weekly `mutation-nightly.yml` does a full cold run as drift safety net.
+enforces this post-merge on `main` through the shared reusable workflow
+(`bymaxone/.github` → node-ci), with `thresholds.break = 100` in both
+`stryker.config.json` files. Mutation no longer gates the PR — pull requests
+are gated by the reusable pipeline (lint, typecheck, coverage, e2e); run
+`pnpm mutation:api`/`:web` locally before pushing when you touch source.
 
 See [docs/guidelines/mutation-testing-guidelines.md](docs/guidelines/mutation-testing-guidelines.md) and the implementation plan in [docs/stryker/IMPLEMENTATION_PLAN.md](docs/stryker/IMPLEMENTATION_PLAN.md).
 

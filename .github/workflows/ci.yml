@@ -226,10 +226,6 @@ jobs:
           path: apps/web/test-results/
           retention-days: 7
 
-  # ── coverage-report ────────────────────────────────────────────────────────
-  # Aggregates coverage artefacts from the unit job and uploads a combined
-  # report.  Fails only if upstream jobs failed (via needs).
-
   security:
     if: github.event_name == 'pull_request' && github.event.repository.visibility == 'public'
     uses: bymaxone/.github/.github/workflows/security.yml@v1
