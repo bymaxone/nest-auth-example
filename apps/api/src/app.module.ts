@@ -27,7 +27,7 @@
 
 import { Module } from '@nestjs/common';
 import { APP_GUARD, RouterModule } from '@nestjs/core';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import {
   BymaxAuthModule,
   MfaRequiredGuard,
@@ -104,6 +104,15 @@ import { DebugModule } from './debug/debug.module.js';
     // (where JwtService and other library-internal deps are in scope). Using
     // useClass would create new instances in AppModule's scope where JwtService
     // is not exported, causing a DI resolution failure.
+    // 0. ThrottlerGuard: enforces the IP rate limits. This MUST be registered for
+    //    the ThrottlerModule config above AND the library's per-route
+    //    @Throttle(AUTH_THROTTLE_CONFIGS.*) decorators (login 5/min, register 10/h,
+    //    refresh 10/min, password-reset 3/5min, mfa …) to take effect — without a
+    //    global ThrottlerGuard every @Throttle is silently a no-op and there is zero
+    //    IP-level protection on the auth endpoints. Registered first so throttling
+    //    applies to public/unauthenticated routes (login, register) before any JWT
+    //    guard runs.
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     // 1. AppJwtAuthGuard: extracts and verifies the access-token cookie.
     //    Wraps the library's JwtAuthGuard so @SkipJwtAuth() can bypass it
     //    WITHOUT also bypassing the other guards (unlike @Public() which
