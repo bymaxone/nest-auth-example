@@ -176,6 +176,14 @@ describe('Brute-force lockout — account locks after 5 wrong-password attempts'
       expect(attempt.status).toBe(401);
     }
 
+    // The five attempts above also exhausted the `login` tier for this IP, and
+    // the ThrottlerGuard runs ahead of the auth service. Left in place it would
+    // answer the next request with a bare 429 carrying no `code`, hiding the
+    // lockout this test exists to prove. Clearing the counters lets the
+    // library's own response through; the rate limit itself is covered by the
+    // throttle-demo suite.
+    throttlerStorage.storage.clear();
+
     // The 6th attempt — even with the correct password — must be rejected because
     // the account is now locked. The library throws AuthException(ACCOUNT_LOCKED, 429).
     const lockedAttempt = await supertest

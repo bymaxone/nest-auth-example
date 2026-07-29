@@ -39,7 +39,7 @@ process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
 import { ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { Test, type TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import { generateSync } from 'otplib';
 import * as supertest from 'supertest';
@@ -49,6 +49,7 @@ import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { clearMailpit, waitForEmail, extractOtpFromHtml } from './helpers/mailpit.js';
+import { resetThrottleCounters } from './helpers/throttle.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -196,6 +197,12 @@ async function challengeWithRecoveryCode(
 
 // ─── Suite ───────────────────────────────────────────────────────────────────
 
+/**
+ * Testing module handle, shared so the login helpers below can clear the
+ * per-IP rate-limit counters. Assigned in `beforeAll`.
+ */
+let moduleRef: TestingModule;
+
 describe('MFA recovery codes — issuance, valid use, and single-use enforcement', () => {
   let app: INestApplication;
   let prisma: PrismaService;
@@ -208,7 +215,7 @@ describe('MFA recovery codes — issuance, valid use, and single-use enforcement
       stdio: 'pipe',
     });
 
-    const moduleRef = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
@@ -243,6 +250,10 @@ describe('MFA recovery codes — issuance, valid use, and single-use enforcement
   });
 
   beforeEach(async () => {
+    // Every request in this suite comes from 127.0.0.1, so the per-IP `login`
+    // tier is shared by all of its cases. Clear it between them: what is under
+    // test here is auth behaviour, and a leaked 429 would mask it.
+    resetThrottleCounters(moduleRef);
     // Clear accumulated email and user data before every individual test.
     await clearMailpit();
     await truncateTables(prisma);
