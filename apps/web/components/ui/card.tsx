@@ -14,7 +14,7 @@
  * monospace section label; a card whose title is real content overrides the
  * case and size at its own call site via {@link CARD_TITLE_CONTENT_CLASS}.
  *
- * See docs/DESIGN_SYSTEM.md §6 in nest-config-example for the full contract.
+ * See docs/DESIGN_SYSTEM.md §6 for the full contract.
  */
 
 import * as React from 'react';
