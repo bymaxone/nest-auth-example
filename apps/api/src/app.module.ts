@@ -27,6 +27,7 @@
 
 import { Module } from '@nestjs/common';
 import { APP_GUARD, RouterModule } from '@nestjs/core';
+import { ConfigService } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import {
   BymaxAuthModule,
@@ -36,6 +37,7 @@ import {
 } from '@bymax-one/nest-auth';
 
 import { AppConfigModule } from './config/config.module.js';
+import type { Env } from './config/env.schema.js';
 import { createAppLoggerModule } from './logger/logger.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { RedisModule } from './redis/redis.module.js';
@@ -77,7 +79,30 @@ import { DebugModule } from './debug/debug.module.js';
     // ── Throttler ──────────────────────────────────────────────────────────
     // Global rate-limiting baseline: 100 requests per 60 s per IP.
     // Individual auth endpoints apply tighter limits via @Throttle(AUTH_THROTTLE_CONFIGS.*).
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
+    //
+    // Registered exactly once for the whole app. A second `forRoot` anywhere in
+    // the tree would stand up a second storage, leaving the guard counting
+    // against one instance while callers resolving `ThrottlerStorage` from the
+    // root injector hold the other.
+    //
+    // `skipIf` exists for the browser end-to-end suite; the schema rejects the
+    // flag in production, so this cannot silently disarm a deployment.
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>) => {
+        // Compared as a string on purpose. `AppConfigModule` omits `validate`
+        // from `ConfigModule.forRoot` so that `get()` reads live `process.env`,
+        // and it writes schema defaults back with `String(value)` — so this
+        // arrives as `'false'`, not `false`, however the type reads. Trusting
+        // the declared boolean would make the default truthy and turn rate
+        // limiting off everywhere.
+        const disabled = String(config.get('AUTH_THROTTLE_DISABLED', { infer: true })) === 'true';
+        return {
+          throttlers: [{ ttl: 60_000, limit: 100 }],
+          skipIf: () => disabled,
+        };
+      },
+    }),
     // ── Feature modules ────────────────────────────────────────────────────
     HealthModule,
     AccountModule,

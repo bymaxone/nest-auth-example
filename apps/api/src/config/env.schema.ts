@@ -47,6 +47,20 @@ const base = z.object({
   /** Browser-visible frontend origin used for CORS. */
   WEB_ORIGIN: z.string().url().describe('Frontend origin for CORS allowlist'),
 
+  /**
+   * Turns off IP rate limiting. Exists for the browser end-to-end suite, where
+   * the whole run reaches the API through one proxy and therefore one address:
+   * the `login` tier of 5 requests per minute is shared by every spec, and the
+   * lockout spec alone spends it in a burst of failed sign-ins that its
+   * assertion requires. Rejected in production by the refinement below, so a
+   * deployment cannot be talked out of its rate limits by an env var.
+   */
+  AUTH_THROTTLE_DISABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true')
+    .describe('Disable IP rate limiting — non-production only, for e2e runs'),
+
   // ---------------------------------------------------------------------------
   // Database
   // ---------------------------------------------------------------------------
@@ -229,8 +243,17 @@ const base = z.object({
  * - `mailpit` is rejected in `production`
  * - `RESEND_API_KEY` is required when `EMAIL_PROVIDER=resend`
  * - Google OAuth client ID and secret must be set together
+ * - rate limiting cannot be disabled in `production`
  */
 export const envSchema = base.superRefine((env, ctx) => {
+  if (env.NODE_ENV === 'production' && env.AUTH_THROTTLE_DISABLED) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['AUTH_THROTTLE_DISABLED'],
+      message: 'AUTH_THROTTLE_DISABLED=true is not allowed in production',
+    });
+  }
+
   if (env.NODE_ENV === 'production' && !env.WEB_ORIGIN.startsWith('https://')) {
     ctx.addIssue({
       code: 'custom',

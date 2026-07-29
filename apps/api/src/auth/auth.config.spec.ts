@@ -228,6 +228,73 @@ describe('envSchema — WEB_ORIGIN production https requirement', () => {
   });
 });
 
+describe('envSchema — AUTH_THROTTLE_DISABLED', () => {
+  it('defaults to false when the variable is absent', () => {
+    // Rate limiting has to be on unless something explicitly turns it off, so
+    // an environment that never mentions the flag must still be throttled.
+    const result = envSchema.safeParse(VALID_ENV);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.AUTH_THROTTLE_DISABLED).toBe(false);
+    }
+  });
+
+  it('coerces the string "true" to a boolean', () => {
+    // Env vars arrive as strings; the parsed value has to be a real boolean
+    // because `skipIf` returns it directly — the string 'false' would be
+    // truthy and would silently disable throttling.
+    const result = envSchema.safeParse({ ...VALID_ENV, AUTH_THROTTLE_DISABLED: 'true' });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.AUTH_THROTTLE_DISABLED).toBe(true);
+    }
+  });
+
+  it('rejects a value that is neither "true" nor "false"', () => {
+    // A typo must fail loudly at boot rather than being read as "off".
+    const result = envSchema.safeParse({ ...VALID_ENV, AUTH_THROTTLE_DISABLED: 'yes' });
+
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects disabling rate limiting in a production environment', () => {
+    // The flag exists only so the browser e2e suite can run without spending
+    // the shared per-IP login tier. Honouring it in production would strip the
+    // brute-force protection off every auth endpoint, so boot must fail.
+    const result = envSchema.safeParse({
+      ...VALID_ENV,
+      NODE_ENV: 'production',
+      WEB_ORIGIN: 'https://app.example.com',
+      EMAIL_PROVIDER: 'resend',
+      RESEND_API_KEY: 're_live_abc123',
+      AUTH_THROTTLE_DISABLED: 'true',
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'));
+      expect(paths).toContain('AUTH_THROTTLE_DISABLED');
+    }
+  });
+
+  it('still allows rate limiting to stay enabled in production', () => {
+    // The refinement must key on the flag being true, not merely present —
+    // an explicit `false` in production is the normal, valid case.
+    const result = envSchema.safeParse({
+      ...VALID_ENV,
+      NODE_ENV: 'production',
+      WEB_ORIGIN: 'https://app.example.com',
+      EMAIL_PROVIDER: 'resend',
+      RESEND_API_KEY: 're_live_abc123',
+      AUTH_THROTTLE_DISABLED: 'false',
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+
 describe('envSchema — EMAIL_PROVIDER cross-field refinements', () => {
   it('rejects EMAIL_PROVIDER=mailpit in a production environment', () => {
     // Mailpit is a local dev tool — running it in production would silently
