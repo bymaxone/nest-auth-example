@@ -15,6 +15,8 @@
 import { requireAuth } from '@/lib/require-auth';
 import { PasswordChangeForm } from '@/components/dashboard/password-change-form';
 import { SendTestNotificationButton } from '@/components/dashboard/send-test-notification-button';
+import { CARD_SURFACE_CLASS, CARD_ACCENT_LINE_CLASS } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 
 /**
  * Account settings page — shows the signed-in user's identity and exposes
@@ -37,10 +39,8 @@ export default async function AccountPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* ── Identity card ── */}
-        <section
-          aria-labelledby="identity-heading"
-          className="rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-6"
-        >
+        <section aria-labelledby="identity-heading" className={cn(CARD_SURFACE_CLASS, 'p-6')}>
+          <span aria-hidden="true" className={CARD_ACCENT_LINE_CLASS} />
           <h2
             id="identity-heading"
             className="mb-4 font-mono text-sm font-semibold uppercase tracking-widest text-[rgba(255,255,255,0.4)]"
@@ -75,10 +75,8 @@ export default async function AccountPage() {
         </section>
 
         {/* ── Password change ── */}
-        <section
-          aria-labelledby="password-heading"
-          className="rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-6"
-        >
+        <section aria-labelledby="password-heading" className={cn(CARD_SURFACE_CLASS, 'p-6')}>
+          <span aria-hidden="true" className={CARD_ACCENT_LINE_CLASS} />
           <h2
             id="password-heading"
             className="mb-1 font-mono text-sm font-semibold uppercase tracking-widest text-[rgba(255,255,255,0.4)]"

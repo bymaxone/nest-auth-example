@@ -29,7 +29,11 @@ jobs:
       run-unit: false # app-specific unit job kept below (needs Prisma client + exact setup)
       run-e2e-api: false # app-specific e2e-api job (live stack) kept below
       run-export-audit: true
-      run-mutation: true
+      # The shared mutation job declares `needs: [unit]`, and `run-unit` is false
+      # above, so it can never fire here — a skipped dependency skips the
+      # dependent job. `mutation.yml` carries the gate instead; flip this back on
+      # (and delete that file) once node-ci.yml guards the job with `always()`.
+      run-mutation: false
       database-url: postgresql://postgres:postgres@localhost:5432/ci_placeholder
       post-install: pnpm --filter @nest-auth-example/api run prisma:generate
       mutation-source-globs: '^(apps/api/src/|apps/web/lib/|apps/web/components/)'

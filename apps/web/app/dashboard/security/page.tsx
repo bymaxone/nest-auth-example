@@ -25,6 +25,7 @@ import { useSession } from '@bymax-one/nest-auth/react';
 import { MfaSetupCard } from '@/components/dashboard/mfa-setup-card';
 import { MfaDisableCard } from '@/components/dashboard/mfa-disable-card';
 import { getMfaStatus } from '@/lib/auth-client';
+import { Card } from '@/components/ui/card';
 
 /**
  * Security settings page — toggles MFA based on the user's current state.
@@ -123,9 +124,9 @@ export default function SecurityPage() {
 
       <div className="max-w-xl">
         {user === null ? (
-          <div className="rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-6">
+          <Card className="p-6">
             <p className="text-sm text-[rgba(255,255,255,0.4)]">Loading…</p>
-          </div>
+          </Card>
         ) : user.mfaEnabled ? (
           <MfaDisableCard onDisabled={handleToggle} />
         ) : (

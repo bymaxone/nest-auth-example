@@ -34,6 +34,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { OtpInput } from '@/components/auth/otp-input';
 import { RecoveryCodesModal } from './recovery-codes-modal';
+import { Card } from '@/components/ui/card';
 import {
   mfaDisable,
   mfaRegenerateRecoveryCodes,
@@ -222,7 +223,7 @@ export function MfaDisableCard({ onDisabled }: MfaDisableCardProps) {
 
   return (
     <>
-      <div className="rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-6">
+      <Card className="p-6">
         <div className="mb-4 flex items-center gap-2">
           <ShieldOff className="h-4 w-4 text-[rgba(255,255,255,0.4)]" />
           <h2 className="font-mono text-sm font-semibold uppercase tracking-widest text-[rgba(255,255,255,0.4)]">
@@ -317,7 +318,7 @@ export function MfaDisableCard({ onDisabled }: MfaDisableCardProps) {
             </div>
           </form>
         )}
-      </div>
+      </Card>
 
       <RecoveryCodesModal
         open={freshCodes !== null}

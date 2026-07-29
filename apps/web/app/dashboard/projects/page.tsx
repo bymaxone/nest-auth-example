@@ -14,6 +14,7 @@ import { useState } from 'react';
 import { useSession } from '@bymax-one/nest-auth/react';
 import { ProjectsList } from '@/components/dashboard/projects-list';
 import { CreateProjectDialog } from '@/components/dashboard/create-project-dialog';
+import { Card } from '@/components/ui/card';
 
 const ADMIN_ROLES = new Set(['OWNER', 'ADMIN']);
 
@@ -42,9 +43,9 @@ export default function ProjectsPage() {
       </div>
 
       {/* ── Projects list ── */}
-      <div className="rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-6">
+      <Card className="p-6">
         <ProjectsList isAdmin={isAdmin} refreshKey={refreshKey} />
-      </div>
+      </Card>
     </div>
   );
 }

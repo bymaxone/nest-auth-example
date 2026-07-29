@@ -13,6 +13,7 @@
 
 import { requireAuth } from '@/lib/require-auth';
 import { TeamTable } from '@/components/dashboard/team-table';
+import { Card } from '@/components/ui/card';
 
 const ADMIN_ROLES = new Set(['OWNER', 'ADMIN']);
 
@@ -35,9 +36,9 @@ export default async function TeamPage() {
       </div>
 
       {/* ── Team table ── */}
-      <div className="rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-6">
+      <Card className="p-6">
         <TeamTable isAdmin={isAdmin} currentUserId={session.userId} />
-      </div>
+      </Card>
     </div>
   );
 }

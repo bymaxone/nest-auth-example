@@ -123,6 +123,67 @@
   }
 }
 
+/* ── Theme registration ─────────────────────────────────────────────────────── */
+
+/*
+ * Maps the tokens declared above onto Tailwind's `--color-*` namespace so the
+ * matching utilities exist. Without this block the shadcn primitives in
+ * `components/ui/**` compile to nothing: `bg-primary`, `bg-secondary`,
+ * `bg-destructive`, `text-muted-foreground`, `ring-ring` and the whole
+ * `brand-*` scale would all be silently dropped, leaving every Button and
+ * Badge variant transparent.
+ *
+ * `inline` is required because every semantic color resolves through a
+ * `var(--token)` that `.dark` redefines: it makes each utility emit the
+ * `hsl(var(--x))` expression itself, so the value is resolved at the element
+ * rather than frozen at `:root`.
+ */
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  /* Brand orange scale — the gradient stops the primary Button variant uses. */
+  --color-brand: #ff6224;
+  --color-brand-50: #fff5f0;
+  --color-brand-100: #ffe8d6;
+  --color-brand-200: #ffd0ad;
+  --color-brand-300: #ffb07d;
+  --color-brand-400: #ff8748;
+  --color-brand-500: #ff6224;
+  --color-brand-600: #e5511b;
+  --color-brand-700: #c44113;
+  --color-brand-800: #9d320d;
+  --color-brand-900: #7a2609;
+
+  /*
+   * Binds the body font to the Geist Sans face the root layout loads. Without
+   * this the `var(--font-sans)` the body rule reads resolves to Tailwind's
+   * built-in system stack and the loaded face is never applied.
+   */
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+
+  /* Drives the shell's ambient glow layers; the keyframes are declared below. */
+  --animate-glow-float: glow-float 10s ease-in-out infinite;
+  --animate-glow-drift: glow-drift 12s ease-in-out infinite;
+}
+
 /* ── Global base resets ─────────────────────────────────────────────────────── */
 
 @layer base {
@@ -182,5 +243,17 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/*
+ * The glow layers drift indefinitely, so they are silenced for anyone who has
+ * asked the system to reduce motion. The layers stay visible: it is the motion,
+ * not the decoration, that is opted out of.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .animate-glow-float,
+  .animate-glow-drift {
+    animation: none;
   }
 }

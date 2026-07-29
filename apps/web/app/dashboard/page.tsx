@@ -15,6 +15,7 @@
 
 import { User, Shield, Monitor, MailOpen } from 'lucide-react';
 import { requireAuth } from '@/lib/require-auth';
+import { Card } from '@/components/ui/card';
 
 /** Stat card configuration — icon, label, value, accent colour. */
 interface StatCardConfig {
@@ -132,7 +133,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* ── Auth feature overview ── */}
-      <div className="rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-6">
+      <Card className="p-6">
         <h2 className="mb-4 font-mono text-base font-semibold text-white">Auth coverage</h2>
         <div className="grid gap-3 sm:grid-cols-2">
           {[
@@ -160,7 +161,7 @@ export default async function DashboardPage() {
             </div>
           ))}
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

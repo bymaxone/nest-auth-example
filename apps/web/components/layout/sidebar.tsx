@@ -153,7 +153,7 @@ export function Sidebar({ isOpen, onNavClick }: SidebarProps) {
     >
       <div className="flex h-full flex-col gap-0 px-4 py-6">
         {/* ── Navigation items ── */}
-        <div className="flex flex-1 flex-col gap-1">
+        <div className="flex flex-1 flex-col gap-1.5">
           {visibleItems.map((item) => (
             <SidebarNavItem key={item.href} item={item} {...childExtras} />
           ))}
