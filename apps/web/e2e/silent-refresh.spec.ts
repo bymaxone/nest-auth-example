@@ -25,6 +25,10 @@
 
 import { test, expect } from '@playwright/test';
 
+// This spec signs in itself rather than reusing the shared auth fixture: it
+// asserts that a refresh ROTATES the tokens, so it needs a refresh token no
+// other test has spent. Replaying a cached session would hand it an
+// already-rotated token and the refresh would answer 401.
 const MEMBER_EMAIL = process.env['E2E_MEMBER_EMAIL'] ?? 'member@example.dev';
 const MEMBER_PASSWORD = process.env['E2E_MEMBER_PASSWORD'] ?? 'MemberPassw0rd!';
 const TENANT_ID = process.env['E2E_TENANT_ID'] ?? 'acme';

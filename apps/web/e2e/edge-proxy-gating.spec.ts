@@ -20,11 +20,7 @@
  * @layer test/e2e
  */
 
-import { test, expect } from '@playwright/test';
-
-const MEMBER_EMAIL = process.env['E2E_MEMBER_EMAIL'] ?? 'member@example.dev';
-const MEMBER_PASSWORD = process.env['E2E_MEMBER_PASSWORD'] ?? 'MemberPassw0rd!';
-const TENANT_ID = process.env['E2E_TENANT_ID'] ?? 'acme';
+import { test, expect } from './fixtures/auth.js';
 
 test.describe('Edge proxy gating', () => {
   test('public auth routes load anonymously without redirect', async ({ page }) => {
@@ -79,7 +75,7 @@ test.describe('Edge proxy gating', () => {
   });
 
   test('a MEMBER navigating to /dashboard/team is redirected with ?error=forbidden', async ({
-    page,
+    memberPage: page,
   }) => {
     /**
      * Verifies the proxy's role-denial branch — the heart of the per-route
@@ -93,12 +89,10 @@ test.describe('Edge proxy gating', () => {
      * CAN see and the URL query carries the signal the dashboard can use
      * to surface a toast.
      */
-    // Sign in as a tenant MEMBER first.
-    await page.goto(`/auth/login?tenantId=${TENANT_ID}`);
-    await page.getByLabel(/email/i).fill(MEMBER_EMAIL);
-    await page.getByLabel(/password/i).fill(MEMBER_PASSWORD);
-    await page.getByRole('button', { name: /sign in/i }).click();
-    await page.waitForURL('/dashboard', { timeout: 15_000 });
+    // The MEMBER session comes from the shared fixture, which signs in once
+    // for the whole run. Logging in per test would spend the `login` tier
+    // (5 requests per minute per IP) that every spec here shares.
+    await page.goto('/dashboard');
 
     // Sanity: a MEMBER must be allowed on `/dashboard` itself (the catch-all
     // protected route permits all four tenant roles). Pinning this also

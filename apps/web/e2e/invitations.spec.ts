@@ -8,12 +8,8 @@
  * @layer test/e2e
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/auth.js';
 import { waitForEmail, clearMailpit, extractInviteToken } from './fixtures/mailpit.js';
-
-const ADMIN_EMAIL = process.env['E2E_ADMIN_EMAIL'] ?? 'admin@example.dev';
-const ADMIN_PASSWORD = process.env['E2E_ADMIN_PASSWORD'] ?? 'AdminPassw0rd!';
-const TENANT_ID = process.env['E2E_TENANT_ID'] ?? 'acme';
 
 test.describe('Invitation flow', () => {
   test.beforeEach(async () => {
@@ -21,7 +17,7 @@ test.describe('Invitation flow', () => {
   });
 
   test('admin sends invite → invitee receives email → accepts and can log in', async ({
-    page,
+    adminPage: page,
     browser,
   }) => {
     /**
@@ -29,12 +25,8 @@ test.describe('Invitation flow', () => {
      * Admin context sends the invite; a new browser context simulates the
      * invitee opening the invite link from their email client.
      */
-    // 1. Log in as admin.
-    await page.goto(`/auth/login?tenantId=${TENANT_ID}`);
-    await page.getByLabel(/email/i).fill(ADMIN_EMAIL);
-    await page.getByLabel(/password/i).fill(ADMIN_PASSWORD);
-    await page.getByRole('button', { name: /sign in/i }).click();
-    await page.waitForURL('/dashboard', { timeout: 15_000 });
+    // 1. The admin session comes from the shared fixture — it signs in once
+    //    for the whole run instead of spending the per-IP `login` tier here.
 
     // 2. Navigate to the invitations page. The InviteForm is mounted inline
     //    (no modal/open-button), so we fill the email field directly. The
