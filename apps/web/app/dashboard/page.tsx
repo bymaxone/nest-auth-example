@@ -52,7 +52,7 @@ function StatCard({ icon: Icon, label, value, accent }: StatCardConfig) {
       {/* Top accent line */}
       <div
         aria-hidden="true"
-        className="absolute left-0 right-0 top-0 h-0.5 opacity-60"
+        className="absolute top-0 right-0 left-0 h-0.5 opacity-60"
         style={{
           background: `linear-gradient(to right, transparent, ${accent}, transparent)`,
         }}
@@ -72,7 +72,7 @@ function StatCard({ icon: Icon, label, value, accent }: StatCardConfig) {
 
         {/* Value + label */}
         <div>
-          <p className="font-mono text-2xl font-bold leading-none text-white">{value}</p>
+          <p className="font-mono text-2xl leading-none font-bold text-white">{value}</p>
           <p className="mt-1 text-xs font-medium text-[rgba(255,255,255,0.5)]">{label}</p>
         </div>
       </div>

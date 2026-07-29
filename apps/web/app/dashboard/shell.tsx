@@ -45,9 +45,9 @@ interface DashboardShellProps {
 function AmbientGlow() {
   return (
     <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-      <div className="animate-glow-float absolute -left-32 -top-32 h-[500px] w-[500px] rounded-full bg-[#ff6224] opacity-15 blur-[120px]" />
-      <div className="animate-glow-drift absolute -right-20 -top-20 h-[400px] w-[400px] rounded-full bg-[#60a5fa] opacity-10 blur-[100px]" />
-      <div className="animate-glow-float absolute bottom-0 left-1/2 h-[300px] w-[300px] -translate-x-1/2 rounded-full bg-[#f97316] opacity-[0.05] blur-[80px]" />
+      <div className="absolute -top-32 -left-32 h-[500px] w-[500px] animate-glow-float rounded-full bg-[#ff6224] opacity-15 blur-[120px]" />
+      <div className="absolute -top-20 -right-20 h-[400px] w-[400px] animate-glow-drift rounded-full bg-[#60a5fa] opacity-10 blur-[100px]" />
+      <div className="absolute bottom-0 left-1/2 h-[300px] w-[300px] -translate-x-1/2 animate-glow-float rounded-full bg-[#f97316] opacity-[0.05] blur-[80px]" />
     </div>
   );
 }
@@ -105,7 +105,7 @@ export function DashboardShell({ children }: DashboardShellProps) {
           <button
             type="button"
             aria-label="Close navigation menu"
-            className="z-90 fixed inset-0 bg-black/50 backdrop-blur-sm lg:hidden"
+            className="fixed inset-0 z-90 bg-black/50 backdrop-blur-sm lg:hidden"
             onClick={() => setSidebarOpen(false)}
           />
         )}

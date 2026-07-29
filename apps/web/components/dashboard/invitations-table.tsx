@@ -100,7 +100,7 @@ export function InvitationsTable({ refreshKey }: InvitationsTableProps) {
           <TableRow key={invite.id}>
             <TableCell className="text-sm text-[rgba(255,255,255,0.8)]">{invite.email}</TableCell>
             <TableCell>
-              <span className="font-mono text-[10px] font-semibold uppercase tracking-wide text-[#ff6224]">
+              <span className="font-mono text-[10px] font-semibold tracking-wide text-[#ff6224] uppercase">
                 {invite.role}
               </span>
             </TableCell>

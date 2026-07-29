@@ -177,7 +177,7 @@ export function PlatformUsersTable({ tenantId }: PlatformUsersTableProps) {
                   <TableCell className="font-medium text-red-100">{user.name}</TableCell>
                   <TableCell className="font-mono text-xs text-red-300">{user.email}</TableCell>
                   <TableCell>
-                    <span className="rounded border border-[rgba(239,68,68,0.2)] bg-[rgba(239,68,68,0.08)] px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-red-300">
+                    <span className="rounded border border-[rgba(239,68,68,0.2)] bg-[rgba(239,68,68,0.08)] px-2 py-0.5 font-mono text-[10px] font-semibold tracking-wide text-red-300 uppercase">
                       {user.role}
                     </span>
                   </TableCell>

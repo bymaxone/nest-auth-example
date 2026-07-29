@@ -267,9 +267,9 @@ Use `max-w-6xl` for data-dense dashboards, `max-w-5xl` for prose-led ones. Pick 
 
 ```tsx
 <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-  <div className="animate-glow-float absolute -left-32 -top-32 h-[500px] w-[500px] rounded-full bg-[#ff6224] opacity-15 blur-[120px]" />
-  <div className="animate-glow-drift absolute -right-20 -top-20 h-[400px] w-[400px] rounded-full bg-[#60a5fa] opacity-10 blur-[100px]" />
-  <div className="animate-glow-float absolute bottom-0 left-1/2 h-[300px] w-[300px] -translate-x-1/2 rounded-full bg-[#f97316] opacity-[0.05] blur-[80px]" />
+  <div className="absolute -top-32 -left-32 h-[500px] w-[500px] animate-glow-float rounded-full bg-[#ff6224] opacity-15 blur-[120px]" />
+  <div className="absolute -top-20 -right-20 h-[400px] w-[400px] animate-glow-drift rounded-full bg-[#60a5fa] opacity-10 blur-[100px]" />
+  <div className="absolute bottom-0 left-1/2 h-[300px] w-[300px] -translate-x-1/2 animate-glow-float rounded-full bg-[#f97316] opacity-[0.05] blur-[80px]" />
 </div>
 ```
 
@@ -360,7 +360,7 @@ const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElemen
     <div
       ref={ref}
       className={cn(
-        'text-card-foreground relative overflow-hidden rounded-[24px] border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.06)] backdrop-blur-lg',
+        'relative overflow-hidden rounded-[24px] border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.06)] text-card-foreground backdrop-blur-lg',
         className,
       )}
       {...props}
@@ -404,7 +404,7 @@ When the title is **real content** — a page name, a scenario name, a recipe na
 name — override the case and color at the call site and add a size:
 
 ```tsx
-<CardTitle className="text-base normal-case tracking-tight text-[rgba(255,255,255,0.9)]">
+<CardTitle className="text-base tracking-tight text-[rgba(255,255,255,0.9)] normal-case">
   {scenario.title}
 </CardTitle>
 ```

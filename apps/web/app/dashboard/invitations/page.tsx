@@ -48,7 +48,7 @@ export default function InvitationsPage() {
       {/* ── Invite form (admins only) ── */}
       {isAdmin && (
         <Card className="p-6">
-          <h2 className="mb-4 font-mono text-sm font-semibold uppercase tracking-widest text-[rgba(255,255,255,0.4)]">
+          <h2 className="mb-4 font-mono text-sm font-semibold tracking-widest text-[rgba(255,255,255,0.4)] uppercase">
             Send invitation
           </h2>
           <InviteForm onSuccess={() => setRefreshKey((k) => k + 1)} />
@@ -57,7 +57,7 @@ export default function InvitationsPage() {
 
       {/* ── Pending invitations ── */}
       <Card className="p-6">
-        <h2 className="mb-4 font-mono text-sm font-semibold uppercase tracking-widest text-[rgba(255,255,255,0.4)]">
+        <h2 className="mb-4 font-mono text-sm font-semibold tracking-widest text-[rgba(255,255,255,0.4)] uppercase">
           Pending invitations
         </h2>
         <InvitationsTable refreshKey={refreshKey} />

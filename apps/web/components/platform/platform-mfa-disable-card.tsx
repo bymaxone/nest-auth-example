@@ -132,10 +132,10 @@ export function PlatformMfaDisableCard({ onDisabled }: PlatformMfaDisableCardPro
       <div className="rounded-xl border border-[rgba(239,68,68,0.15)] bg-[rgba(20,0,0,0.4)] p-6">
         <div className="mb-4 flex items-center gap-2">
           <ShieldOff className="h-4 w-4 text-[rgba(255,200,200,0.45)]" />
-          <h2 className="font-mono text-sm font-semibold uppercase tracking-widest text-[rgba(255,200,200,0.45)]">
+          <h2 className="font-mono text-sm font-semibold tracking-widest text-[rgba(255,200,200,0.45)] uppercase">
             Platform Two-Factor Authentication
           </h2>
-          <span className="ml-auto rounded-full border border-[rgba(34,197,94,0.3)] bg-[rgba(34,197,94,0.1)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#22c55e]">
+          <span className="ml-auto rounded-full border border-[rgba(34,197,94,0.3)] bg-[rgba(34,197,94,0.1)] px-2 py-0.5 text-[10px] font-semibold tracking-wide text-[#22c55e] uppercase">
             Enabled
           </span>
         </div>

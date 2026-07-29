@@ -44,7 +44,7 @@ export function Topbar({ onMenuOpen }: TopbarProps) {
     : '?';
 
   return (
-    <header className="z-200 fixed left-0 right-0 top-0 flex h-16 items-center justify-between border-b border-[rgba(255,255,255,0.07)] bg-[rgba(10,10,10,0.85)] px-4 backdrop-blur-md lg:px-6">
+    <header className="fixed top-0 right-0 left-0 z-200 flex h-16 items-center justify-between border-b border-[rgba(255,255,255,0.07)] bg-[rgba(10,10,10,0.85)] px-4 backdrop-blur-md lg:px-6">
       {/* ── Left: brand ── */}
       <div className="flex items-center gap-3">
         <div
@@ -62,7 +62,7 @@ export function Topbar({ onMenuOpen }: TopbarProps) {
           </svg>
         </div>
 
-        <span className="bg-linear-to-r select-none from-[#ff6224] to-amber-200 bg-clip-text font-mono text-sm font-bold leading-tight text-transparent">
+        <span className="bg-linear-to-r from-[#ff6224] to-amber-200 bg-clip-text font-mono text-sm leading-tight font-bold text-transparent select-none">
           nest-auth-example
         </span>
       </div>

@@ -36,12 +36,12 @@ export default function AuthLayout({ children }: AuthLayoutProps) {
       {/* Layer A: orange — top-left */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute -left-32 -top-32 h-[500px] w-[500px] rounded-full bg-[#ff6224] opacity-15 blur-[120px]"
+        className="pointer-events-none absolute -top-32 -left-32 h-[500px] w-[500px] rounded-full bg-[#ff6224] opacity-15 blur-[120px]"
       />
       {/* Layer B: blue — top-right */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute -right-20 -top-20 h-[400px] w-[400px] rounded-full bg-[#60a5fa] opacity-10 blur-[100px]"
+        className="pointer-events-none absolute -top-20 -right-20 h-[400px] w-[400px] rounded-full bg-[#60a5fa] opacity-10 blur-[100px]"
       />
       {/* Layer C: accent orange — bottom-center */}
       <div
@@ -57,11 +57,11 @@ export default function AuthLayout({ children }: AuthLayoutProps) {
             {/* Top accent gradient line */}
             <div
               aria-hidden="true"
-              className="bg-linear-to-r absolute left-0 right-0 top-0 h-px from-transparent via-[rgba(255,98,36,0.4)] to-transparent"
+              className="absolute top-0 right-0 left-0 h-px bg-linear-to-r from-transparent via-[rgba(255,98,36,0.4)] to-transparent"
             />
 
             {/* ── Brand header ── */}
-            <div className="flex flex-col items-center gap-1 px-8 pb-4 pt-8">
+            <div className="flex flex-col items-center gap-1 px-8 pt-8 pb-4">
               {/* Orange icon badge */}
               <div
                 aria-hidden="true"

@@ -22,10 +22,10 @@ const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLI
       <input
         type={type}
         className={cn(
-          'border-(--glass-border) bg-(--glass-bg) flex h-12 w-full rounded-full border px-5 py-2 text-sm text-foreground ring-offset-background',
+          'flex h-12 w-full rounded-full border border-(--glass-border) bg-(--glass-bg) px-5 py-2 text-sm text-foreground ring-offset-background',
           'placeholder:text-muted-foreground',
           'transition-shadow duration-200',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+          'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none',
           'disabled:cursor-not-allowed disabled:opacity-50',
           'aria-invalid:border-destructive aria-invalid:focus-visible:ring-destructive/30',
           className,

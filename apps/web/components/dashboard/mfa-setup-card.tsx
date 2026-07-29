@@ -134,7 +134,7 @@ export function MfaSetupCard({ onEnabled }: MfaSetupCardProps) {
       <Card className="p-6">
         <div className="mb-4 flex items-center gap-2">
           <Shield className="h-4 w-4 text-[#ff6224]" />
-          <h2 className="font-mono text-sm font-semibold uppercase tracking-widest text-[rgba(255,255,255,0.4)]">
+          <h2 className="font-mono text-sm font-semibold tracking-widest text-[rgba(255,255,255,0.4)] uppercase">
             Two-Factor Authentication
           </h2>
         </div>

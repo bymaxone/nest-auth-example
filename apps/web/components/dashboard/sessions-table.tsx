@@ -100,7 +100,7 @@ export function SessionsTable() {
                   {session.device ?? 'Unknown device'}
                 </span>
                 {session.isCurrent && (
-                  <span className="rounded-full border border-[rgba(255,98,36,0.3)] bg-[rgba(255,98,36,0.1)] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[#ff6224]">
+                  <span className="rounded-full border border-[rgba(255,98,36,0.3)] bg-[rgba(255,98,36,0.1)] px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-[#ff6224] uppercase">
                     Current
                   </span>
                 )}

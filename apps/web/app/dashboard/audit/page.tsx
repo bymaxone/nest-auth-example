@@ -158,7 +158,7 @@ export default function AuditLogPage() {
                 </TableCell>
                 <TableCell>
                   <span
-                    className={`rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide ${pillStyleForEvent(row.event)}`}
+                    className={`rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold tracking-wide uppercase ${pillStyleForEvent(row.event)}`}
                   >
                     {row.event}
                   </span>

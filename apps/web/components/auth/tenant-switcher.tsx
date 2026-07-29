@@ -199,7 +199,7 @@ export function TenantSwitcher() {
         align="end"
         className="w-56 border-[rgba(255,255,255,0.08)] bg-[rgba(18,18,18,0.98)] backdrop-blur-md"
       >
-        <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-[rgba(255,255,255,0.35)]">
+        <DropdownMenuLabel className="text-[10px] tracking-widest text-[rgba(255,255,255,0.35)] uppercase">
           Workspaces
         </DropdownMenuLabel>
         <DropdownMenuSeparator className="bg-[rgba(255,255,255,0.06)]" />
@@ -223,7 +223,7 @@ export function TenantSwitcher() {
               <Building2 className="mr-2 h-3.5 w-3.5 shrink-0" />
               <div className="flex flex-1 flex-col">
                 <span className="truncate text-sm leading-tight">{workspace.tenantName}</span>
-                <span className="truncate text-[10px] uppercase tracking-wider text-[rgba(255,255,255,0.35)]">
+                <span className="truncate text-[10px] tracking-wider text-[rgba(255,255,255,0.35)] uppercase">
                   {workspace.role.toLowerCase()}
                 </span>
               </div>

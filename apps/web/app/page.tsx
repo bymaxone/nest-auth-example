@@ -144,11 +144,11 @@ export default function HomePage() {
       {/* ── Ambient glow layers — fixed, no interaction ── */}
       <div
         aria-hidden="true"
-        className="animate-glow-float pointer-events-none fixed -left-32 -top-32 h-[500px] w-[500px] rounded-full bg-[#ff6224] opacity-[0.07] blur-[140px]"
+        className="pointer-events-none fixed -top-32 -left-32 h-[500px] w-[500px] animate-glow-float rounded-full bg-[#ff6224] opacity-[0.07] blur-[140px]"
       />
       <div
         aria-hidden="true"
-        className="animate-glow-drift pointer-events-none fixed -right-20 -top-20 h-[400px] w-[400px] rounded-full bg-[#60a5fa] opacity-[0.06] blur-[100px]"
+        className="pointer-events-none fixed -top-20 -right-20 h-[400px] w-[400px] animate-glow-drift rounded-full bg-[#60a5fa] opacity-[0.06] blur-[100px]"
       />
       <div
         aria-hidden="true"
@@ -178,7 +178,7 @@ export default function HomePage() {
             </div>
 
             {/* Headline */}
-            <h1 className="animate-fade-in bg-gradient-to-r from-[#ff6224] to-amber-200 bg-clip-text font-mono text-4xl font-bold leading-tight tracking-tight text-transparent md:text-5xl lg:text-6xl">
+            <h1 className="animate-fade-in bg-gradient-to-r from-[#ff6224] to-amber-200 bg-clip-text font-mono text-4xl leading-tight font-bold tracking-tight text-transparent md:text-5xl lg:text-6xl">
               nest-auth-example
             </h1>
 
@@ -207,7 +207,7 @@ export default function HomePage() {
           </div>
 
           {/* Scroll hint */}
-          <div className="absolute bottom-8 flex flex-col items-center gap-1.5 text-xs uppercase tracking-widest text-[rgba(255,255,255,0.4)]">
+          <div className="absolute bottom-8 flex flex-col items-center gap-1.5 text-xs tracking-widest text-[rgba(255,255,255,0.4)] uppercase">
             <span>scroll</span>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <path

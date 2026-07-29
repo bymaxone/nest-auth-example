@@ -60,7 +60,7 @@ export function PlatformTopbar() {
 
   return (
     <header
-      className="z-200 fixed left-0 right-0 top-0 flex h-16 items-center justify-between border-b border-[rgba(239,68,68,0.3)] bg-red-950 px-4 text-red-50 lg:px-6"
+      className="fixed top-0 right-0 left-0 z-200 flex h-16 items-center justify-between border-b border-[rgba(239,68,68,0.3)] bg-red-950 px-4 text-red-50 lg:px-6"
       role="banner"
     >
       {/* ── Left: PLATFORM ADMIN badge ── */}
@@ -81,7 +81,7 @@ export function PlatformTopbar() {
         </div>
 
         <div className="flex flex-col">
-          <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-red-400">
+          <span className="font-mono text-[10px] font-bold tracking-widest text-red-400 uppercase">
             PLATFORM ADMIN
           </span>
           <span className="font-mono text-sm font-semibold text-red-100">nest-auth-example</span>
