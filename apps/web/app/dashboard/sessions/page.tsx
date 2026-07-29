@@ -10,6 +10,7 @@
 import { requireAuth } from '@/lib/require-auth';
 import { SessionsTable } from '@/components/dashboard/sessions-table';
 import { SignOutEverywhereButton } from '@/components/dashboard/sign-out-everywhere-button';
+import { Card } from '@/components/ui/card';
 
 /**
  * Sessions page — displays all active sessions and exposes per-session and
@@ -32,9 +33,9 @@ export default async function SessionsPage() {
       </div>
 
       {/* ── Sessions table ── */}
-      <div className="rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-6">
+      <Card className="p-6">
         <SessionsTable />
-      </div>
+      </Card>
     </div>
   );
 }

@@ -10,27 +10,15 @@
  * @layer test/e2e/platform
  */
 
-import { test, expect } from '@playwright/test';
-import type { Page } from '@playwright/test';
-
-const PLATFORM_EMAIL = 'platform@example.dev';
-const PLATFORM_PASSWORD = 'PlatformPassw0rd!';
-
-async function loginAsPlatformAdmin(page: Page): Promise<void> {
-  await page.goto('/platform/login');
-  await page.getByLabel('Email').fill(PLATFORM_EMAIL);
-  await page.getByLabel('Password').fill(PLATFORM_PASSWORD);
-  await page.getByRole('button', { name: /sign in/i }).click();
-  await expect(page).toHaveURL('/platform/tenants', { timeout: 10_000 });
-}
+import { test, expect } from './fixtures/auth.js';
 
 test.describe('Platform tenants page', () => {
   /**
    * Both seeded tenants are listed in the table.
    * Protects: the tenants list page fetches and displays all tenants for an authenticated platform admin.
    */
-  test('lists the two seeded tenants', async ({ page }) => {
-    await loginAsPlatformAdmin(page);
+  test('lists the two seeded tenants', async ({ platformAdminPage: page }) => {
+    await page.goto('/platform/tenants');
 
     await expect(page.getByText('Acme Corp')).toBeVisible({ timeout: 8_000 });
     await expect(page.getByText('Globex Inc')).toBeVisible();
@@ -40,8 +28,8 @@ test.describe('Platform tenants page', () => {
    * Tenant slug badges are shown for both tenants.
    * Protects: the tenants list page displays the slug badge for each tenant row.
    */
-  test('displays slug badges', async ({ page }) => {
-    await loginAsPlatformAdmin(page);
+  test('displays slug badges', async ({ platformAdminPage: page }) => {
+    await page.goto('/platform/tenants');
 
     // `exact: true` is required because the substring "acme" appears in both
     // the slug badge and the tenant-name cell ("Acme Corp"); same for "globex".
@@ -53,8 +41,10 @@ test.describe('Platform tenants page', () => {
    * Clicking "View users" for Acme Corp navigates to /platform/users?tenantId=<id>.
    * Protects: the tenants list page allows navigation to the users page for a selected tenant.
    */
-  test('navigates to users page when View users is clicked', async ({ page }) => {
-    await loginAsPlatformAdmin(page);
+  test('navigates to users page when View users is clicked', async ({
+    platformAdminPage: page,
+  }) => {
+    await page.goto('/platform/tenants');
 
     /* Wait for the table to load. */
     await expect(page.getByText('Acme Corp')).toBeVisible({ timeout: 8_000 });

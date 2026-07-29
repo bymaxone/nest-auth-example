@@ -14,7 +14,14 @@
 
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CARD_TITLE_CONTENT_CLASS,
+} from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
 /** Feature cards rendered in the features grid. */
@@ -137,11 +144,11 @@ export default function HomePage() {
       {/* ── Ambient glow layers — fixed, no interaction ── */}
       <div
         aria-hidden="true"
-        className="pointer-events-none fixed -left-32 -top-32 h-[500px] w-[500px] animate-glow-float rounded-full bg-[#ff6224] opacity-[0.07] blur-[140px]"
+        className="pointer-events-none fixed -top-32 -left-32 h-[500px] w-[500px] animate-glow-float rounded-full bg-[#ff6224] opacity-[0.07] blur-[140px]"
       />
       <div
         aria-hidden="true"
-        className="pointer-events-none fixed -right-20 -top-20 h-[400px] w-[400px] animate-glow-drift rounded-full bg-[#60a5fa] opacity-[0.06] blur-[100px]"
+        className="pointer-events-none fixed -top-20 -right-20 h-[400px] w-[400px] animate-glow-drift rounded-full bg-[#60a5fa] opacity-[0.06] blur-[100px]"
       />
       <div
         aria-hidden="true"
@@ -150,7 +157,9 @@ export default function HomePage() {
 
       <main className="relative z-10">
         {/* ── Hero ── */}
-        <section className="flex min-h-screen flex-col items-center justify-center px-4 py-24 text-center">
+        {/* `relative` is load-bearing: the scroll hint below is absolutely
+            positioned and must anchor to the hero, not to the whole page. */}
+        <section className="relative flex min-h-screen flex-col items-center justify-center px-4 py-24 text-center">
           <div className="flex max-w-3xl flex-col items-center gap-6">
             {/* Brand icon */}
             <div
@@ -169,7 +178,7 @@ export default function HomePage() {
             </div>
 
             {/* Headline */}
-            <h1 className="animate-fade-in bg-gradient-to-r from-[#ff6224] to-amber-200 bg-clip-text font-mono text-4xl font-bold leading-tight tracking-tight text-transparent md:text-5xl lg:text-6xl">
+            <h1 className="animate-fade-in bg-gradient-to-r from-[#ff6224] to-amber-200 bg-clip-text font-mono text-4xl leading-tight font-bold tracking-tight text-transparent md:text-5xl lg:text-6xl">
               nest-auth-example
             </h1>
 
@@ -198,7 +207,7 @@ export default function HomePage() {
           </div>
 
           {/* Scroll hint */}
-          <div className="absolute bottom-8 flex flex-col items-center gap-1.5 text-xs uppercase tracking-widest text-[rgba(255,255,255,0.4)]">
+          <div className="absolute bottom-8 flex flex-col items-center gap-1.5 text-xs tracking-widest text-[rgba(255,255,255,0.4)] uppercase">
             <span>scroll</span>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <path
@@ -228,7 +237,7 @@ export default function HomePage() {
                   key={feature.title}
                   className="group transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_0_32px_rgba(255,98,36,0.12)]"
                 >
-                  <CardHeader accent>
+                  <CardHeader>
                     <div className="mb-3 flex items-center gap-3">
                       <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-[rgba(255,98,36,0.3)] bg-[rgba(255,98,36,0.12)]">
                         {feature.icon}
@@ -237,7 +246,9 @@ export default function HomePage() {
                         {feature.badge}
                       </Badge>
                     </div>
-                    <CardTitle className="text-base">{feature.title}</CardTitle>
+                    <CardTitle className={`text-base ${CARD_TITLE_CONTENT_CLASS}`}>
+                      {feature.title}
+                    </CardTitle>
                   </CardHeader>
                   <CardContent>
                     <CardDescription className="leading-relaxed text-[rgba(255,255,255,0.55)]">

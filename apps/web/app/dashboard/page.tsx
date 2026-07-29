@@ -15,6 +15,7 @@
 
 import { User, Shield, Monitor, MailOpen } from 'lucide-react';
 import { requireAuth } from '@/lib/require-auth';
+import { Card } from '@/components/ui/card';
 
 /** Stat card configuration — icon, label, value, accent colour. */
 interface StatCardConfig {
@@ -51,7 +52,7 @@ function StatCard({ icon: Icon, label, value, accent }: StatCardConfig) {
       {/* Top accent line */}
       <div
         aria-hidden="true"
-        className="absolute left-0 right-0 top-0 h-0.5 opacity-60"
+        className="absolute top-0 right-0 left-0 h-0.5 opacity-60"
         style={{
           background: `linear-gradient(to right, transparent, ${accent}, transparent)`,
         }}
@@ -71,7 +72,7 @@ function StatCard({ icon: Icon, label, value, accent }: StatCardConfig) {
 
         {/* Value + label */}
         <div>
-          <p className="font-mono text-2xl font-bold leading-none text-white">{value}</p>
+          <p className="font-mono text-2xl leading-none font-bold text-white">{value}</p>
           <p className="mt-1 text-xs font-medium text-[rgba(255,255,255,0.5)]">{label}</p>
         </div>
       </div>
@@ -132,7 +133,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* ── Auth feature overview ── */}
-      <div className="rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-6">
+      <Card className="p-6">
         <h2 className="mb-4 font-mono text-base font-semibold text-white">Auth coverage</h2>
         <div className="grid gap-3 sm:grid-cols-2">
           {[
@@ -160,7 +161,7 @@ export default async function DashboardPage() {
             </div>
           ))}
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

@@ -53,7 +53,7 @@ import { randomBytes, scrypt as nodeScrypt } from 'node:crypto';
 import { promisify } from 'node:util';
 import type { INestApplication } from '@nestjs/common';
 import { ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { Test, type TestingModule } from '@nestjs/testing';
 import { WsAdapter } from '@nestjs/platform-ws';
 import cookieParser from 'cookie-parser';
 import * as supertest from 'supertest';
@@ -64,6 +64,7 @@ import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { createWsClient } from './helpers/ws.js';
+import { resetThrottleCounters } from './helpers/throttle.js';
 
 // scrypt matches the library's PasswordService format: scrypt:{salt_hex}:{derived_hex}
 // Parameters mirror the library defaults (costFactor=32768, blockSize=8, parallelization=1).
@@ -133,6 +134,12 @@ function extractAccessToken(headers: string | string[] | undefined): string {
 
 // ─── Suite ───────────────────────────────────────────────────────────────────
 
+/**
+ * Testing module handle, shared so the login helpers below can clear the
+ * per-IP rate-limit counters. Assigned in `beforeAll`.
+ */
+let moduleRef: TestingModule;
+
 describe('WebSocket auth — WsJwtGuard protection and push delivery (FCM #24)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
@@ -165,7 +172,7 @@ describe('WebSocket auth — WsJwtGuard protection and push delivery (FCM #24)',
       hashPasswordForTest(MEMBER_PASSWORD),
     ]);
 
-    const moduleRef = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
@@ -243,6 +250,10 @@ describe('WebSocket auth — WsJwtGuard protection and push delivery (FCM #24)',
   });
 
   beforeEach(async () => {
+    // Every request in this suite comes from 127.0.0.1, so the per-IP `login`
+    // tier is shared by all of its cases. Clear it between them: what is under
+    // test here is auth behaviour, and a leaked 429 would mask it.
+    resetThrottleCounters(moduleRef);
     // Truncate test data so each spec starts clean.
     await truncateTables(prisma);
 

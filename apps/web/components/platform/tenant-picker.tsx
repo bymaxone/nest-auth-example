@@ -80,7 +80,7 @@ export function TenantPicker({ selectedTenantId }: TenantPickerProps) {
         // Stryker disable next-line StringLiteral: the `?? ''` fallback is observed only when `selectedTenantId` is undefined — React's controlled-select then looks up the option matching the empty string (the placeholder). A mutated `?? "Stryker"` would set the controlled value to "Stryker", but no option has that value, so the select would still display the placeholder option (React drops to the first available value and emits a development-mode warning, neither of which is observable from a regular Vitest assertion).
         value={selectedTenantId ?? ''}
         onChange={handleChange}
-        className="w-full max-w-xs rounded-lg border border-[rgba(239,68,68,0.25)] bg-[rgba(20,0,0,0.8)] px-3 py-2 text-sm text-red-100 focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500/50 disabled:opacity-50"
+        className="w-full max-w-xs rounded-lg border border-[rgba(239,68,68,0.25)] bg-[rgba(20,0,0,0.8)] px-3 py-2 text-sm text-red-100 focus:border-red-500 focus:ring-1 focus:ring-red-500/50 focus:outline-none disabled:opacity-50"
         aria-label="Select a tenant to view its users"
       >
         <option value="" disabled>

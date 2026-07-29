@@ -256,7 +256,7 @@ export default function RegisterPage() {
             id="tenantId"
             aria-describedby={errors.tenantId ? 'reg-tenant-error' : undefined}
             aria-invalid={!!errors.tenantId}
-            className="flex h-12 w-full appearance-none rounded-full border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.05)] px-5 py-2 text-sm text-white transition-shadow duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6224]/50"
+            className="flex h-12 w-full appearance-none rounded-full border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.05)] px-5 py-2 text-sm text-white transition-shadow duration-200 focus-visible:ring-2 focus-visible:ring-[#ff6224]/50 focus-visible:outline-none"
             {...register('tenantId')}
           >
             {TENANT_OPTIONS.map((opt) => (

@@ -1,0 +1,124 @@
+# Mutation testing — default-branch gate.
+#
+# The deepest and slowest gate in the pipeline. It NEVER runs on pull requests
+# and NEVER on a schedule: only on a push to the default branch or a manual
+# dispatch, and only when application source actually changed. Pull requests
+# stay gated by coverage and e2e; a surviving mutant breaks the build on the
+# default branch. Both workspaces run at `thresholds.break = 100`.
+#
+# Running only on the default branch is also what makes the incremental cache
+# work at all. GitHub scopes a cache to the ref that wrote it, and a pull
+# request can read the default branch's caches but writes its own into a scope
+# that dies with the PR. Writing and restoring in a single scope is what lets a
+# run re-test only the mutants its own diff touched.
+#
+# Why this lives here rather than in the org-wide `node-ci.yml`: that workflow's
+# mutation job declares `needs: [unit]`, and this repo disables the reusable
+# unit job (`run-unit: false`) because its own unit job needs a generated Prisma
+# client. A skipped dependency skips the dependent job, so the shared mutation
+# gate can never fire for this repo. Once `node-ci.yml` guards that job with
+# `always() && needs.unit.result != 'failure'`, this file can be deleted and
+# `run-mutation` flipped back on in `ci.yml`.
+
+name: Mutation Testing
+
+# No `paths:` filter on purpose. What counts as mutable source is defined once,
+# in the `detect` job below; a second list here would be a copy to keep in sync.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+concurrency:
+  # Deliberately NOT `cancel-in-progress`: a cancelled job never reaches its
+  # post-run steps, so it would leave the incremental cache unwritten and force
+  # the next run to mutate the full surface from cold. Back-to-back merges queue
+  # instead of cancelling each other.
+  group: mutation-${{ github.ref }}
+
+permissions:
+  contents: read
+
+env:
+  # Stryker type-checks and runs the API suites, which load Prisma. Nothing here
+  # opens a connection, so the placeholder carries no credentials.
+  DATABASE_URL: postgresql://ci_runner@localhost/ci_placeholder
+
+jobs:
+  detect:
+    name: Detect source changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.changes.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Full history so the whole push range (before..sha) is available — a
+          # multi-commit push must not miss source touched by an earlier commit.
+          fetch-depth: 0
+      - name: Detect application-source changes
+        id: changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = 'workflow_dispatch' ]; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+            echo 'Manual dispatch — running mutation.'
+            exit 0
+          fi
+          base='${{ github.event.before }}'
+          # A branch's first push reports an all-zero base, and a force-push can
+          # leave one that no longer exists — fall back to the pushed commit's parent.
+          if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            base='${{ github.sha }}^'
+          fi
+          # Anything that changes what gets mutated, how it is mutated, or how the
+          # tests that kill the mutants run.
+          if git diff --name-only "$base" '${{ github.sha }}' | grep -qE '^(apps/api/(src|test|prisma)/|apps/web/(app|lib|components)/|apps/[^/]+/(stryker\.config\.json|package\.json|tsconfig.*\.json)|pnpm-lock\.yaml|\.github/workflows/mutation\.yml)'; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+            echo 'Application source changed — running mutation.'
+          else
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+            echo 'No application-source changes — skipping mutation.'
+          fi
+
+  mutation:
+    name: Mutation testing
+    needs: detect
+    if: needs.detect.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.8.0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The API suites import @prisma/client types; generate never opens a
+      # connection, so the credential-free placeholder URL above is enough.
+      - name: Generate Prisma client
+        run: pnpm --filter @nest-auth-example/api run prisma:generate
+      - name: Restore Stryker incremental cache
+        uses: actions/cache@v4
+        with:
+          path: apps/*/reports/stryker-incremental.json
+          # The key is per-commit so every run writes fresh state; the prefix
+          # restore-key then hands the newest previous run's file to the next.
+          key: stryker-incremental-${{ github.sha }}
+          restore-keys: |
+            stryker-incremental-
+      - name: Run Stryker mutation
+        run: pnpm mutation:incremental
+      - name: Upload mutation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-reports
+          path: apps/*/reports/mutation/
+          retention-days: 30
+          if-no-files-found: ignore

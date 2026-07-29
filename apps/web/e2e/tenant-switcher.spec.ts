@@ -16,16 +16,14 @@
  * @layer test/e2e
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/auth.js';
 
-const ADMIN_EMAIL = process.env['E2E_ADMIN_EMAIL'] ?? 'admin@example.dev';
-const ADMIN_PASSWORD = process.env['E2E_ADMIN_PASSWORD'] ?? 'AdminPassw0rd!';
 const SOURCE_TENANT_SLUG = process.env['E2E_TENANT_ID'] ?? 'acme';
 const DEST_TENANT_SLUG = process.env['E2E_SECOND_TENANT_ID'] ?? 'globex';
 
 test.describe('Workspace switcher', () => {
   test('admin in two tenants can silently switch into the second workspace via the switcher', async ({
-    page,
+    adminPage: page,
   }) => {
     /*
      * Silent switch flow.
@@ -47,12 +45,11 @@ test.describe('Workspace switcher', () => {
      * `user.tenantId`-driven active-workspace render branch.
      */
 
-    // ── 1. Login at the source tenant. ────────────────────────────────────
-    await page.goto(`/auth/login?tenantId=${SOURCE_TENANT_SLUG}`);
-    await page.getByLabel(/email/i).fill(ADMIN_EMAIL);
-    await page.getByLabel(/password/i).fill(ADMIN_PASSWORD);
-    await page.getByRole('button', { name: /sign in/i }).click();
-    await page.waitForURL('/dashboard', { timeout: 15_000 });
+    // ── 1. Land on the dashboard at the source tenant. ────────────────────
+    // The admin session comes from the shared fixture, which signs in once per
+    // run; logging in here would spend the per-IP `login` tier the whole suite
+    // shares. The switch below still mutates only this context's cookies.
+    await page.goto('/dashboard');
 
     // ── 2. Open the switcher trigger. ─────────────────────────────────────
     // The trigger button has aria-label="Switch workspace" and is visible at the
@@ -103,7 +100,9 @@ test.describe('Workspace switcher', () => {
     await expect(trigger).toContainText(new RegExp(DEST_TENANT_SLUG, 'i'), { timeout: 10_000 });
   });
 
-  test('the switcher disappears when the user belongs to only one workspace', async ({ page }) => {
+  test('the switcher disappears when the user belongs to only one workspace', async ({
+    memberPage: page,
+  }) => {
     /*
      * Single-workspace user UX check.
      *
@@ -117,11 +116,7 @@ test.describe('Workspace switcher', () => {
      * behaviour for the single-workspace case, so the spec only asserts the
      * dashboard is healthy and the switcher (if rendered) is coherent.
      */
-    await page.goto(`/auth/login?tenantId=${SOURCE_TENANT_SLUG}`);
-    await page.getByLabel(/email/i).fill('member@example.dev');
-    await page.getByLabel(/password/i).fill('MemberPassw0rd!');
-    await page.getByRole('button', { name: /sign in/i }).click();
-    await page.waitForURL('/dashboard', { timeout: 15_000 });
+    await page.goto('/dashboard');
 
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 5_000 });
 

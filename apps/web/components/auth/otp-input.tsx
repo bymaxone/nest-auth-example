@@ -140,7 +140,7 @@ export function OtpInput({ length, value, onChange, digitLabel = 'Digit' }: OtpI
             'h-12 w-10 rounded-xl border border-[rgba(255,255,255,0.1)]',
             'bg-[rgba(255,255,255,0.05)] text-center font-mono text-lg font-medium text-white',
             'transition-shadow duration-200',
-            'focus:border-[rgba(255,98,36,0.4)] focus:outline-none focus:ring-2 focus:ring-[#ff6224]/50',
+            'focus:border-[rgba(255,98,36,0.4)] focus:ring-2 focus:ring-[#ff6224]/50 focus:outline-none',
           )}
           // Stryker restore StringLiteral
         />

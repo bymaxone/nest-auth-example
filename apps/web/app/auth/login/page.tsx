@@ -187,7 +187,7 @@ function LoginForm() {
             id="tenantId"
             value={tenantSlug}
             onChange={(e) => setTenantSlug(e.target.value)}
-            className="flex h-12 w-full appearance-none rounded-full border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.05)] px-5 py-2 text-sm text-white transition-shadow duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6224]/50"
+            className="flex h-12 w-full appearance-none rounded-full border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.05)] px-5 py-2 text-sm text-white transition-shadow duration-200 focus-visible:ring-2 focus-visible:ring-[#ff6224]/50 focus-visible:outline-none"
           >
             {TENANT_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value} className="bg-[#1a1a1a] text-white">

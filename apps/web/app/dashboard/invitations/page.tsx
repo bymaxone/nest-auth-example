@@ -17,6 +17,7 @@ import { useState } from 'react';
 import { useSession } from '@bymax-one/nest-auth/react';
 import { InviteForm } from '@/components/dashboard/invite-form';
 import { InvitationsTable } from '@/components/dashboard/invitations-table';
+import { Card } from '@/components/ui/card';
 
 const ADMIN_ROLES = new Set(['OWNER', 'ADMIN']);
 
@@ -46,21 +47,21 @@ export default function InvitationsPage() {
 
       {/* ── Invite form (admins only) ── */}
       {isAdmin && (
-        <div className="rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-6">
-          <h2 className="mb-4 font-mono text-sm font-semibold uppercase tracking-widest text-[rgba(255,255,255,0.4)]">
+        <Card className="p-6">
+          <h2 className="mb-4 font-mono text-sm font-semibold tracking-widest text-[rgba(255,255,255,0.4)] uppercase">
             Send invitation
           </h2>
           <InviteForm onSuccess={() => setRefreshKey((k) => k + 1)} />
-        </div>
+        </Card>
       )}
 
       {/* ── Pending invitations ── */}
-      <div className="rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-6">
-        <h2 className="mb-4 font-mono text-sm font-semibold uppercase tracking-widest text-[rgba(255,255,255,0.4)]">
+      <Card className="p-6">
+        <h2 className="mb-4 font-mono text-sm font-semibold tracking-widest text-[rgba(255,255,255,0.4)] uppercase">
           Pending invitations
         </h2>
         <InvitationsTable refreshKey={refreshKey} />
-      </div>
+      </Card>
     </div>
   );
 }

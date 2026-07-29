@@ -24,6 +24,9 @@ test-results/
 playwright-report/
 blob-report/
 playwright/.cache/
+# Captured sign-in state for the e2e auth fixture — real access and refresh
+# tokens for the seeded accounts. Never commit.
+.auth/
 
 # TypeScript
 *.tsbuildinfo

@@ -153,7 +153,7 @@ export function Sidebar({ isOpen, onNavClick }: SidebarProps) {
     >
       <div className="flex h-full flex-col gap-0 px-4 py-6">
         {/* ── Navigation items ── */}
-        <div className="flex flex-1 flex-col gap-1">
+        <div className="flex flex-1 flex-col gap-1.5">
           {visibleItems.map((item) => (
             <SidebarNavItem key={item.href} item={item} {...childExtras} />
           ))}
@@ -169,7 +169,7 @@ export function Sidebar({ isOpen, onNavClick }: SidebarProps) {
               </span>
               {/* Role pill */}
               <span className="mt-1 inline-flex w-fit items-center rounded-full border border-[rgba(255,98,36,0.25)] bg-[rgba(255,98,36,0.12)] px-2 py-0.5">
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-wide text-[#ff6224]">
+                <span className="font-mono text-[10px] font-semibold tracking-wide text-[#ff6224] uppercase">
                   {user.role}
                 </span>
               </span>

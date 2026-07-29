@@ -114,6 +114,14 @@ export default defineConfig({
       stdout: 'ignore',
       stderr: 'pipe',
       env: {
+        // The whole suite reaches the API through one Next proxy, so every
+        // request shares a single client address and the `login` tier of 5 per
+        // minute is spent collectively — the lockout spec alone burns it in a
+        // burst of failed sign-ins its assertion depends on, leaving later
+        // specs staring at 429 on the login form. IP rate limiting is covered
+        // by the API e2e suite (`throttle-demo`), where it can be isolated.
+        // The env schema refuses this flag when NODE_ENV=production.
+        AUTH_THROTTLE_DISABLED: 'true',
         // Boot the API with OAuth ENABLED using format-valid placeholder
         // credentials. The OAUTH_GOOGLE_* trio is sufficient for the lib's
         // OAuth controller to mount and for the initiate endpoint to redirect

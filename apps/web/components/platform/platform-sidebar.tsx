@@ -92,7 +92,7 @@ export function PlatformSidebar() {
 
         {/* Bottom label — reinforces the platform context */}
         <div className="mt-4 border-t border-[rgba(239,68,68,0.15)] pt-4">
-          <p className="px-2 font-mono text-[10px] uppercase tracking-widest text-red-800">
+          <p className="px-2 font-mono text-[10px] tracking-widest text-red-800 uppercase">
             Platform Admin Area
           </p>
         </div>

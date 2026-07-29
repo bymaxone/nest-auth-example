@@ -34,6 +34,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { OtpInput } from '@/components/auth/otp-input';
 import { RecoveryCodesModal } from './recovery-codes-modal';
+import { Card } from '@/components/ui/card';
 import {
   mfaDisable,
   mfaRegenerateRecoveryCodes,
@@ -222,13 +223,13 @@ export function MfaDisableCard({ onDisabled }: MfaDisableCardProps) {
 
   return (
     <>
-      <div className="rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-6">
+      <Card className="p-6">
         <div className="mb-4 flex items-center gap-2">
           <ShieldOff className="h-4 w-4 text-[rgba(255,255,255,0.4)]" />
-          <h2 className="font-mono text-sm font-semibold uppercase tracking-widest text-[rgba(255,255,255,0.4)]">
+          <h2 className="font-mono text-sm font-semibold tracking-widest text-[rgba(255,255,255,0.4)] uppercase">
             Two-Factor Authentication
           </h2>
-          <span className="ml-auto rounded-full border border-[rgba(34,197,94,0.3)] bg-[rgba(34,197,94,0.1)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#22c55e]">
+          <span className="ml-auto rounded-full border border-[rgba(34,197,94,0.3)] bg-[rgba(34,197,94,0.1)] px-2 py-0.5 text-[10px] font-semibold tracking-wide text-[#22c55e] uppercase">
             Enabled
           </span>
         </div>
@@ -256,7 +257,7 @@ export function MfaDisableCard({ onDisabled }: MfaDisableCardProps) {
               <span className="opacity-70"> recovery codes remaining</span>
             </span>
             {counterTone !== 'ok' && (
-              <span className="font-mono text-[10px] font-semibold uppercase tracking-wide">
+              <span className="font-mono text-[10px] font-semibold tracking-wide uppercase">
                 {counterTone === 'critical' ? 'Exhausted' : 'Low'}
               </span>
             )}
@@ -317,7 +318,7 @@ export function MfaDisableCard({ onDisabled }: MfaDisableCardProps) {
             </div>
           </form>
         )}
-      </div>
+      </Card>
 
       <RecoveryCodesModal
         open={freshCodes !== null}

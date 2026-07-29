@@ -15,6 +15,8 @@
 import { requireAuth } from '@/lib/require-auth';
 import { PasswordChangeForm } from '@/components/dashboard/password-change-form';
 import { SendTestNotificationButton } from '@/components/dashboard/send-test-notification-button';
+import { CARD_SURFACE_CLASS, CARD_ACCENT_LINE_CLASS } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 
 /**
  * Account settings page — shows the signed-in user's identity and exposes
@@ -37,13 +39,11 @@ export default async function AccountPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* ── Identity card ── */}
-        <section
-          aria-labelledby="identity-heading"
-          className="rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-6"
-        >
+        <section aria-labelledby="identity-heading" className={cn(CARD_SURFACE_CLASS, 'p-6')}>
+          <span aria-hidden="true" className={CARD_ACCENT_LINE_CLASS} />
           <h2
             id="identity-heading"
-            className="mb-4 font-mono text-sm font-semibold uppercase tracking-widest text-[rgba(255,255,255,0.4)]"
+            className="mb-4 font-mono text-sm font-semibold tracking-widest text-[rgba(255,255,255,0.4)] uppercase"
           >
             Identity
           </h2>
@@ -57,7 +57,7 @@ export default async function AccountPage() {
               <dt className="text-xs text-[rgba(255,255,255,0.4)]">Role</dt>
               <dd className="mt-0.5">
                 <span className="inline-flex items-center rounded-full border border-[rgba(255,98,36,0.25)] bg-[rgba(255,98,36,0.12)] px-2 py-0.5">
-                  <span className="font-mono text-[10px] font-semibold uppercase tracking-wide text-[#ff6224]">
+                  <span className="font-mono text-[10px] font-semibold tracking-wide text-[#ff6224] uppercase">
                     {session.role}
                   </span>
                 </span>
@@ -75,13 +75,11 @@ export default async function AccountPage() {
         </section>
 
         {/* ── Password change ── */}
-        <section
-          aria-labelledby="password-heading"
-          className="rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-6"
-        >
+        <section aria-labelledby="password-heading" className={cn(CARD_SURFACE_CLASS, 'p-6')}>
+          <span aria-hidden="true" className={CARD_ACCENT_LINE_CLASS} />
           <h2
             id="password-heading"
-            className="mb-1 font-mono text-sm font-semibold uppercase tracking-widest text-[rgba(255,255,255,0.4)]"
+            className="mb-1 font-mono text-sm font-semibold tracking-widest text-[rgba(255,255,255,0.4)] uppercase"
           >
             Password
           </h2>
@@ -100,7 +98,7 @@ export default async function AccountPage() {
       >
         <h2
           id="notifications-heading"
-          className="mb-1 font-mono text-sm font-semibold uppercase tracking-widest text-[rgba(255,255,255,0.4)]"
+          className="mb-1 font-mono text-sm font-semibold tracking-widest text-[rgba(255,255,255,0.4)] uppercase"
         >
           Notifications demo
         </h2>

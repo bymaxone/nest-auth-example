@@ -2,8 +2,8 @@
  * @fileoverview Unit tests for the Card UI primitives.
  *
  * Verifies that Card, CardHeader, CardTitle, CardDescription, CardContent,
- * and CardFooter all render without errors and that CardHeader renders the
- * accent line when `accent={true}`.
+ * and CardFooter all render without errors and that every Card carries the
+ * brand top accent line.
  *
  * @module components/ui/card.test
  */
@@ -27,33 +27,48 @@ describe('Card primitives', () => {
 
   it('renders CardHeader with children', () => {
     /*
-     * Scenario: CardHeader must render its children without the accent span
-     * by default (accent=false).
-     * Protects: CardHeader default rendering without accent.
+     * Scenario: CardHeader must render its children.
+     * Protects: basic rendering of CardHeader.
      */
     render(<CardHeader data-testid="header">Header</CardHeader>);
     expect(screen.getByTestId('header')).toBeDefined();
   });
 
-  it('renders the accent span when CardHeader has accent=true', () => {
+  it('draws the brand accent line on every Card', () => {
     /*
-     * Scenario: when accent=true the header must contain an aria-hidden span
-     * that displays the brand orange top accent line.
-     * Protects: accent prop conditional rendering in CardHeader.
+     * Scenario: a Card rendered with no header at all.
+     * Protects: the accent hairline belonging to the Card rather than to the
+     * header, so no card can end up without it — the inconsistency that had
+     * some panels accented and others bare.
      */
-    const { container } = render(
-      <CardHeader accent>
-        <span>Accented</span>
-      </CardHeader>,
-    );
+    const { container } = render(<Card>Bare</Card>);
     const accentSpan = container.querySelector('[aria-hidden="true"]');
+
     expect(accentSpan).not.toBeNull();
+    expect(accentSpan?.className).toContain('via-[rgba(255,98,36,0.4)]');
   });
 
-  it('does not render the accent span when accent=false', () => {
+  it('keeps the accent line ahead of the card content', () => {
     /*
-     * Scenario: without accent prop no extra span should be injected.
-     * Protects: accent=false (default) produces no accent element.
+     * Scenario: a Card with children.
+     * Protects: the hairline rendering as the first child, so it sits on the
+     * top edge rather than after the content in the flow.
+     */
+    render(
+      <Card data-testid="ordered">
+        <CardContent>Body</CardContent>
+      </Card>,
+    );
+    const card = screen.getByTestId('ordered');
+
+    expect(card.firstElementChild?.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('leaves the accent line to the Card, never to the header', () => {
+    /*
+     * Scenario: a CardHeader rendered on its own.
+     * Protects: the header staying free of decoration, so the hairline cannot
+     * be drawn twice when a Card wraps a header.
      */
     const { container } = render(
       <CardHeader>

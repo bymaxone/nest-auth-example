@@ -11,7 +11,10 @@ services:
     ports:
       - '127.0.0.1:5432:5432'
     volumes:
-      - pg-data:/var/lib/postgresql/data
+      # Mounted at the parent, not at `data/`: the Postgres 18+ images keep the
+      # cluster in a major-version subdirectory, so a volume bound directly to
+      # `data/` is reported as an unused mount and the server refuses to start.
+      - pg-data:/var/lib/postgresql
       - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test:

@@ -35,7 +35,7 @@ process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
 import { ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { Test, type TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import * as supertest from 'supertest';
 import type { Agent } from 'supertest';
@@ -44,6 +44,7 @@ import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { clearMailpit, waitForEmail, extractOtpFromHtml } from './helpers/mailpit.js';
+import { resetThrottleCounters } from './helpers/throttle.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -68,6 +69,7 @@ async function truncateTables(prisma: PrismaService): Promise<void> {
 describe('Session FIFO eviction — oldest session is removed when maxSessions is exceeded', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let moduleRef: TestingModule;
 
   beforeAll(async () => {
     // Run migrations against the test database before bootstrapping the app.
@@ -77,7 +79,7 @@ describe('Session FIFO eviction — oldest session is removed when maxSessions i
       stdio: 'pipe',
     });
 
-    const moduleRef = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
@@ -168,6 +170,12 @@ describe('Session FIFO eviction — oldest session is removed when maxSessions i
     // The oldest session hash is the first entry created (position 0 after sorting by age).
     // We capture all hashes before the eviction occurs.
     const hashesAtMax = new Set(sessionsBefore.map((s) => s.sessionHash));
+
+    // Five logins have already been spent, which is the whole `login` tier for
+    // this IP. Clear the counters so the sixth reaches the session logic: what
+    // is under test is FIFO eviction, and a 429 here would only re-assert the
+    // rate limit that throttle-demo already covers.
+    resetThrottleCounters(moduleRef);
 
     // Create the 6th session — this must trigger FIFO eviction of the oldest.
     const agent6 = supertest.agent(httpServer);

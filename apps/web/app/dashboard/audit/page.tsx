@@ -31,6 +31,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { listAuditEntries, handleAuthClientError, type AuditEntryInfo } from '@/lib/auth-client';
+import { Card } from '@/components/ui/card';
 
 /**
  * Colour ramp by event slug prefix. Keeps the visual taxonomy lightweight
@@ -132,12 +133,12 @@ export default function AuditLogPage() {
       {isLoading ? (
         <p className="text-sm text-[rgba(255,255,255,0.4)]">Loading events…</p>
       ) : entries.length === 0 ? (
-        <div className="rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-6">
+        <Card className="p-6">
           <p className="text-sm text-[rgba(255,255,255,0.5)]">
             No audit events recorded yet. Sign in, change a password, enable MFA, or invite a
             teammate to populate this table.
           </p>
-        </div>
+        </Card>
       ) : (
         <Table>
           <TableHeader>
@@ -157,7 +158,7 @@ export default function AuditLogPage() {
                 </TableCell>
                 <TableCell>
                   <span
-                    className={`rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide ${pillStyleForEvent(row.event)}`}
+                    className={`rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold tracking-wide uppercase ${pillStyleForEvent(row.event)}`}
                   >
                     {row.event}
                   </span>

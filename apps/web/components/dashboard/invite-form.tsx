@@ -103,7 +103,7 @@ export function InviteForm({ onSuccess }: InviteFormProps) {
         <select
           id="inviteRole"
           {...register('role')}
-          className="h-9 rounded-md border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.05)] px-3 text-sm text-[rgba(255,255,255,0.8)] focus:outline-none focus:ring-2 focus:ring-[#ff6224]/50"
+          className="h-9 rounded-md border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.05)] px-3 text-sm text-[rgba(255,255,255,0.8)] focus:ring-2 focus:ring-[#ff6224]/50 focus:outline-none"
         >
           {ROLE_OPTIONS.map((r) => (
             <option key={r} value={r} className="bg-[#0c0c0c]">

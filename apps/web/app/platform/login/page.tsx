@@ -26,11 +26,11 @@ export default function PlatformLoginPage() {
       {/* ── Ambient glow — deep red tint ── */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute -left-32 -top-32 h-[500px] w-[500px] rounded-full bg-red-900 opacity-20 blur-[120px]"
+        className="pointer-events-none absolute -top-32 -left-32 h-[500px] w-[500px] rounded-full bg-red-900 opacity-20 blur-[120px]"
       />
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute -right-20 -top-20 h-[400px] w-[400px] rounded-full bg-red-800 opacity-10 blur-[100px]"
+        className="pointer-events-none absolute -top-20 -right-20 h-[400px] w-[400px] rounded-full bg-red-800 opacity-10 blur-[100px]"
       />
 
       {/* ── Centered card ── */}
@@ -41,11 +41,11 @@ export default function PlatformLoginPage() {
             {/* Top accent gradient line — red */}
             <div
               aria-hidden="true"
-              className="bg-linear-to-r absolute left-0 right-0 top-0 h-px from-transparent via-[rgba(239,68,68,0.6)] to-transparent"
+              className="absolute top-0 right-0 left-0 h-px bg-linear-to-r from-transparent via-[rgba(239,68,68,0.6)] to-transparent"
             />
 
             {/* ── Brand header — platform admin identity ── */}
-            <div className="flex flex-col items-center gap-1 px-8 pb-4 pt-8">
+            <div className="flex flex-col items-center gap-1 px-8 pt-8 pb-4">
               {/* Red icon badge */}
               <div
                 aria-hidden="true"
@@ -63,7 +63,7 @@ export default function PlatformLoginPage() {
               </div>
 
               {/* PLATFORM ADMIN label */}
-              <p className="font-mono text-xs font-bold uppercase tracking-widest text-red-400">
+              <p className="font-mono text-xs font-bold tracking-widest text-red-400 uppercase">
                 PLATFORM ADMIN
               </p>
               <p className="bg-linear-to-r from-red-300 to-red-100 bg-clip-text font-mono text-xl font-bold text-transparent">

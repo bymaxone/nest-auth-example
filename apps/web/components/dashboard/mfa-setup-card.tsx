@@ -29,6 +29,7 @@ import { OtpInput } from '@/components/auth/otp-input';
 import { RecoveryCodesModal } from './recovery-codes-modal';
 import { mfaSetup, mfaVerifyEnable, handleAuthClientError } from '@/lib/auth-client';
 import { toQrDataUrl } from '@/lib/qrcode';
+import { Card } from '@/components/ui/card';
 
 const verifySchema = z.object({
   code: z.string().length(6, 'Enter the 6-digit code from your authenticator app'),
@@ -130,10 +131,10 @@ export function MfaSetupCard({ onEnabled }: MfaSetupCardProps) {
 
   return (
     <>
-      <div className="rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] p-6">
+      <Card className="p-6">
         <div className="mb-4 flex items-center gap-2">
           <Shield className="h-4 w-4 text-[#ff6224]" />
-          <h2 className="font-mono text-sm font-semibold uppercase tracking-widest text-[rgba(255,255,255,0.4)]">
+          <h2 className="font-mono text-sm font-semibold tracking-widest text-[rgba(255,255,255,0.4)] uppercase">
             Two-Factor Authentication
           </h2>
         </div>
@@ -223,7 +224,7 @@ export function MfaSetupCard({ onEnabled }: MfaSetupCardProps) {
             </form>
           </div>
         )}
-      </div>
+      </Card>
 
       <RecoveryCodesModal open={showModal} onClose={handleModalClose} codes={recoveryCodes} />
     </>

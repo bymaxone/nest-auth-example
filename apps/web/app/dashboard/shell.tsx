@@ -33,6 +33,26 @@ interface DashboardShellProps {
 }
 
 /**
+ * The three decorative glow layers that sit behind the whole dashboard.
+ *
+ * They are what makes the cards' `backdrop-blur` visible: a blur filter over a
+ * flat near-black page samples a uniform color and renders identically to no
+ * blur at all. These wide, heavily blurred color fields give the glass surfaces
+ * something to pick up, so the effect reads as depth rather than as a tint.
+ * Mirrors the layers the auth layout already renders. Purely presentational and
+ * never interactive.
+ */
+function AmbientGlow() {
+  return (
+    <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+      <div className="absolute -top-32 -left-32 h-[500px] w-[500px] animate-glow-float rounded-full bg-[#ff6224] opacity-15 blur-[120px]" />
+      <div className="absolute -top-20 -right-20 h-[400px] w-[400px] animate-glow-drift rounded-full bg-[#60a5fa] opacity-10 blur-[100px]" />
+      <div className="absolute bottom-0 left-1/2 h-[300px] w-[300px] -translate-x-1/2 animate-glow-float rounded-full bg-[#f97316] opacity-[0.05] blur-[80px]" />
+    </div>
+  );
+}
+
+/**
  * Client shell for the dashboard — manages sidebar visibility state.
  *
  * @param children - Dashboard page content.
@@ -70,6 +90,8 @@ export function DashboardShell({ children }: DashboardShellProps) {
 
   return (
     <>
+      <AmbientGlow />
+
       <Topbar onMenuOpen={() => setSidebarOpen(true)} />
 
       {/* ── Page body — below the fixed topbar ── */}
@@ -77,10 +99,13 @@ export function DashboardShell({ children }: DashboardShellProps) {
         <Sidebar isOpen={sidebarOpen} onNavClick={() => setSidebarOpen(false)} />
 
         {/* Mobile sidebar backdrop */}
+        {/* A real button rather than a click-handled div, so the open drawer
+            can also be dismissed from the keyboard. */}
         {sidebarOpen && (
-          <div
-            aria-hidden="true"
-            className="z-90 fixed inset-0 bg-black/50 backdrop-blur-sm lg:hidden"
+          <button
+            type="button"
+            aria-label="Close navigation menu"
+            className="fixed inset-0 z-90 bg-black/50 backdrop-blur-sm lg:hidden"
             onClick={() => setSidebarOpen(false)}
           />
         )}

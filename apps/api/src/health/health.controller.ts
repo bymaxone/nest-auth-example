@@ -19,8 +19,8 @@
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { Controller, Get, Inject, UseGuards } from '@nestjs/common';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Controller, Get, Inject } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Redis } from 'ioredis';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { BYMAX_AUTH_REDIS_CLIENT, AUTH_THROTTLE_CONFIGS, Public } from '@bymax-one/nest-auth';
@@ -143,8 +143,12 @@ export class HealthController {
    *
    * Applies the `login` throttle tier (5 requests per 60 s per IP) so the
    * frontend can demonstrate the HTTP 429 response without touching any auth
-   * state. `@UseGuards(ThrottlerGuard)` enables throttling for this route;
-   * `@Throttle` overrides the module-level default with the login tier.
+   * state. `@Throttle` overrides the module-level default with the login tier;
+   * the guard itself is the app-wide `ThrottlerGuard` registered in
+   * `AppModule`. It must NOT also be applied here with `@UseGuards`: the two
+   * registrations are alternatives, not complements, and running both makes
+   * every request increment the same counter twice, so the tier is spent in
+   * half the requests it advertises.
    *
    * Marked `@Public()` so it remains reachable without a JWT
    * (the global `JwtAuthGuard` would otherwise reject it). The ThrottlerGuard
@@ -154,7 +158,6 @@ export class HealthController {
    */
   @Public()
   @Get('throttle-demo')
-  @UseGuards(ThrottlerGuard)
   @Throttle(AUTH_THROTTLE_CONFIGS.login)
   throttleDemo(): { ok: boolean; at: string } {
     return { ok: true, at: new Date().toISOString() };

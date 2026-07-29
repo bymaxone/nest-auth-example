@@ -155,14 +155,14 @@ export function TeamTable({ isAdmin, currentUserId }: TeamTableProps) {
               </TableCell>
               <TableCell className="text-xs">{user.email}</TableCell>
               <TableCell>
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-wide text-[#ff6224]">
+                <span className="font-mono text-[10px] font-semibold tracking-wide text-[#ff6224] uppercase">
                   {user.role}
                 </span>
               </TableCell>
               <TableCell>
                 <span
                   // Stryker disable next-line StringLiteral: structural badge classes (`rounded-full border px-1.5 …`) are pure visual styling — the per-status palette is interpolated in via `${statusStyle}` which IS pinned by the per-branch palette tests above. Mutating the structural prefix to `""` would leave the badge rendering with only the tone classes, identical contract from the test's perspective.
-                  className={`rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${statusStyle}`}
+                  className={`rounded-full border px-1.5 py-0.5 text-[9px] font-semibold tracking-wide uppercase ${statusStyle}`}
                 >
                   {user.status}
                 </span>
