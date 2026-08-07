@@ -71,7 +71,9 @@
   },
   "pnpm": {
     "overrides": {
-      "@hono/node-server": ">=1.19.13"
+      "@hono/node-server": ">=1.19.13",
+      "js-yaml@3": "^3.15.1",
+      "js-yaml@4": "^4.3.1"
     },
     "onlyBuiltDependencies": []
   },
