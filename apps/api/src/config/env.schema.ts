@@ -61,6 +61,30 @@ const base = z.object({
     .transform((value) => value === 'true')
     .describe('Disable IP rate limiting — non-production only, for e2e runs'),
 
+  /**
+   * Number of reverse proxies in front of the API, used for Express
+   * `trust proxy` and for the auth rate limiter's client-IP source.
+   *
+   * `0` — the API is reached directly (the socket peer IS the client). The
+   * limiter charges the peer address.
+   * `>= 1` — every hop between the browser and the API that appends to
+   * `X-Forwarded-For`. In the Compose topology the Next.js server proxies
+   * `/api/*` to the API, so that alone is one hop; add one more for an
+   * nginx/Traefik/Caddy in front of it.
+   *
+   * This must match reality. Too low and every browser shares the proxy's
+   * rate-limit bucket, so one user's failed logins lock out everyone. Too high
+   * and a client can prepend a forged `X-Forwarded-For` entry to impersonate
+   * an arbitrary address, bypassing the limiter entirely.
+   */
+  TRUSTED_PROXY_HOPS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(10)
+    .default(0)
+    .describe('Reverse proxies in front of the API — drives trust proxy and the rate-limit IP'),
+
   // ---------------------------------------------------------------------------
   // Database
   // ---------------------------------------------------------------------------
@@ -269,6 +293,7 @@ const base = z.object({
  * - Google OAuth client ID and secret must be set together
  * - rate limiting cannot be disabled in `production`
  * - breach checking cannot be turned off in `production`
+ * - the proxy hop count must be set in `production`
  */
 export const envSchema = base.superRefine((env, ctx) => {
   if (env.NODE_ENV === 'production' && env.AUTH_THROTTLE_DISABLED) {
@@ -294,6 +319,19 @@ export const envSchema = base.superRefine((env, ctx) => {
       code: 'custom',
       path: ['EMAIL_PROVIDER'],
       message: `EMAIL_PROVIDER=${env.EMAIL_PROVIDER} is not allowed in production — use resend`,
+    });
+  }
+
+  // The Next.js server always proxies `/api/*` to the API, so a production
+  // deployment has at least one hop. Leaving the direct-connection default in
+  // place there would charge every browser to the web container's address and
+  // let one user's failed logins rate-limit everybody.
+  if (env.NODE_ENV === 'production' && env.TRUSTED_PROXY_HOPS === 0) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['TRUSTED_PROXY_HOPS'],
+      message:
+        'TRUSTED_PROXY_HOPS must be at least 1 in production — the web server proxies /api/*',
     });
   }
 

@@ -74,6 +74,8 @@ services:
       WEB_ORIGIN: ${WEB_ORIGIN}
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-resend}
       PASSWORD_BREACH_CHECKER: ${PASSWORD_BREACH_CHECKER:-common}
+      # 1 = the web container proxies /api/*; raise to 2 behind nginx/Traefik.
+      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       SMTP_FROM: ${SMTP_FROM}
       # Optional — leave unset to disable Google OAuth

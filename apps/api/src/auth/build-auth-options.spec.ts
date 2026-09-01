@@ -680,4 +680,28 @@ describe('buildAuthOptions', () => {
       expect(options.blockedStatuses).toContain('SUSPENDED');
     });
   });
+  it('keys the rate limiter on the socket peer when no proxy is declared', () => {
+    /*
+     * Scenario: TRUSTED_PROXY_HOPS=0 means the API is reached directly, so the
+     * peer address IS the client and no forwarded header may be trusted.
+     * Protects: the default IP source — reading a forwarded chain here would
+     * let any client spoof its address past the limiter.
+     */
+    const options = buildAuthOptions(makeConfig({ TRUSTED_PROXY_HOPS: '0' }) as never);
+
+    expect(options.rateLimit).toEqual({ enabled: true, clientIpSource: 'peer' });
+  });
+
+  it('keys the rate limiter on the forwarded chain once a proxy is declared', () => {
+    /*
+     * Scenario: behind the Next.js rewrite the socket peer is the web server,
+     * so `peer` would charge every browser to one bucket and let a single
+     * user's failed logins lock out everyone.
+     * Protects: the switch to 'trusted-proxy', which only makes sense paired
+     * with the Express `trust proxy` main.ts derives from the same variable.
+     */
+    const options = buildAuthOptions(makeConfig({ TRUSTED_PROXY_HOPS: '1' }) as never);
+
+    expect(options.rateLimit).toEqual({ enabled: true, clientIpSource: 'trusted-proxy' });
+  });
 });

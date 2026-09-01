@@ -77,8 +77,9 @@ function buildCredentialOptions(params: {
   jwtSecret: string;
   mfaEncryptionKey: string;
   throttleDisabled: boolean;
+  trustedProxyHops: number;
 }): Pick<BymaxAuthModuleOptions, 'jwt' | 'password' | 'rateLimit' | 'mfa'> {
-  const { jwtSecret, mfaEncryptionKey, throttleDisabled } = params;
+  const { jwtSecret, mfaEncryptionKey, throttleDisabled, trustedProxyHops } = params;
   return {
     // ── JWT ──────────────────────────────────────────────────────────────────
     jwt: {
@@ -104,12 +105,20 @@ function buildCredentialOptions(params: {
     },
 
     // ── Per-IP rate limiting (library-enforced) ──────────────────────────────
-    // `clientIpSource: 'peer'` charges the socket peer address — correct when
-    // clients reach the API directly (dev, e2e). Behind a reverse proxy that
-    // terminates client connections, switch to 'trusted-proxy' AND configure
-    // Express `trust proxy`, otherwise every client shares the proxy's bucket.
+    // The IP source has to match the deployment, and both directions are
+    // dangerous. `peer` charges the socket peer: correct only when clients
+    // reach the API directly, and catastrophic behind a proxy, where every
+    // browser shares the proxy's single bucket and one user's failed logins
+    // lock out everyone. `trusted-proxy` reads the forwarded chain, which is
+    // only trustworthy when Express `trust proxy` is set to the real hop count
+    // — main.ts derives both from TRUSTED_PROXY_HOPS so they cannot drift.
     // AUTH_THROTTLE_DISABLED=true turns the limiter off for load/e2e tooling.
-    rateLimit: throttleDisabled ? { enabled: false } : { enabled: true, clientIpSource: 'peer' },
+    rateLimit: throttleDisabled
+      ? { enabled: false }
+      : {
+          enabled: true,
+          clientIpSource: trustedProxyHops > 0 ? 'trusted-proxy' : 'peer',
+        },
 
     // ── MFA (TOTP) ───────────────────────────────────────────────────────────
     mfa: {
@@ -383,6 +392,7 @@ export function buildAuthOptions(config: ConfigService<Env, true>): BymaxAuthMod
       jwtSecret: config.getOrThrow<string>('JWT_SECRET'),
       mfaEncryptionKey: config.getOrThrow<string>('MFA_ENCRYPTION_KEY'),
       throttleDisabled,
+      trustedProxyHops: Number(config.get('TRUSTED_PROXY_HOPS') ?? 0),
     }),
     ...buildAccountFlowOptions(config.getOrThrow<'token' | 'otp'>('PASSWORD_RESET_METHOD')),
     ...buildTenancyOptions(),

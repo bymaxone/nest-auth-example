@@ -39,6 +39,9 @@ const VALID_ENV = {
   WEB_ORIGIN: 'http://localhost:3000',
   EMAIL_PROVIDER: 'mailpit',
   PASSWORD_RESET_METHOD: 'token',
+  // Declared here so the production-refinement cases below inherit a valid hop
+  // count; the dedicated test for that refinement overrides it back to 0.
+  TRUSTED_PROXY_HOPS: 1,
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -276,6 +279,29 @@ describe('envSchema — AUTH_THROTTLE_DISABLED', () => {
     if (!result.success) {
       const paths = result.error.issues.map((i) => i.path.join('.'));
       expect(paths).toContain('AUTH_THROTTLE_DISABLED');
+    }
+  });
+
+  it('rejects the direct-connection hop count in production', () => {
+    /*
+     * Scenario: the web server always proxies /api/*, so production has at
+     * least one hop. Booting with 0 there would silently share one rate-limit
+     * bucket across every user.
+     * Protects: the production refinement on TRUSTED_PROXY_HOPS.
+     */
+    const result = envSchema.safeParse({
+      ...VALID_ENV,
+      NODE_ENV: 'production',
+      WEB_ORIGIN: 'https://app.example.com',
+      EMAIL_PROVIDER: 'resend',
+      RESEND_API_KEY: 're_live_abc123',
+      TRUSTED_PROXY_HOPS: 0,
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'));
+      expect(paths).toContain('TRUSTED_PROXY_HOPS');
     }
   });
 
