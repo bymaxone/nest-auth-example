@@ -87,6 +87,12 @@ export interface WsClient {
 
 let socket: WebSocket | null = null;
 let attempt = 0;
+/**
+ * Close codes the gateway uses to refuse a credential: 4401 unauthorized,
+ * 4403 account suspended. Both mean reconnecting cannot succeed.
+ */
+const AUTH_CLOSE_CODES = new Set([4401, 4403]);
+
 let stopped = false;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 /** Monotonic guard: each `connect()` invalidates older in-flight ticket mints. */
@@ -168,22 +174,43 @@ interface WsTicketResponse {
  * along via `credentials: 'include'`; the library authenticates the mint call
  * exactly like any other dashboard request.
  *
- * @returns The ticket string, or null when the mint fails (not authenticated,
- *   network error) — callers fall back to cookie-authenticated upgrades.
+ * The three outcomes are kept apart on purpose. A refused mint means the
+ * credential itself is gone — the account was signed out elsewhere, suspended,
+ * or its MFA was reset — and retrying with the same cookie can only be refused
+ * again. Anything else (network blip, server hiccup) may still succeed, and a
+ * cookie-authenticated upgrade is a reasonable fallback there.
+ *
+ * @returns `unauthenticated` when the mint was refused, `unavailable` when it
+ *   failed for any other reason, otherwise the minted ticket.
  */
-async function fetchWsTicket(): Promise<string | null> {
+async function fetchWsTicket(): Promise<WsTicketResult> {
   try {
     const response = await fetch('/api/auth/ws-ticket', {
       method: 'POST',
       credentials: 'include',
     });
-    if (!response.ok) return null;
+    if (response.status === 401 || response.status === 403) {
+      return { kind: 'unauthenticated' };
+    }
+    if (!response.ok) return { kind: 'unavailable' };
     const body = (await response.json()) as WsTicketResponse;
-    return typeof body.ticket === 'string' && body.ticket.length > 0 ? body.ticket : null;
+    return typeof body.ticket === 'string' && body.ticket.length > 0
+      ? { kind: 'ticket', ticket: body.ticket }
+      : { kind: 'unavailable' };
   } catch {
-    return null;
+    return { kind: 'unavailable' };
   }
 }
+
+/**
+ * Outcome of a ticket mint.
+ *
+ * `unauthenticated` is terminal for the singleton; `unavailable` is not.
+ */
+type WsTicketResult =
+  | { kind: 'ticket'; ticket: string }
+  | { kind: 'unauthenticated' }
+  | { kind: 'unavailable' };
 
 /**
  * Opens a new WebSocket connection and wires the lifecycle handlers.
@@ -193,8 +220,9 @@ async function fetchWsTicket(): Promise<string | null> {
  * after `close()` has been called (`stopped === true`).
  *
  * Mints a fresh single-use ticket per attempt (tickets are consumed on redeem,
- * so a reconnect can never reuse one); on mint failure the upgrade proceeds
- * without a ticket and the gateway falls back to the `access_token` cookie.
+ * so a reconnect can never reuse one). A transient mint failure falls back to a
+ * cookie-authenticated upgrade; a refused one stops the client, because the
+ * fallback would present the same revoked credential.
  */
 function connect(): void {
   if (stopped || typeof WebSocket === 'undefined') return;
@@ -205,9 +233,17 @@ function connect(): void {
   // calls would each open a socket and the user would receive every
   // notification twice.
   const seq = ++connectSeq;
-  void fetchWsTicket().then((ticket) => {
+  void fetchWsTicket().then((result) => {
     if (stopped || seq !== connectSeq || socket !== null) return;
-    const query = ticket !== null ? `?ticket=${encodeURIComponent(ticket)}` : '';
+    if (result.kind === 'unauthenticated') {
+      // The credential is gone, so a cookie-authenticated upgrade carries the
+      // same revoked token and the gateway refuses it — which would land in
+      // `onclose` and schedule another attempt, forever. Stop instead; a later
+      // sign-in calls `reconnect()`, which clears this.
+      stopped = true;
+      return;
+    }
+    const query = result.kind === 'ticket' ? `?ticket=${encodeURIComponent(result.ticket)}` : '';
     openSocket(query);
   });
 }
@@ -237,8 +273,18 @@ function openSocket(query: string): void {
     }
   };
 
-  socket.onclose = () => {
+  socket.onclose = (event: CloseEvent) => {
     socket = null;
+    if (AUTH_CLOSE_CODES.has(event.code)) {
+      // The gateway refused this credential. Retrying presents the same one,
+      // and because the upgrade itself succeeds before the refusal, `onopen`
+      // has already reset the attempt counter — so the retry loop would sit at
+      // the backoff floor, issuing a ticket request and a rejected upgrade
+      // roughly every second for as long as the tab stays open. A later
+      // sign-in calls `reconnect()`, which clears this.
+      stopped = true;
+      return;
+    }
     if (!stopped) {
       // Compute the delay BEFORE incrementing so attempt=0 yields 1 000 ms,
       // attempt=1 yields 2 000 ms, etc.  Incrementing after ensures the next

@@ -36,7 +36,7 @@ class MockWebSocket {
   readyState = 1; // OPEN by default to avoid triggering onopen logic in some paths
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event: { code: number }) => void) | null = null;
   onerror: (() => void) | null = null;
 
   constructor(url: string) {
@@ -54,10 +54,19 @@ class MockWebSocket {
     this.onopen?.();
   }
 
-  /** Test helper — fires the close callback. */
-  simulateClose() {
+  /**
+   * Test helper — fires the close callback.
+   *
+   * A real `WebSocket` always hands `onclose` a `CloseEvent`, and the client
+   * branches on its code, so the double supplies one. 1006 (abnormal closure)
+   * is the transport-level default that should reconnect; pass 4401/4403 to
+   * model the gateway refusing the credential.
+   *
+   * @param code - Close code to report.
+   */
+  simulateClose(code = 1006) {
     this.readyState = 3;
-    this.onclose?.();
+    this.onclose?.({ code });
   }
 
   /** Test helper — fires the message callback with JSON-serialised data. */
@@ -322,6 +331,96 @@ describe('connectSeq guard', () => {
     await flushMintMicrotasks();
 
     expect(MockWebSocket.instances).toHaveLength(1);
+  });
+});
+
+describe('revoked credentials are terminal', () => {
+  it('stops reconnecting when the gateway refuses the credential', async () => {
+    /*
+     * Scenario: another device is signed out through sign-out-everywhere, or
+     * an admin resets its MFA. The gateway closes the socket with 4401. The
+     * upgrade itself succeeded first, so `onopen` already reset the attempt
+     * counter — a reconnect loop here would sit at the backoff floor, issuing
+     * a ticket request and a rejected upgrade about once a second for as long
+     * as the tab stays open.
+     * Protects: the 4401 branch in onclose. Without it the client schedules a
+     * reconnect and the socket count grows.
+     */
+    const client = await getConnectedClient();
+    expect(MockWebSocket.instances).toHaveLength(1);
+
+    MockWebSocket.instances[0]?.simulateClose(4401);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await flushMintMicrotasks();
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(client).toBeDefined();
+  });
+
+  it('stops reconnecting when the account is suspended', async () => {
+    /*
+     * Scenario: the 4403 half of the same rule — a suspended account cannot
+     * reconnect its way back in either.
+     * Protects: 4403 being in the terminal set, not just 4401.
+     */
+    await getConnectedClient();
+
+    MockWebSocket.instances[0]?.simulateClose(4403);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await flushMintMicrotasks();
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+  });
+
+  it('still reconnects after an ordinary transport close', async () => {
+    /*
+     * Scenario: the mirror case. A dropped connection is not an authorisation
+     * failure, and treating every close as terminal would leave users without
+     * notifications after any network blip.
+     * Protects: the terminal branch is scoped to the auth codes.
+     */
+    await getConnectedClient();
+
+    MockWebSocket.instances[0]?.simulateClose(1006);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await flushMintMicrotasks();
+
+    expect(MockWebSocket.instances.length).toBeGreaterThan(1);
+  });
+
+  it('does not open a socket at all when the ticket mint is refused', async () => {
+    /*
+     * Scenario: the mint returns 401 because the credential is already gone.
+     * Falling back to a cookie-authenticated upgrade would present that same
+     * revoked token, so the gateway refuses it and the loop starts one layer
+     * earlier. Nothing should be opened.
+     * Protects: the `unauthenticated` branch in connect().
+     */
+    mockFetch.mockResolvedValue({ ok: false, status: 401 } as unknown as Response);
+
+    getWsClient();
+    await flushMintMicrotasks();
+    await vi.advanceTimersByTimeAsync(60_000);
+    await flushMintMicrotasks();
+
+    expect(MockWebSocket.instances).toHaveLength(0);
+  });
+
+  it('falls back to a cookie upgrade when the mint fails for a non-auth reason', async () => {
+    /*
+     * Scenario: a 500 or a network blip says nothing about the credential, so
+     * the cookie-authenticated upgrade is still worth attempting — collapsing
+     * every failure into "terminal" would drop notifications on a server
+     * hiccup.
+     * Protects: `unavailable` staying non-terminal.
+     */
+    mockFetch.mockResolvedValue({ ok: false, status: 500 } as unknown as Response);
+
+    getWsClient();
+    await flushMintMicrotasks();
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(MockWebSocket.instances[0]?.url).not.toContain('ticket=');
   });
 });
 
