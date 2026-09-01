@@ -17,6 +17,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Inject,
   Post,
   Req,
   Res,
@@ -44,6 +45,7 @@ import { AccountService } from './account.service.js';
 import type { MfaStatusInfo, WorkspaceInfo } from './account.service.js';
 
 import { SwitchWorkspaceDto } from './dto/switch-workspace.dto.js';
+import { USER_CONNECTION_PORT, type UserConnectionPort } from '../realtime/user-connection.port.js';
 
 /**
  * Handles `/api/account` routes for the currently authenticated user.
@@ -61,6 +63,8 @@ export class AccountController {
     // on top of `issueTokensForUserId` + `deliverAuthResponse`.
     private readonly authService: AuthService,
     private readonly tokenDelivery: TokenDeliveryService,
+    @Inject(USER_CONNECTION_PORT)
+    private readonly userConnections: UserConnectionPort,
   ) {}
 
   /**
@@ -96,6 +100,30 @@ export class AccountController {
     @CurrentUser() user: DashboardJwtPayload,
   ): Promise<void> {
     return this.accountService.changePassword(user.sub, user.tenantId, dto);
+  }
+
+  /**
+   * Closes the caller's live realtime connections.
+   *
+   * The library's bulk revocation (`POST /auth/sessions/revoke-all`) ends every
+   * other session's HTTP credentials, but the notifications gateway
+   * authenticates a socket once — at connect — and never revalidates it. A
+   * device signed out that way therefore keeps receiving notifications on its
+   * already-open socket, on a session the user believes is gone.
+   *
+   * The library exposes no hook on that route, so the app orchestrates it: the
+   * web client calls this immediately after the bulk revoke, while it still
+   * holds a valid credential. Closing sockets for the caller's own user id is
+   * all it can do, which is exactly the scope of "sign out everywhere".
+   *
+   * POST /api/account/realtime/disconnect
+   *
+   * @param user - Authenticated user injected by `@CurrentUser()`.
+   */
+  @Post('realtime/disconnect')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  disconnectRealtime(@CurrentUser() user: DashboardJwtPayload): void {
+    this.userConnections.disconnectUser(user.sub);
   }
 
   /**

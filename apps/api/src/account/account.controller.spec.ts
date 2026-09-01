@@ -16,6 +16,7 @@ import { Test } from '@nestjs/testing';
 import { AuthRateLimitGuard, AuthService, TokenDeliveryService } from '@bymax-one/nest-auth';
 import type { Request, Response } from 'express';
 
+import { USER_CONNECTION_PORT } from '../realtime/user-connection.port.js';
 import { AccountController } from './account.controller.js';
 import { AccountService } from './account.service.js';
 import type { ChangePasswordDto } from '@bymax-one/nest-auth';
@@ -43,6 +44,7 @@ describe('AccountController', () => {
     () => Promise<{ targetUserId: string; targetTenantSlug: string }>
   >;
   let issueTokensForUserId: jest.Mock<() => Promise<unknown>>;
+  let disconnectUser: jest.Mock<() => void>;
   let deliverAuthResponse: jest.Mock<() => unknown>;
 
   beforeEach(async () => {
@@ -52,6 +54,7 @@ describe('AccountController', () => {
     findSwitchTarget = jest.fn<() => Promise<{ targetUserId: string; targetTenantSlug: string }>>();
     issueTokensForUserId = jest.fn<() => Promise<unknown>>();
     deliverAuthResponse = jest.fn<() => unknown>();
+    disconnectUser = jest.fn<() => void>();
 
     const moduleRef = await Test.createTestingModule({
       controllers: [AccountController],
@@ -60,6 +63,8 @@ describe('AccountController', () => {
           provide: AccountService,
           useValue: { changePassword, listWorkspaces, getMfaStatus, findSwitchTarget },
         },
+        // Closes the caller's sockets after a bulk session revoke.
+        { provide: USER_CONNECTION_PORT, useValue: { disconnectUser } },
         // AuthService + TokenDeliveryService are public exports of
         // `@bymax-one/nest-auth` v1.0.10+. The controller injects them to
         // run the silent workspace-switch flow; we stub the surfaces the
@@ -308,6 +313,25 @@ describe('AccountController', () => {
         ),
       ).rejects.toBe(err);
       expect(deliverAuthResponse).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('disconnectRealtime', () => {
+    it("closes the caller's own connections and nobody else's", async () => {
+      /*
+       * Scenario: the bulk revoke leaves other devices' sockets open because
+       * the gateway authenticates only at connect. This route closes them —
+       * but strictly for the authenticated caller, taken from the verified
+       * token. Accepting a user id from anywhere else would turn it into a
+       * way to disconnect arbitrary users.
+       * Protects: the id passed to the port comes from `user.sub`.
+       */
+      const user = { sub: 'user-42', tenantId: 'acme' } as never;
+
+      await Promise.resolve(controller.disconnectRealtime(user));
+
+      expect(disconnectUser).toHaveBeenCalledWith('user-42');
+      expect(disconnectUser).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -120,6 +120,7 @@ import {
   changePassword,
   notifySelf,
   mfaSetup,
+  disconnectRealtime,
   mfaVerifyEnable,
   mfaDisable,
   mfaRegenerateRecoveryCodes,
@@ -1641,6 +1642,25 @@ describe('platformUpdateUserStatus', () => {
 });
 
 // ── MFA helpers ───────────────────────────────────────────────────────────────
+
+describe('disconnectRealtime', () => {
+  it('sends POST /account/realtime/disconnect', async () => {
+    /*
+     * Scenario: the bulk revoke ends other sessions' HTTP credentials but the
+     * gateway authenticates a socket only at connect, so those devices keep
+     * streaming. This call is what closes them, and it must reach the
+     * app-owned route while the caller is still authenticated.
+     * Protects: path and method of the disconnect helper.
+     */
+    mockInnerFetch.mockResolvedValueOnce(make204Response());
+
+    await disconnectRealtime();
+
+    const [path, init] = mockInnerFetch.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe('/account/realtime/disconnect');
+    expect(init.method).toBe('POST');
+  });
+});
 
 describe('mfaSetup', () => {
   it('sends POST /auth/mfa/setup with the re-auth password in the body and returns MfaSetupInfo', async () => {

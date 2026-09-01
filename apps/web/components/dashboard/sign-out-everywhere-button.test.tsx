@@ -37,6 +37,7 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/lib/auth-client', () => ({
   revokeAllSessions: vi.fn(),
+  disconnectRealtime: vi.fn(),
   handleAuthClientError: vi.fn(),
 }));
 
@@ -51,13 +52,14 @@ vi.mock('@/lib/ws-client', () => ({
 
 // ── Typed imports after mocks ─────────────────────────────────────────────────
 
-import { revokeAllSessions, handleAuthClientError } from '@/lib/auth-client';
+import { revokeAllSessions, disconnectRealtime, handleAuthClientError } from '@/lib/auth-client';
 import { toast } from 'sonner';
 import { SignOutEverywhereButton } from './sign-out-everywhere-button.js';
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
+  vi.mocked(disconnectRealtime).mockResolvedValue(undefined);
 });
 
 describe('SignOutEverywhereButton rendering', () => {
@@ -227,6 +229,28 @@ describe('SignOutEverywhereButton dialog flow', () => {
 
     await waitFor(() => expect(handleAuthClientError).toHaveBeenCalled());
     expect(mockWsClose).not.toHaveBeenCalled();
+  });
+
+  it('disconnects the other devices before logging this one out', async () => {
+    /*
+     * Scenario: the bulk revoke ends every other session's HTTP credentials,
+     * but the gateway authenticates a socket only at connect, so those devices
+     * keep streaming on sockets already open. Closing only the local client
+     * would leave exactly the devices this action targets connected.
+     * Protects: the server-side disconnect call, and that it runs while this
+     * session is still authenticated — after the logout it would be rejected.
+     */
+    vi.mocked(revokeAllSessions).mockResolvedValue(undefined);
+
+    render(<SignOutEverywhereButton />);
+    fireEvent.click(screen.getByRole('button', { name: /sign out everywhere/i }));
+    const allButtons = screen.getAllByRole('button', { name: /sign out everywhere/i });
+    fireEvent.click(allButtons[allButtons.length - 1]!);
+
+    await waitFor(() => expect(disconnectRealtime).toHaveBeenCalledOnce());
+    const disconnectOrder = vi.mocked(disconnectRealtime).mock.invocationCallOrder[0] ?? 0;
+    const logoutOrder = mockFetch.mock.invocationCallOrder[0] ?? 0;
+    expect(disconnectOrder).toBeLessThan(logoutOrder);
   });
 
   it('surfaces an error and does not redirect when the logout call fails', async () => {

@@ -43,9 +43,12 @@ export default function SecurityPage() {
   const { user, refresh } = useSession();
   const searchParams = useSearchParams();
   const [isMfaRequired, setIsMfaRequired] = useState(false);
-  // Defaults to true so the setup card asks for a password until the status
-  // says otherwise — the safe direction while the snapshot is still loading.
-  const [hasPassword, setHasPassword] = useState(true);
+  // `null` means "not known yet" — either still loading or the status request
+  // failed. It is deliberately distinct from `false`: pinning it to a boolean
+  // on failure would either strand OAuth-only accounts behind a password field
+  // they cannot fill, or drop the password requirement for accounts that do
+  // have one. Consumers below decide what unknown means for them.
+  const [hasPassword, setHasPassword] = useState<boolean | null>(null);
 
   // Fetch the workspace MFA policy on mount. We only need the `required`
   // flag here — the recovery-code counter inside MfaDisableCard has its
@@ -63,6 +66,9 @@ export default function SecurityPage() {
           setHasPassword(status.hasPassword);
         }
       } catch {
+        // Leave `hasPassword` unknown rather than guessing. A single transient
+        // failure must not permanently decide a capability the user cannot
+        // re-trigger without a reload.
         if (!cancelled) setIsMfaRequired(false);
       }
     })();
@@ -138,7 +144,7 @@ export default function SecurityPage() {
         ) : user.mfaEnabled ? (
           <MfaDisableCard onDisabled={handleToggle} />
         ) : (
-          <MfaSetupCard onEnabled={handleToggle} hasPassword={hasPassword} />
+          <MfaSetupCard onEnabled={handleToggle} hasPassword={hasPassword ?? true} />
         )}
       </div>
 
@@ -147,11 +153,13 @@ export default function SecurityPage() {
           here, then a confirmation link mailed to the new address which
           lands on /auth/confirm-email-change. Rendered only once the
           session has resolved so an anonymous flash never shows the form,
-          and only for accounts that HAVE a password: the change re-proves
-          the current one, which an OAuth-only account cannot supply, so
-          showing the card there would offer an action that can never
-          succeed. Their address is owned by the identity provider. */}
-      {user !== null && hasPassword && (
+          and only once the capability is known to be true: the change
+          re-proves the current password, which an OAuth-only account cannot
+          supply, so showing the card there would offer an action that can
+          never succeed. Unknown is treated as "do not offer it" — better a
+          missing card after a failed status fetch than a permanently failing
+          form. Their address is owned by the identity provider. */}
+      {user !== null && hasPassword === true && (
         <div className="max-w-xl">
           <EmailChangeCard />
         </div>

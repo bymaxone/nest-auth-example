@@ -1,16 +1,18 @@
 /**
  * @fileoverview "Sign out everywhere" button — ends every session, this one included.
  *
- * Three steps are required, in this order:
+ * Four steps are required, in this order:
  *
  *   1. `POST /auth/sessions/revoke-all` — the library's bulk revocation, which
  *      by design preserves the session making the call
  *      (`SessionService.revokeAllExceptCurrent`).
  *   2. `POST /api/auth/logout` — terminates that surviving session, so the
  *      device in front of the user is signed out too.
- *   3. `getWsClient().close()` — closes the notification socket, which the
- *      gateway would otherwise keep serving: it authenticates on connect and
- *      never revalidates.
+ *   3. `POST /api/account/realtime/disconnect` — closes the sockets on every
+ *      OTHER device, which the gateway would otherwise keep serving: it
+ *      authenticates on connect and never revalidates an established socket.
+ *   4. `getWsClient().close()` — closes this tab's own socket, which the
+ *      server-side disconnect cannot reach once the session is gone.
  *
  * Step 2 is not optional garnish: without it the caller's refresh cookie stays
  * valid and a silent refresh re-authenticates the very browser the user just
@@ -39,7 +41,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { revokeAllSessions, handleAuthClientError } from '@/lib/auth-client';
+import { revokeAllSessions, disconnectRealtime, handleAuthClientError } from '@/lib/auth-client';
 import { getWsClient } from '@/lib/ws-client';
 
 /**
@@ -93,6 +95,12 @@ export function SignOutEverywhereButton() {
     setIsPending(true);
     try {
       await revokeAllSessions();
+      // The revoke ends the other sessions' HTTP credentials, but the gateway
+      // authenticates a socket only at connect, so every OTHER device keeps
+      // streaming on a socket that is already open. Closing the local client
+      // alone would leave exactly the devices this action targets connected.
+      // Runs before the logout, while this session is still authenticated.
+      await disconnectRealtime();
       // Bulk revocation spares the caller's own session — end it explicitly.
       const response = await fetch(LOGOUT_ROUTE, { method: 'POST', credentials: 'include' });
       if (!response.ok) {

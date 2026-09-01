@@ -5,10 +5,12 @@
  * Redis client, email provider, and auth hooks.
  *
  * Design notes:
- * - `chooseEmailProviderClass` is evaluated once at module decoration time (before
- *   the DI container is available), reading `process.env.EMAIL_PROVIDER` directly.
- *   This is an accepted exception to the "no direct process.env" rule because NestJS
- *   `@Module()` metadata must be synchronous — see AGENTS.md §Critical Rules.
+ * - The email provider and the breach checker are chosen inside factories that
+ *   inject `ConfigService`, so both reads go through the validated schema.
+ * - `isGoogleOAuthConfigured` is the one remaining decoration-time read: the
+ *   `controllers.oauth` flag is static `@Module()` metadata, evaluated before any
+ *   factory resolves, so no injected value can reach it. It only asks whether two
+ *   variables are non-empty and never carries their values into behaviour.
  * - `controllers.mfa` and `controllers.oauth` are synchronous flags on `registerAsync`
  *   (not inside `useFactory`) because the module is built before `useFactory` resolves.
  * - `BYMAX_AUTH_REDIS_CLIENT` must be in `extraProviders` — the library's `registerAsync`
@@ -20,7 +22,6 @@
  */
 
 import { Module } from '@nestjs/common';
-import type { Type } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import {
   AllowAllBreachChecker,
@@ -54,23 +55,33 @@ import { PrismaPlatformUserRepository } from './prisma-platform-user.repository.
 import { ResendEmailProvider } from './resend-email.provider.js';
 
 /**
- * Returns the email provider class based on `EMAIL_PROVIDER` env var.
+ * Provider for `BYMAX_AUTH_EMAIL_PROVIDER`, selected from validated config.
  *
- * Evaluated once at module decoration time (synchronous, before DI initialises).
- * `process.env` is the only source available at this stage — this is the accepted
- * exception documented in AGENTS.md §Critical Rules §7.
+ * Resolved in a factory rather than at module-decoration time so the choice
+ * comes from `ConfigService<Env, true>` — the schema has already validated the
+ * value and applied its default by the time DI instantiates this. A
+ * decoration-time `process.env` read would freeze the class before validation
+ * runs, and AGENTS.md rule 7 carves out no exception for it.
  *
- * @returns `ResendEmailProvider` when `EMAIL_PROVIDER=resend`;
- *   `MailpitDefaultEmailProvider` (the library's `DefaultAuthEmailProvider`
- *   over a Mailpit SMTP sink) when `EMAIL_PROVIDER=mailpit-default`;
- *   otherwise `MailpitEmailProvider`.
+ * All three implementations take the same single `ConfigService` dependency,
+ * so the factory constructs the chosen one directly.
+ *
+ * - `resend` — `ResendEmailProvider`, the production backend.
+ * - `mailpit-default` — `MailpitDefaultEmailProvider`, the library's
+ *   `DefaultAuthEmailProvider` over a Mailpit SMTP sink. Dev only.
+ * - `mailpit` (default) — `MailpitEmailProvider`, hand-written templates over
+ *   the same local SMTP endpoint. Dev only.
  */
-function chooseEmailProviderClass(): Type<IEmailProvider> {
-  const provider = (process.env['EMAIL_PROVIDER'] ?? 'mailpit').toLowerCase();
-  if (provider === 'resend') return ResendEmailProvider;
-  if (provider === 'mailpit-default') return MailpitDefaultEmailProvider;
-  return MailpitEmailProvider;
-}
+const emailProviderProvider = {
+  provide: BYMAX_AUTH_EMAIL_PROVIDER,
+  inject: [ConfigService],
+  useFactory: (config: ConfigService<Env, true>): IEmailProvider => {
+    const provider = config.getOrThrow<string>('EMAIL_PROVIDER');
+    if (provider === 'resend') return new ResendEmailProvider(config);
+    if (provider === 'mailpit-default') return new MailpitDefaultEmailProvider(config);
+    return new MailpitEmailProvider(config);
+  },
+};
 
 /**
  * Returns `true` iff both Google OAuth env vars are set at process startup.
@@ -88,8 +99,6 @@ function isGoogleOAuthConfigured(): boolean {
     process.env['OAUTH_GOOGLE_CLIENT_SECRET'].length > 0
   );
 }
-
-const EmailProviderClass = chooseEmailProviderClass();
 
 /**
  * Provider for `BYMAX_AUTH_BREACH_CHECKER`, selected from validated config.
@@ -173,7 +182,8 @@ const breachCheckerProvider = {
         },
         { provide: BYMAX_AUTH_USER_REPOSITORY, useClass: PrismaUserRepository },
         { provide: BYMAX_AUTH_PLATFORM_USER_REPOSITORY, useClass: PrismaPlatformUserRepository },
-        { provide: BYMAX_AUTH_EMAIL_PROVIDER, useClass: EmailProviderClass },
+        // Email provider, chosen from validated config — see the provider above.
+        emailProviderProvider,
         { provide: BYMAX_AUTH_HOOKS, useClass: AppAuthHooks },
         // Breach checker, chosen from validated config — see the provider above.
         breachCheckerProvider,

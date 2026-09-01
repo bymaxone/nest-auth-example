@@ -14,6 +14,7 @@ import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module.js';
 import { PrismaModule } from '../prisma/prisma.module.js';
+import { RealtimeModule } from '../realtime/realtime.module.js';
 import { AccountController } from './account.controller.js';
 import { AccountService } from './account.service.js';
 
@@ -27,7 +28,7 @@ import { AccountService } from './account.service.js';
  * @public
  */
 @Module({
-  imports: [PrismaModule, AuthModule],
+  imports: [PrismaModule, AuthModule, RealtimeModule],
   controllers: [AccountController],
   providers: [AccountService],
 })

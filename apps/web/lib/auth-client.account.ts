@@ -8,8 +8,9 @@
  * keeps the caller's own session alive.
  *
  * The app also ships a custom `POST /api/account/change-password` endpoint as
- * a reference for building an app-owned flow on top of `AuthService`; the UI
- * uses the library route to stay library-faithful.
+ * a reference for building an app-owned route over a library service — it
+ * delegates the credential operation to `PasswordResetService.changePassword`.
+ * The UI uses the library route directly to stay library-faithful.
  *
  * Split out of `auth-client.ts` to keep the parent module under the
  * 800-line file cap; consumers keep importing from `@/lib/auth-client`

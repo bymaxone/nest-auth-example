@@ -532,6 +532,19 @@ export const revokeSession = (sessionHash: string): Promise<void> =>
 export const revokeAllSessions = (): Promise<void> =>
   apiFetch<void>('/auth/sessions/revoke-all', { method: 'POST' });
 
+/**
+ * Closes the caller's live realtime connections.
+ *
+ * Pairs with `revokeAllSessions`: the bulk revoke ends every other session's
+ * HTTP credentials, but the notifications gateway authenticates a socket only
+ * at connect time, so the other devices keep streaming on sockets that were
+ * already open. The library exposes no hook on its revoke route, so the app
+ * orchestrates this itself — call it while the caller still holds a valid
+ * credential, i.e. before logging out.
+ */
+export const disconnectRealtime = (): Promise<void> =>
+  apiFetch<void>('/account/realtime/disconnect', { method: 'POST' });
+
 // The MFA, audit, notifications, account, email-change, tenant-resource and
 // platform-admin
 // slices each live in their own module so this file stays under the 800-line
