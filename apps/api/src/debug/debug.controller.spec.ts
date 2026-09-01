@@ -115,7 +115,7 @@ describe('DebugController', () => {
     isAccountLockedOut.mockResolvedValue(false);
     getAccountLockoutSeconds.mockResolvedValue(0);
 
-    const result = await controller.lockoutStatus('user@example.com', reqWithTenant());
+    const result = await controller.lockoutStatus({ email: 'user@example.com' }, reqWithTenant());
 
     expect(isAccountLockedOut).toHaveBeenCalledWith('user@example.com', TENANT_ID);
     expect(getAccountLockoutSeconds).toHaveBeenCalledWith('user@example.com', TENANT_ID);
@@ -138,9 +138,9 @@ describe('DebugController', () => {
     await expect(
       controller.lockout({ email: 'user@example.com' }, makeRequest({})),
     ).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(controller.lockoutStatus('user@example.com', makeRequest({}))).rejects.toThrow(
-      ForbiddenException,
-    );
+    await expect(
+      controller.lockoutStatus({ email: 'user@example.com' }, makeRequest({})),
+    ).rejects.toThrow(ForbiddenException);
     await expect(
       controller.unlock({ email: 'user@example.com' }, makeRequest({})),
     ).rejects.toBeInstanceOf(ForbiddenException);
@@ -154,7 +154,7 @@ describe('DebugController', () => {
       controller.lockout({ email: 'user@example.com' }, reqWithTenant()),
     ).rejects.toBeInstanceOf(ForbiddenException);
     await expect(
-      controller.lockoutStatus('user@example.com', reqWithTenant()),
+      controller.lockoutStatus({ email: 'user@example.com' }, reqWithTenant()),
     ).rejects.toBeInstanceOf(ForbiddenException);
     await expect(
       controller.unlock({ email: 'user@example.com' }, reqWithTenant()),

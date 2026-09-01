@@ -52,6 +52,19 @@ class LockoutDto {
 }
 
 /**
+ * DTO for the lockout status read. Separate from {@link LockoutDto} because it
+ * arrives as a query string, but validated the same way: a primitive
+ * `@Query('email')` carries no validation metadata, so the global pipe cannot
+ * see it and a missing or malformed value would reach the library as an
+ * internal error instead of a 400.
+ */
+class LockoutStatusQueryDto {
+  /** Target user email address. */
+  @IsEmail()
+  email!: string;
+}
+
+/**
  * Response shape returned by `GET /api/debug/lockout`.
  */
 interface LockoutStatusResponse {
@@ -165,21 +178,21 @@ export class DebugController {
    *
    * GET /api/debug/lockout?email=…
    *
-   * @param email - Target user email address (query parameter).
+   * @param query - Validated query carrying the target email address.
    * @param req - Incoming request carrying the `X-Tenant-Id` header.
    * @returns Current lockout state and remaining window.
    */
   @Get('lockout')
   @Public()
   async lockoutStatus(
-    @Query('email') email: string,
+    @Query() query: LockoutStatusQueryDto,
     @Req() req: Request,
   ): Promise<LockoutStatusResponse> {
     DebugController.assertNotProduction();
     const tenantId = requireTenantHeader(req);
     const [locked, retryAfterSeconds] = await Promise.all([
-      this.authService.isAccountLockedOut(email, tenantId),
-      this.authService.getAccountLockoutSeconds(email, tenantId),
+      this.authService.isAccountLockedOut(query.email, tenantId),
+      this.authService.getAccountLockoutSeconds(query.email, tenantId),
     ]);
     return { locked, retryAfterSeconds };
   }
