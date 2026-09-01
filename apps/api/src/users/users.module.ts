@@ -14,7 +14,7 @@ import { Module } from '@nestjs/common';
 
 import { PrismaModule } from '../prisma/prisma.module.js';
 import { PrismaUserRepository } from '../auth/prisma-user.repository.js';
-import { NotificationsModule } from '../notifications/notifications.module.js';
+import { RealtimeModule } from '../realtime/realtime.module.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { UsersController } from './users.controller.js';
 import { UsersService } from './users.service.js';
@@ -22,8 +22,8 @@ import { UsersService } from './users.service.js';
 /**
  * Self-contained module for tenant-admin user endpoints.
  *
- * Imports `NotificationsModule` so that `UsersService` can call
- * `NotificationsGateway.maybeDisconnectBlockedUser` when a user's status is
+ * Imports `RealtimeModule` so that `UsersService` can call
+ * the shared user-connection port when a user's status is
  * changed to a blocked value.
  *
  * @public
@@ -32,7 +32,7 @@ import { UsersService } from './users.service.js';
   // AuthModule re-exports BymaxAuthModule so AuthRedisService is in scope here
   // — UsersService injects it to invalidate the UserStatusGuard cache key
   // (`us:{userId}`) immediately after a status update.
-  imports: [PrismaModule, NotificationsModule, AuthModule],
+  imports: [PrismaModule, RealtimeModule, AuthModule],
   controllers: [UsersController],
   providers: [UsersService, PrismaUserRepository],
 })

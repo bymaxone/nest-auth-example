@@ -23,7 +23,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Env } from '../config/env.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { userStatusCacheKey } from '../redis/user-status-cache-key.js';
-import { NotificationsGateway } from '../notifications/notifications.gateway.js';
+import { USER_CONNECTION_PORT, type UserConnectionPort } from '../realtime/user-connection.port.js';
 import type { UpdateStatusDto } from './dto/update-status.dto.js';
 
 /**
@@ -58,7 +58,8 @@ export class UsersService {
   constructor(
     private readonly userRepository: PrismaUserRepository,
     private readonly prisma: PrismaService,
-    private readonly notificationsGateway: NotificationsGateway,
+    @Inject(USER_CONNECTION_PORT)
+    private readonly userConnections: UserConnectionPort,
     @Inject(BYMAX_AUTH_REDIS_CLIENT) private readonly authRedis: Redis,
     private readonly config: ConfigService<Env, true>,
   ) {}
@@ -156,7 +157,7 @@ export class UsersService {
     // for this user so they cannot continue to receive push notifications.
     // This is non-blocking and fire-and-forget — a disconnect failure must not
     // abort the status update.
-    this.notificationsGateway.maybeDisconnectBlockedUser(targetUserId, dto.status);
+    this.userConnections.maybeDisconnectBlockedUser(targetUserId, dto.status);
 
     const safe: SafeAuthUser = {
       id: updated.id,

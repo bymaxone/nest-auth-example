@@ -26,7 +26,7 @@ import type { Tenant, User } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { BYMAX_AUTH_REDIS_CLIENT, MfaService } from '@bymax-one/nest-auth';
-import { NotificationsGateway } from '../notifications/notifications.gateway.js';
+import { USER_CONNECTION_PORT } from '../realtime/user-connection.port.js';
 
 import { PlatformService } from './platform.service.js';
 import type { PlatformSafeUser } from './platform.service.js';
@@ -123,7 +123,7 @@ describe('PlatformService', () => {
         // The library's MfaService backs the administrative reset flow.
         { provide: MfaService, useValue: { resetMfa } },
         // The gateway closes live sockets once the reset revokes the session.
-        { provide: NotificationsGateway, useValue: { disconnectUser } },
+        { provide: USER_CONNECTION_PORT, useValue: { disconnectUser } },
         // The library-namespaced Redis client backs the UserStatusGuard cache
         // invalidation performed after a status change.
         { provide: BYMAX_AUTH_REDIS_CLIENT, useValue: { del: redisDel } },

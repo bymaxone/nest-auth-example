@@ -23,7 +23,7 @@ import type { SafeAuthUser } from '@bymax-one/nest-auth';
 
 import { PrismaUserRepository } from '../auth/prisma-user.repository.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { NotificationsGateway } from '../notifications/notifications.gateway.js';
+import { USER_CONNECTION_PORT } from '../realtime/user-connection.port.js';
 import { UsersService } from './users.service.js';
 import type { TenantUserRecord } from './users.service.js';
 import type { UpdateStatusDto } from './dto/update-status.dto.js';
@@ -135,10 +135,7 @@ describe('UsersService', () => {
             auditLog: { create: auditLogCreate },
           },
         },
-        {
-          provide: NotificationsGateway,
-          useValue: { maybeDisconnectBlockedUser },
-        },
+        { provide: USER_CONNECTION_PORT, useValue: { maybeDisconnectBlockedUser } },
         // The status-cache key is namespaced from REDIS_NAMESPACE.
         {
           provide: ConfigService,
