@@ -21,8 +21,16 @@
  * The alternative is to drop the invalidation and accept up to the full TTL of
  * stale enforcement after every suspension, which is worse. The real fix is a
  * supported invalidation method on the library: `UserStatusGuard` exposes only
- * `canActivate`, and `invalidateUserSessions` clears refresh sessions rather
- * than this cache, so there is nothing to call today.
+ * `canActivate`, `AuthRedisService` exposes only generic `get`/`set`/`del`, and
+ * `invalidateUserSessions` clears refresh sessions rather than this cache, so
+ * there is nothing to call today. Tracked upstream as bymaxone/nest-auth#182.
+ *
+ * **The reproduction is partial, deliberately.** The guard caches two entries
+ * per user on the same miss and TTL: `us:` for the status and `uev:` for the
+ * email-verified flag. Only `us:` is deleted here, because only the status is
+ * what a suspension changes. Anything that made `emailVerified` go stale would
+ * need the sibling key too — a second reason this belongs upstream rather than
+ * here.
  *
  * @layer redis
  * @see docs/guidelines/redis-guidelines.md

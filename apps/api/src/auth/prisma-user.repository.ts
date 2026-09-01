@@ -34,7 +34,7 @@ import type {
   UpdateStatusParams,
 } from '@bymax-one/nest-auth';
 import { AUTH_ERROR_CODES, AuthException } from '@bymax-one/nest-auth';
-import { Role, UserStatus, type User } from '@prisma/client';
+import { Prisma, Role, UserStatus, type User } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { BLOCKED_USER_STATUSES } from './auth.constants.js';
@@ -301,25 +301,25 @@ export class PrismaUserRepository implements IUserRepository {
    * `auth.oauth_email_mismatch` — a stranger who controls the provider identity
    * for someone else's address must not inherit their account.
    *
-   * Implemented as an upsert on `(tenantId, email)` rather than a create:
-   * - **Insert branch** — the normal path. A fresh row with no password hash
-   *   and the OAuth identity pre-populated.
-   * - **Update branch** — reached only in the race where a row for that address
-   *   is committed between the library's check and this write. It touches the
-   *   OAuth identity and `emailVerified` alone, leaving name, role, and status
-   *   as they were, so a concurrent insert cannot be escalated through this
-   *   path. A plain `create` would answer that race with a unique-constraint
-   *   crash instead.
+   * A plain create, deliberately, not an upsert. The unique constraint on
+   * `(tenantId, email)` is what closes the race where a registration for the
+   * same address commits between the library's check and this write: an update
+   * branch would attach the OAuth identity to that just-created account and
+   * return it for token issuance, which is silent email-based linking — the
+   * exact behaviour 1.4.x removed — reachable by whoever wins the race. The
+   * conflict is translated into the same `auth.oauth_email_mismatch` the
+   * library raises on the non-racing path, so the answer does not depend on
+   * timing.
    *
-   * Blocked-status guard (two-phase):
-   * 1. Pre-upsert `findUnique` — rejects blocked existing users before the upsert
-   *    runs, preventing the `update` branch from mutating `emailVerified` on a
-   *    blocked row as a side effect of a rejected authentication attempt.
-   * 2. Post-upsert check — catches the narrow TOCTOU window where an account is
-   *    blocked between the pre-check and the upsert commit.
+   * The created row is then re-checked for a blocked status: `data.status` is
+   * a caller-supplied value, and the library's OAuth flow issues tokens without
+   * consulting status, so this is the only thing standing between a blocked
+   * status and a session.
    *
    * @param data - OAuth creation payload.
-   * @returns The created or updated `AuthUser`.
+   * @returns The created `AuthUser`.
+   * @throws `AuthException` `auth.oauth_email_mismatch` when the address is
+   *   already taken, `auth.oauth_failed` when the new row is blocked.
    */
   async createWithOAuth(data: CreateWithOAuthData): Promise<AuthUser> {
     const role =
@@ -330,52 +330,35 @@ export class PrismaUserRepository implements IUserRepository {
     const status = Object.values(UserStatus).find((s) => s === data.status) ?? UserStatus.ACTIVE;
     const email = data.email.toLowerCase();
 
-    // Pre-upsert blocked-status check: reject a blocked existing row before any
-    // write occurs. This port is the boundary, so it does not assume the caller
-    // screened the address first — reaching the update branch on a blocked
-    // account would commit `emailVerified = true` on it, and the post-upsert
-    // check below only withholds tokens, it does not undo that write. A blocked
-    // user could otherwise bank a verified email for whenever an admin
-    // re-activates them.
-    const existingForStatusCheck = await this.prisma.user.findUnique({
-      where: { tenantId_email: { tenantId: data.tenantId, email } },
-      select: { status: true },
-    });
-    if (
-      existingForStatusCheck !== null &&
-      BLOCKED_USER_STATUSES.includes(existingForStatusCheck.status)
-    ) {
-      throw new AuthException(AUTH_ERROR_CODES.OAUTH_FAILED);
+    let row: User;
+    try {
+      row = await this.prisma.user.create({
+        data: {
+          email,
+          name: data.name,
+          passwordHash: null,
+          role,
+          status,
+          tenantId: data.tenantId,
+          emailVerified: data.emailVerified ?? false,
+          oauthProvider: data.oauthProvider,
+          oauthProviderId: data.oauthProviderId,
+        },
+      });
+    } catch (error) {
+      // P2002 — the address was taken between the library's `findByEmail` and
+      // this insert. Letting the database decide is what makes the refusal
+      // race-free: the alternative, updating whatever row is there, would hand
+      // the OAuth identity to an account this flow never verified.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new AuthException(AUTH_ERROR_CODES.OAUTH_EMAIL_MISMATCH);
+      }
+      throw error;
     }
 
-    const row = await this.prisma.user.upsert({
-      where: { tenantId_email: { tenantId: data.tenantId, email } },
-      // Only reachable on the concurrent-insert race described above. Update
-      // the OAuth identity fields alone — never name, role, or status.
-      update: {
-        oauthProvider: data.oauthProvider,
-        oauthProviderId: data.oauthProviderId,
-        emailVerified: data.emailVerified ?? true,
-      },
-      create: {
-        email,
-        name: data.name,
-        passwordHash: null,
-        role,
-        status,
-        tenantId: data.tenantId,
-        emailVerified: data.emailVerified ?? false,
-        oauthProvider: data.oauthProvider,
-        oauthProviderId: data.oauthProviderId,
-      },
-    });
-
-    // Post-upsert check catches the TOCTOU window where an account is blocked
-    // between the pre-check query and the upsert commit. The upsert returns
-    // the row as it exists in the DB at commit time, so this reflects the
-    // actual current status. The library's OAuthService does not check user
-    // status before issuing tokens, so this guard is the sole protection for
-    // the OAuth path.
+    // `data.status` reaches here from the caller, and the library's OAuthService
+    // issues tokens without consulting status, so this guard is the only thing
+    // between a blocked status and a live session on the OAuth path.
     if (BLOCKED_USER_STATUSES.includes(row.status)) {
       throw new AuthException(AUTH_ERROR_CODES.OAUTH_FAILED);
     }

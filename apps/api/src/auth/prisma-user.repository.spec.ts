@@ -21,11 +21,11 @@
  * @see apps/api/src/auth/prisma-user.repository.ts
  */
 
-import { AuthException } from '@bymax-one/nest-auth';
+import { AUTH_ERROR_CODES, AuthException } from '@bymax-one/nest-auth';
 import { jest } from '@jest/globals';
 import { Test } from '@nestjs/testing';
 import type { User } from '@prisma/client';
-import { Role, UserStatus } from '@prisma/client';
+import { Prisma, Role, UserStatus } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PrismaUserRepository } from './prisma-user.repository.js';
@@ -69,26 +69,28 @@ const TEST_OAUTH_DATA = {
 
 // ─── Suite ───────────────────────────────────────────────────────────────────
 
-describe('PrismaUserRepository.createWithOAuth — blocked-status guards', () => {
+describe('PrismaUserRepository.createWithOAuth', () => {
   let repo: PrismaUserRepository;
-  let userFindUnique: jest.Mock<() => Promise<{ status: UserStatus } | null>>;
-  let userUpsert: jest.Mock<() => Promise<User>>;
+  let userCreate: jest.Mock<() => Promise<User>>;
+
+  /** The unique-violation Prisma raises when `(tenantId, email)` is taken. */
+  function uniqueViolation(): Prisma.PrismaClientKnownRequestError {
+    return new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+      code: 'P2002',
+      clientVersion: 'test',
+      meta: { target: ['tenantId', 'email'] },
+    });
+  }
 
   beforeEach(async () => {
-    userFindUnique = jest.fn<() => Promise<{ status: UserStatus } | null>>();
-    userUpsert = jest.fn<() => Promise<User>>();
+    userCreate = jest.fn<() => Promise<User>>();
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         PrismaUserRepository,
         {
           provide: PrismaService,
-          useValue: {
-            user: {
-              findUnique: userFindUnique,
-              upsert: userUpsert,
-            },
-          },
+          useValue: { user: { create: userCreate } },
         },
       ],
     }).compile();
@@ -100,224 +102,220 @@ describe('PrismaUserRepository.createWithOAuth — blocked-status guards', () =>
     jest.resetAllMocks();
   });
 
-  // ─── Pre-upsert guard ────────────────────────────────────────────────────
+  // ─── Address already taken (the race) ────────────────────────────────────
 
-  it('throws AuthException before the upsert when the pre-check finds a blocked existing user', async () => {
-    // FCM #23 — A BANNED user who triggers the OAuth flow must be rejected
-    // immediately. The upsert must NOT run, so emailVerified is never mutated
-    // on the blocked row as a side effect of a rejected authentication attempt.
-    userFindUnique.mockResolvedValue({ status: UserStatus.BANNED });
+  it('translates a unique violation into auth.oauth_email_mismatch', async () => {
+    /*
+     * Scenario: a registration for the same address commits between the
+     * library's `findByEmail` and this insert. Updating the row that got there
+     * first would attach the OAuth identity to an account this flow never
+     * verified — silent email-based linking, which 1.4.x removed — so the
+     * conflict is refused with the same code the library raises on the
+     * non-racing path. The answer must not depend on who wins the race.
+     * Protects: the P2002 translation, and the create-not-upsert shape.
+     */
+    userCreate.mockRejectedValue(uniqueViolation());
 
-    await expect(repo.createWithOAuth(TEST_OAUTH_DATA)).rejects.toThrow(AuthException);
-    expect(userUpsert).not.toHaveBeenCalled();
+    const thrown = await repo.createWithOAuth(TEST_OAUTH_DATA).catch((err: unknown) => err);
+
+    expect(thrown).toBeInstanceOf(AuthException);
+    // The code travels in the library's error envelope, which is what the
+    // exception filter renders and what the web error map keys off.
+    expect((thrown as AuthException).getResponse()).toMatchObject({
+      error: { code: AUTH_ERROR_CODES.OAUTH_EMAIL_MISMATCH },
+    });
   });
 
-  it('throws AuthException before the upsert for every blocked status (INACTIVE, SUSPENDED)', async () => {
-    // All three blocked statuses must be rejected — not just BANNED. A regression
-    // that removes INACTIVE or SUSPENDED from BLOCKED_USER_STATUSES would allow
-    // those users to skip email verification via the OAuth path.
-    for (const blockedStatus of [UserStatus.INACTIVE, UserStatus.SUSPENDED]) {
-      userFindUnique.mockResolvedValue({ status: blockedStatus });
+  it('rethrows a database error that is not a unique violation', async () => {
+    /*
+     * Scenario: a connection drop, a constraint other than the email one, a
+     * driver bug. Mapping everything to "that address is taken" would turn an
+     * outage into a misleading answer and hide the real failure from the logs.
+     * Protects: the `error.code === 'P2002'` narrowing.
+     */
+    const other = new Prisma.PrismaClientKnownRequestError('Connection lost', {
+      code: 'P1001',
+      clientVersion: 'test',
+    });
+    userCreate.mockRejectedValue(other);
+
+    await expect(repo.createWithOAuth(TEST_OAUTH_DATA)).rejects.toBe(other);
+  });
+
+  it('rethrows a non-Prisma error unchanged', async () => {
+    /*
+     * Scenario: anything thrown that is not a `PrismaClientKnownRequestError`
+     * at all. The instanceof half of the guard is what keeps such an error from
+     * being read as a unique violation.
+     * Protects: the `instanceof` narrowing.
+     */
+    const boom = new Error('boom');
+    userCreate.mockRejectedValue(boom);
+
+    await expect(repo.createWithOAuth(TEST_OAUTH_DATA)).rejects.toBe(boom);
+  });
+
+  // ─── Blocked status on the created row ───────────────────────────────────
+
+  it('throws AuthException when the created row carries a blocked status', async () => {
+    /*
+     * Scenario: `data.status` comes from the caller, and the library's
+     * OAuthService issues tokens without consulting status — so this check is
+     * the only thing between a blocked status and a live session.
+     * Protects: the post-create status guard.
+     */
+    userCreate.mockResolvedValue(makeUserRow({ status: UserStatus.SUSPENDED }));
+
+    await expect(repo.createWithOAuth(TEST_OAUTH_DATA)).rejects.toThrow(AuthException);
+  });
+
+  it('rejects every blocked status, not only the first one', async () => {
+    /*
+     * Scenario: a regression that dropped INACTIVE or SUSPENDED from
+     * BLOCKED_USER_STATUSES would let those accounts through the OAuth path
+     * while BANNED kept working, which is the kind of gap a single-status test
+     * never notices.
+     * Protects: the full `BLOCKED_USER_STATUSES` membership check.
+     */
+    for (const blocked of [UserStatus.INACTIVE, UserStatus.SUSPENDED, UserStatus.BANNED]) {
+      userCreate.mockResolvedValue(makeUserRow({ status: blocked }));
 
       await expect(repo.createWithOAuth(TEST_OAUTH_DATA)).rejects.toThrow(AuthException);
-      expect(userUpsert).not.toHaveBeenCalled();
-
-      jest.resetAllMocks();
     }
-  });
-
-  // ─── Post-upsert guard (TOCTOU window) ───────────────────────────────────
-
-  it('throws AuthException from the post-upsert check when the account is blocked in the TOCTOU window', async () => {
-    // The narrow window between the pre-check query and the upsert commit allows
-    // an admin to suspend an account. The post-upsert check catches this by reading
-    // the row's status as committed — not as it was at pre-check time.
-    userFindUnique.mockResolvedValue({ status: UserStatus.ACTIVE });
-    userUpsert.mockResolvedValue(makeUserRow({ status: UserStatus.SUSPENDED }));
-
-    await expect(repo.createWithOAuth(TEST_OAUTH_DATA)).rejects.toThrow(AuthException);
   });
 
   // ─── Happy path ──────────────────────────────────────────────────────────
 
-  it('returns AuthUser when no existing user is found (new OAuth user — create path)', async () => {
-    // A first-time OAuth sign-in with a brand-new email takes the upsert create
-    // branch. The pre-check returns null (no row exists) and the post-check passes.
-    userFindUnique.mockResolvedValue(null);
-    userUpsert.mockResolvedValue(makeUserRow());
+  it('returns the AuthUser for a brand-new OAuth account', async () => {
+    /*
+     * Scenario: the ordinary first Google sign-in on an address nobody holds.
+     * Protects: the create call and the mapping of its row onto `AuthUser`.
+     */
+    userCreate.mockResolvedValue(makeUserRow());
 
     const result = await repo.createWithOAuth(TEST_OAUTH_DATA);
 
     expect(result.email).toBe('alice@example.test');
     expect(result.tenantId).toBe('acme');
     expect(result.oauthProvider).toBe('google');
-    expect(userUpsert).toHaveBeenCalledTimes(1);
-  });
-
-  it('returns AuthUser when an existing non-blocked user links OAuth (update path)', async () => {
-    // An ACTIVE user linking OAuth for the first time takes the upsert update
-    // branch. Neither guard fires, and the result is the updated AuthUser.
-    userFindUnique.mockResolvedValue({ status: UserStatus.ACTIVE });
-    userUpsert.mockResolvedValue(makeUserRow());
-
-    const result = await repo.createWithOAuth(TEST_OAUTH_DATA);
-
-    expect(result.oauthProvider).toBe('google');
     expect(result.oauthProviderId).toBe('google-sub-123');
-    expect(userUpsert).toHaveBeenCalledTimes(1);
+    expect(userCreate).toHaveBeenCalledTimes(1);
   });
 
-  // ─── Default role (createWithOAuth) ─────────────────────────────────────
+  // ─── Role, status and email normalisation ────────────────────────────────
 
-  it('defaults role to MEMBER when role is omitted from the createWithOAuth payload', async () => {
-    // The library may omit `role` for a standard OAuth registration — the
-    // repository must default to MEMBER without throwing. Covers the
-    // `data.role === undefined ? Role.MEMBER` branch.
-    userFindUnique.mockResolvedValue(null);
-    userUpsert.mockResolvedValue(makeUserRow({ role: Role.MEMBER }));
+  it('defaults role to MEMBER when role is omitted from the payload', async () => {
+    /*
+     * Scenario: the library omits `role` for a standard OAuth registration.
+     * Protects: the `data.role === undefined ? Role.MEMBER` branch.
+     */
+    userCreate.mockResolvedValue(makeUserRow({ role: Role.MEMBER }));
 
     const { role: _removed, ...dataWithoutRole } = TEST_OAUTH_DATA;
     const result = await repo.createWithOAuth(dataWithoutRole);
 
     expect(result.role).toBe(Role.MEMBER);
-    expect(userUpsert).toHaveBeenCalledWith(
-      expect.objectContaining({ create: expect.objectContaining({ role: Role.MEMBER }) }),
+    expect(userCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ role: Role.MEMBER }) }),
     );
   });
 
-  // ─── Unknown role guard (createWithOAuth) ────────────────────────────────
-
-  it('throws when an unknown role is supplied to createWithOAuth — prevents library/schema mismatch silently passing', async () => {
-    // FCM #32 — an unknown role string in the OAuth payload must throw immediately
-    // so schema divergence surfaces as a runtime error rather than silently storing
-    // a wrong value. The upsert must NOT run.
+  it('throws when an unknown role is supplied — prevents a library/schema mismatch passing silently', async () => {
+    /*
+     * Scenario: FCM #32 — an unrecognised role string must surface as a runtime
+     * error rather than being stored. Nothing may be written.
+     * Protects: the unknown-role guard, and that it runs before the insert.
+     */
     await expect(
       repo.createWithOAuth({
         ...TEST_OAUTH_DATA,
         role: 'SUPERUSER',
       }),
     ).rejects.toThrow(/Unknown Role/);
-    expect(userUpsert).not.toHaveBeenCalled();
+    expect(userCreate).not.toHaveBeenCalled();
   });
 
-  // ─── Unknown status default (createWithOAuth) ────────────────────────────
-
-  it('forwards a recognised status string verbatim to createWithOAuth upsert', async () => {
+  it('forwards a recognised status string verbatim', async () => {
     /*
-     * Scenario: the library hands the repository a known
-     * UserStatus value (e.g. `'ACTIVE'`). The repository must
-     * resolve it to the corresponding enum member, not
-     * silently coerce every OAuth signup to ACTIVE. A
-     * regression that always returned ACTIVE would mask a
-     * library-side status drift instead of catching it.
+     * Scenario: the library hands over a known `UserStatus`. Collapsing every
+     * OAuth signup to ACTIVE would mask a library-side status drift instead of
+     * surfacing it.
+     * Protects: the status resolution against the enum.
      */
-    userFindUnique.mockResolvedValue(null);
-    userUpsert.mockResolvedValue(makeUserRow({ status: UserStatus.ACTIVE }));
+    userCreate.mockResolvedValue(makeUserRow({ status: UserStatus.ACTIVE }));
 
-    await repo.createWithOAuth({
-      ...TEST_OAUTH_DATA,
-      status: 'ACTIVE',
-    });
+    await repo.createWithOAuth({ ...TEST_OAUTH_DATA, status: 'ACTIVE' });
 
-    expect(userUpsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        create: expect.objectContaining({ status: UserStatus.ACTIVE }),
-      }),
+    expect(userCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: UserStatus.ACTIVE }) }),
     );
   });
 
-  it('preserves a non-default valid status (PENDING) verbatim through createWithOAuth', async () => {
+  it('preserves a non-default valid status (PENDING) verbatim', async () => {
     /*
-     * Scenario: a custom registration flow hands createWithOAuth
-     * a PENDING status (e.g. for a tenant that requires admin
-     * approval before activation). The repository MUST forward
-     * PENDING — collapsing it to ACTIVE would skip the approval
-     * gate. Using a status OTHER than the enum's first value
-     * also distinguishes this from any predicate that always
-     * matches (which would return the enum's first member
-     * regardless of input).
+     * Scenario: a tenant that requires admin approval before activation. PENDING
+     * must survive the round trip — collapsing it to ACTIVE would skip the gate.
+     * Using a value other than the enum's first member also distinguishes this
+     * from a predicate that always matches.
+     * Protects: the status resolution returning the supplied member.
      */
-    userFindUnique.mockResolvedValue(null);
-    userUpsert.mockResolvedValue(makeUserRow({ status: UserStatus.PENDING }));
+    userCreate.mockResolvedValue(makeUserRow({ status: UserStatus.PENDING }));
 
-    await repo.createWithOAuth({
-      ...TEST_OAUTH_DATA,
-      status: 'PENDING',
-    });
+    await repo.createWithOAuth({ ...TEST_OAUTH_DATA, status: 'PENDING' });
 
-    expect(userUpsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        create: expect.objectContaining({ status: UserStatus.PENDING }),
-      }),
+    expect(userCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: UserStatus.PENDING }) }),
     );
   });
 
-  it('lowercases the email before passing it to the createWithOAuth upsert', async () => {
+  it('defaults status to ACTIVE when an unknown status string is supplied', async () => {
     /*
-     * Scenario: an OAuth provider returns the user's email in
-     * a case that does not match the canonical lower-case form
-     * stored in the database. The repository MUST normalise to
-     * lower case so the (tenantId, email) unique index keeps a
-     * single row per email — without normalisation a typo in
-     * casing would create duplicate accounts.
+     * Scenario: a forward-compatible or unrecognised status. It must default to
+     * ACTIVE — not PENDING as `create()` does — so the OAuth user can sign in
+     * without an admin having to activate them.
+     * Protects: the `?? UserStatus.ACTIVE` fallback.
      */
-    userFindUnique.mockResolvedValue(null);
-    userUpsert.mockResolvedValue(makeUserRow());
+    userCreate.mockResolvedValue(makeUserRow({ status: UserStatus.ACTIVE }));
 
-    await repo.createWithOAuth({
-      ...TEST_OAUTH_DATA,
-      email: 'Mixed@Example.TEST',
-    });
-
-    expect(userUpsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        create: expect.objectContaining({ email: 'mixed@example.test' }),
-      }),
-    );
-  });
-
-  it('defaults status to ACTIVE when an unknown status string is supplied to createWithOAuth', async () => {
-    // A forward-compatible or unrecognised status from the library must default to
-    // ACTIVE (not PENDING as in create()) so the OAuth user can immediately sign in
-    // without requiring manual activation by an admin.
-    userFindUnique.mockResolvedValue(null);
-    userUpsert.mockResolvedValue(makeUserRow({ status: UserStatus.ACTIVE }));
-
-    const result = await repo.createWithOAuth({
-      ...TEST_OAUTH_DATA,
-      status: 'FUTURE_STATUS',
-    });
+    const result = await repo.createWithOAuth({ ...TEST_OAUTH_DATA, status: 'FUTURE_STATUS' });
 
     expect(result.status).toBe(UserStatus.ACTIVE);
-    expect(userUpsert).toHaveBeenCalledTimes(1);
+    expect(userCreate).toHaveBeenCalledTimes(1);
   });
 
-  // ─── emailVerified default branches (createWithOAuth) ────────────────────
+  it('lowercases the email before writing it', async () => {
+    /*
+     * Scenario: a provider returns the address in a casing that does not match
+     * the canonical stored form. Without normalisation the `(tenantId, email)`
+     * unique index would admit a second row for the same person — and the
+     * mismatch refusal above would stop firing for them.
+     * Protects: the `toLowerCase()` normalisation.
+     */
+    userCreate.mockResolvedValue(makeUserRow());
 
-  it('defaults emailVerified to true on the update branch and false on the create branch when emailVerified is omitted', async () => {
-    // The upsert payload uses `emailVerified ?? true` on the update path and
-    // `emailVerified ?? false` on the create path. When the library omits
-    // emailVerified, these defaults must apply so the upsert is called with the
-    // correct defaults rather than storing undefined.
+    await repo.createWithOAuth({ ...TEST_OAUTH_DATA, email: 'Mixed@Example.TEST' });
+
+    expect(userCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ email: 'mixed@example.test' }) }),
+    );
+  });
+
+  it('defaults emailVerified to false when the payload omits it', async () => {
+    /*
+     * Scenario: the library omits `emailVerified`. A new account must start
+     * unverified — the address belongs to whoever controls the OAuth identity,
+     * and marking it verified would make the consumer's "this email is proven"
+     * invariant false from the first login.
+     * Protects: the `?? false` default.
+     */
     const { emailVerified: _omit, ...dataWithoutEmailVerified } = TEST_OAUTH_DATA;
-    userFindUnique.mockResolvedValue(null);
-    userUpsert.mockResolvedValue(makeUserRow({ emailVerified: false }));
+    userCreate.mockResolvedValue(makeUserRow({ emailVerified: false }));
 
     await repo.createWithOAuth(dataWithoutEmailVerified);
 
-    // Verify the upsert was called — the specific emailVerified value is asserted
-    // by inspecting the call argument.
-    expect(userUpsert).toHaveBeenCalledTimes(1);
-    const upsertArg = userUpsert.mock.calls[0] as unknown as [
-      {
-        create: { emailVerified: boolean };
-        update: { emailVerified: boolean };
-      },
-    ];
-    // update path defaults to true (link existing account → mark verified)
-    expect(upsertArg[0].update.emailVerified).toBe(true);
-    // create path defaults to false (new account → pending email verification)
-    expect(upsertArg[0].create.emailVerified).toBe(false);
+    expect(userCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ emailVerified: false }) }),
+    );
   });
 });
 
