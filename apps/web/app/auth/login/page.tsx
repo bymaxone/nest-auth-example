@@ -50,7 +50,7 @@ import {
   TenantNotFoundError,
 } from '@/lib/auth-client';
 import { translateAuthError } from '@/lib/auth-errors';
-import { TENANT_OPTIONS, resolveDefaultTenantSlug } from '@/lib/tenants';
+import { TENANT_OPTIONS, isKnownTenantSlug, resolveDefaultTenantSlug } from '@/lib/tenants';
 
 /**
  * Inner form — extracted so the default export can wrap it in `<Suspense>`,
@@ -69,22 +69,35 @@ function LoginForm() {
     resolveDefaultTenantSlug(searchParams.get('tenantId')),
   );
   const { refresh } = useSession();
+  // True while a CUID parameter is being translated. The selector shows the
+  // default workspace until it resolves, and submitting against that default
+  // would write the wrong `tenant_id` cookie and send real credentials to the
+  // wrong workspace — a browser's password manager can autofill and submit
+  // inside that window without the user doing anything. Set from the initial
+  // parameter rather than by the effect, so it is already true on the very
+  // first render.
+  const [isResolvingTenant, setIsResolvingTenant] = useState(() => {
+    const param = searchParams.get('tenantId');
+    return param !== null && !isKnownTenantSlug(param);
+  });
 
-  // A `?tenantId=` that is a CUID rather than a slug is not a malformed link —
-  // it is what every tenant-scoped email the library sends carries, because
-  // `IEmailProvider` receives the CUID. `resolveDefaultTenantSlug` cannot match
-  // one against the picker's slugs, so without this it silently selects the
-  // default workspace and the submit below overwrites the `tenant_id` cookie
-  // with the wrong tenant — a confirmation link for Globex signs the user in at
-  // Acme. Translate it instead; a lookup that fails leaves the default, which
-  // is where the selector already was.
+  // A `?tenantId=` the picker does not recognise is not a malformed link — it
+  // is what every tenant-scoped email the library sends carries, because
+  // `IEmailProvider` receives `Tenant.id`, not the slug. `resolveDefaultTenantSlug`
+  // cannot match one against the picker's slugs, so without this it silently
+  // selects the default workspace and the submit below overwrites the
+  // `tenant_id` cookie with the wrong tenant — a confirmation link for Globex
+  // signs the user in at Acme. Translate it instead; a lookup that fails leaves
+  // the default, which is where the selector already was.
   useEffect(() => {
     const param = searchParams.get('tenantId');
-    if (param === null) return;
+    if (param === null || isKnownTenantSlug(param)) return;
     let cancelled = false;
     void (async () => {
       const slug = await resolveTenantSlugById(param);
-      if (!cancelled && slug !== null) setTenantSlug(slug);
+      if (cancelled) return;
+      if (slug !== null) setTenantSlug(slug);
+      setIsResolvingTenant(false);
     })();
     return () => {
       cancelled = true;
@@ -287,7 +300,12 @@ function LoginForm() {
         </div>
 
         {/* Submit */}
-        <Button type="submit" disabled={isSubmitting} size="lg" className="mt-1 w-full">
+        <Button
+          type="submit"
+          disabled={isSubmitting || isResolvingTenant}
+          size="lg"
+          className="mt-1 w-full"
+        >
           {isSubmitting ? 'Signing in…' : 'Sign in'}
         </Button>
       </form>

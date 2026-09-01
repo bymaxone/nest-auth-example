@@ -27,9 +27,10 @@
  * library's `auth.*` error envelope instead of crashing the socket.
  *
  *  A ticket cannot be checked against the revocation channels — its snapshot
- *  carries no `jti` and no epoch — so when the same-origin upgrade also brings
- *  the access-token cookie, that token's revocation state is checked alongside
- *  it. It corroborates the ticket; it never replaces it.
+ *  carries no `jti` and no epoch — so a ticket upgrade must also carry the
+ *  access token, whose revocation state is checked alongside it. Browsers send
+ *  it as a same-origin cookie, which is why `NEXT_PUBLIC_WS_URL` must be
+ *  same-origin; anything that can set headers does not need a ticket at all.
  *
  * Admission and disconnect:
  *  `disconnectUser` can only reach sockets already in the connection map, so a
@@ -258,12 +259,10 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
    * A redeemed ticket says nothing about the session that minted it: the
    * snapshot carries identity and account status, no `jti` and no epoch
    * (bymaxone/nest-auth#183). So a ticket minted moments before a logout, a
-   * password change or "sign out everywhere" still redeems for the rest of its
-   * TTL, and the socket it opens is never revalidated. The browser sends its
-   * cookies on this same-origin upgrade, and those DO carry the session — so
-   * the access token's revocation state is checked as well when one is
-   * present. It is corroboration, not a second gate: an absent or unverifiable
-   * token leaves the ticket to stand on its own, exactly as before.
+   * password change or "sign out everywhere" would still redeem for the rest of
+   * its TTL, and the socket it opens is never revalidated. The upgrade must
+   * therefore also carry an access token — same-origin cookie for a browser,
+   * header for anything else — which does have a `jti` and an epoch to check.
    *
    * @param client - The connecting socket, closed in place on refusal.
    * @param ticket - The raw ticket value read from the upgrade URL.
@@ -289,8 +288,7 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
       return;
     }
 
-    if (await this.isRevokedByCookie(req)) {
-      this.logger.warn({ msg: 'ws:ticket_refused', reason: 'session_revoked' });
+    if (!(await this.hasLiveCredential(req))) {
       client.close(4401, 'Unauthorized');
       return;
     }
@@ -353,29 +351,48 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
   }
 
   /**
-   * Whether the upgrade request carries an access token that has been revoked.
+   * Whether the upgrade request carries a live, unrevoked access token.
    *
-   * Used to corroborate a ticket, which cannot be checked against the
-   * revocation channels itself. Deliberately answers `false` — "nothing to say"
-   * — in the two cases where the cookie is not evidence: no token at all (a
-   * non-browser client, which never had one) and a token that does not verify
-   * (expired, or minted for another plane). Only a token that verifies AND
-   * comes back revoked refuses the connection, which is exactly the state a
-   * logout, password change or bulk revocation leaves behind.
+   * A ticket cannot be checked against the revocation channels — its snapshot
+   * has no `jti` and no epoch — so it is required to arrive alongside a
+   * credential that can be. Absence is refused rather than waved through:
+   * treating "no token" as "nothing to say" leaves the whole check optional,
+   * and anyone whose session was revoked can simply not send one.
+   *
+   * That costs nothing here. Tickets exist because a browser cannot set headers
+   * on a WS upgrade, and `NEXT_PUBLIC_WS_URL` is same-origin precisely so it
+   * sends the auth cookies instead; a non-browser client sets the header and
+   * needs no ticket at all. The token is also younger than the ticket in
+   * practice — minting one is an authenticated call that refreshes it — so
+   * "expired while the ticket is still good" is a millisecond window this app's
+   * own client cannot land in. The refusal is logged with its reason so a
+   * cross-origin `NEXT_PUBLIC_WS_URL`, which would strip the cookies and refuse
+   * every ticket, is diagnosable rather than silent.
    *
    * @param req - The HTTP upgrade request.
-   * @returns `true` only when a verifiable dashboard token is revoked.
+   * @returns `true` only when a dashboard token is present, valid and unrevoked.
    */
-  private async isRevokedByCookie(req: IncomingMessage | undefined): Promise<boolean> {
+  private async hasLiveCredential(req: IncomingMessage | undefined): Promise<boolean> {
     const authHeader =
       typeof req?.headers['authorization'] === 'string' ? req.headers['authorization'] : undefined;
     const token = extractAccessToken(req, authHeader);
-    if (!token) return false;
+    if (!token) {
+      this.logger.warn({ msg: 'ws:ticket_refused', reason: 'no_credential' });
+      return false;
+    }
 
     const payload = this.verifyDashboardToken(token);
-    if (!payload) return false;
+    if (!payload) {
+      this.logger.warn({ msg: 'ws:ticket_refused', reason: 'credential_invalid' });
+      return false;
+    }
 
-    return this.revocation.isAccessTokenRevoked(payload);
+    if (await this.revocation.isAccessTokenRevoked(payload)) {
+      this.logger.warn({ msg: 'ws:ticket_refused', reason: 'session_revoked' });
+      return false;
+    }
+
+    return true;
   }
 
   /**

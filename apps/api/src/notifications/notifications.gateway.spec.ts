@@ -274,13 +274,19 @@ describe('NotificationsGateway', () => {
       // redeemed atomically and the socket is registered under the snapshot's sub.
       const { gateway, wsTickets, jwtService } = makeGateway();
       const client = makeSocket();
-      const req = { headers: {}, url: '/ws/notifications?ticket=tkt-123' };
+      const req = {
+        headers: { cookie: 'access_token=live-token' },
+        url: '/ws/notifications?ticket=tkt-123',
+      };
 
       await gateway.handleConnection(client as never, req);
 
       expect(wsTickets.redeem).toHaveBeenCalledWith('tkt-123');
-      // Ticket connections never touch the JWT path.
-      expect(jwtService.verify).not.toHaveBeenCalled();
+      // The cookie's token is verified — a ticket carries no `jti` or epoch, so
+      // it cannot be checked for revocation on its own — but identity still
+      // comes from the redeemed snapshot, not from that token.
+      expect(jwtService.verify).toHaveBeenCalled();
+      expect(client.data.user).toBeUndefined();
       expect(client.data.userId).toBe('user-001');
       expect(client.close).not.toHaveBeenCalled();
       // A push notification must reach the ticket-authenticated socket.
@@ -870,7 +876,7 @@ describe('NotificationsGateway', () => {
 
   // ── Ticket corroborated by the access-token cookie ─────────────────────────
 
-  describe('ticket path — revocation corroborated by the cookie', () => {
+  describe('ticket path — credential required alongside the ticket', () => {
     it('refuses a ticket when the upgrade also carries a revoked access token', async () => {
       /*
        * Scenario: a device minted a ticket, then the user signed out
@@ -937,32 +943,37 @@ describe('NotificationsGateway', () => {
       expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(1);
     });
 
-    it('admits a ticket that arrives with no cookie at all', async () => {
+    it('refuses a ticket that arrives with no credential at all', async () => {
       /*
-       * Scenario: a non-browser client, which never had a cookie. Absence is
-       * not evidence of revocation, and refusing here would break the only
-       * path such a client has.
-       * Protects: the `!token` early return — treating a missing cookie as a
-       * refusal would make the ticket path browser-only.
+       * Scenario: the ticket is presented alone. Since the snapshot carries no
+       * `jti` and no epoch, a ticket minted just before a revocation is
+       * indistinguishable from one minted just after it — so admitting on the
+       * ticket alone would make the revocation check optional for anyone who
+       * simply omits their cookie. Browsers cannot: the WS URL is same-origin
+       * so the cookies ride along, and a client that can set headers does not
+       * need a ticket in the first place.
+       * Protects: the `!token` refusal — treating absence as "nothing to say"
+       * is precisely the bypass.
        */
       const { gateway } = makeGateway();
       const client = makeSocket();
-      const req = { headers: {}, url: '/ws/notifications?ticket=tkt-headless' };
+      const req = { headers: {}, url: '/ws/notifications?ticket=tkt-bare' };
 
       await gateway.handleConnection(client as never, req);
 
-      expect(client.close).not.toHaveBeenCalled();
-      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(1);
+      expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
     });
 
-    it('admits a ticket whose cookie carries a token that does not verify', async () => {
+    it('refuses a ticket whose credential does not verify', async () => {
       /*
-       * Scenario: the access token expired while the ticket (30 s) is still
-       * good, or the cookie holds a token minted for another plane. Neither
-       * says anything about revocation, and the ticket was itself minted by an
-       * authenticated call moments earlier.
-       * Protects: the `!payload` early return — refusing here would drop
-       * legitimate reconnects whenever the access token aged out first.
+       * Scenario: the token is expired, forged, or minted for another plane.
+       * It cannot be checked against the revocation channels, so it is not a
+       * credential for this purpose. Minting a ticket is an authenticated call
+       * that refreshes the token first, so a live client is never in this
+       * state for the 30 s the ticket lasts.
+       * Protects: the `!payload` refusal — accepting an unverifiable token
+       * would let anyone bypass the check by sending a junk one.
        */
       const { gateway } = makeGateway(new Error('jwt expired'));
       const client = makeSocket();
@@ -973,8 +984,8 @@ describe('NotificationsGateway', () => {
 
       await gateway.handleConnection(client as never, req);
 
-      expect(client.close).not.toHaveBeenCalled();
-      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(1);
+      expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
     });
   });
 
@@ -1003,7 +1014,10 @@ describe('NotificationsGateway', () => {
           }),
       );
       const client = makeSocket();
-      const req = { headers: {}, url: '/ws/notifications?ticket=tkt-race' };
+      const req = {
+        headers: { cookie: 'access_token=live-token' },
+        url: '/ws/notifications?ticket=tkt-race',
+      };
 
       const connecting = gateway.handleConnection(client as never, req);
       // The revocation lands mid-handshake, with nothing yet to close.

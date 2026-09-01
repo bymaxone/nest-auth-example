@@ -18,6 +18,7 @@ import type { DashboardJwtPayload } from '@bymax-one/nest-auth';
 
 import { TenantsService } from './tenants.service.js';
 import { CreateTenantDto } from './dto/create-tenant.dto.js';
+import { ResolveTenantByIdQuery, ResolveTenantBySlugQuery } from './dto/tenant-lookup.dto.js';
 
 /**
  * Handles `/api/tenants` routes.
@@ -40,13 +41,17 @@ export class TenantsController {
    *
    * GET /api/tenants/resolve?slug=acme
    *
-   * @param slug - URL-safe tenant slug.
+   * The parameter is validated as a DTO rather than taken as a bare primitive:
+   * a missing `slug` would otherwise reach Prisma as `undefined` and surface a
+   * driver error as a 500, where the boundary owes the caller a 400.
+   *
+   * @param query - Validated `{ slug }`.
    * @returns Object with the tenant's `id` (CUID).
    */
   @Public()
   @Get('resolve')
-  resolveBySlug(@Query('slug') slug: string): Promise<{ id: string }> {
-    return this.tenantsService.resolveBySlug(slug);
+  resolveBySlug(@Query() query: ResolveTenantBySlugQuery): Promise<{ id: string }> {
+    return this.tenantsService.resolveBySlug(query.slug);
   }
 
   /**
@@ -63,13 +68,16 @@ export class TenantsController {
    *
    * GET /api/tenants/slug?id=c…
    *
-   * @param id - Tenant CUID.
+   * Validated as a DTO for the same reason `resolve` is, and pinned to the CUID
+   * shape: every legitimate caller got this value from a link the app mailed.
+   *
+   * @param query - Validated `{ id }`.
    * @returns Object with the tenant's `slug`.
    */
   @Public()
   @Get('slug')
-  resolveSlugById(@Query('id') id: string): Promise<{ slug: string }> {
-    return this.tenantsService.resolveSlugById(id);
+  resolveSlugById(@Query() query: ResolveTenantByIdQuery): Promise<{ slug: string }> {
+    return this.tenantsService.resolveSlugById(query.id);
   }
 
   /**

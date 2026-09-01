@@ -393,6 +393,28 @@ describe('WebSocket auth — WsJwtGuard protection and push delivery (FCM #24)',
 
   // ─── Single-use WS upgrade tickets (lib v1.1.0+) ──────────────────────────
 
+  it('refuses a ?ticket= connection that carries no session credential', async () => {
+    // Scenario: a valid, freshly minted ticket presented on its own. The
+    // redeemed snapshot carries identity and account status but no `jti` and no
+    // epoch, so a ticket minted a second before "sign out everywhere" is
+    // indistinguishable from one minted a second after it. Admitting on the
+    // ticket alone would therefore let a revoked client reconnect for the rest
+    // of the 30 s TTL — and, since an established socket is never
+    // re-authenticated, keep that socket indefinitely. A browser always sends
+    // the cookie here (the WS origin is the app's own), and anything that can
+    // set headers can authenticate with the Bearer path instead, so the
+    // credential is never the thing that is missing in practice.
+    const ticketRes = await memberAgent.post('/api/auth/ws-ticket').set('X-Tenant-Id', TENANT_ID);
+    expect([200, 201]).toContain(ticketRes.status);
+    const { ticket } = ticketRes.body as { ticket: string };
+
+    const client = createWsClient({ url: `${WS_URL}?ticket=${encodeURIComponent(ticket)}` });
+
+    // 4401 = unauthorized. The refusal lands as a close on the upgraded socket,
+    // the same shape as the missing-Authorization case above.
+    expect(await client.nextClose(2000)).toBe(4401);
+  });
+
   it('accepts a ?ticket= connection minted via POST /api/auth/ws-ticket and delivers pushes', async () => {
     // Scenario: browsers cannot set custom headers on WS upgrades, so the
     // canonical browser path mints a single-use ticket from the authenticated
@@ -407,7 +429,15 @@ describe('WebSocket auth — WsJwtGuard protection and push delivery (FCM #24)',
     expect(ticket.length).toBeGreaterThan(0);
     expect(expiresIn).toBeGreaterThan(0);
 
-    const client = createWsClient({ url: `${WS_URL}?ticket=${encodeURIComponent(ticket)}` });
+    // The upgrade carries the session cookie the way a browser's would. The
+    // ticket alone is not admitted: its snapshot has no `jti` and no epoch, so
+    // the gateway cannot tell one minted before a revocation from one minted
+    // after, and it checks the access token alongside it. `NEXT_PUBLIC_WS_URL`
+    // is same-origin precisely so the browser attaches this header itself.
+    const client = createWsClient({
+      url: `${WS_URL}?ticket=${encodeURIComponent(ticket)}`,
+      headers: { cookie: `access_token=${memberToken}` },
+    });
     await client.opened;
 
     // Register the message listener BEFORE issuing the push (race-safe).

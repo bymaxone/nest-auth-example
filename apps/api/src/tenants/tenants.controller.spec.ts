@@ -142,7 +142,7 @@ describe('TenantsController', () => {
       // X-Tenant-Id header before any credentials are submitted.
       resolveBySlug.mockResolvedValue({ id: 'cuid-acme' });
 
-      const result = await controller.resolveBySlug('acme');
+      const result = await controller.resolveBySlug({ slug: 'acme' });
 
       expect(result).toEqual({ id: 'cuid-acme' });
       expect(resolveBySlug).toHaveBeenCalledWith('acme');
@@ -158,7 +158,7 @@ describe('TenantsController', () => {
       // carrying a CUID selects the default workspace instead of the right one.
       resolveSlugById.mockResolvedValue({ slug: 'globex' });
 
-      const result = await controller.resolveSlugById('cuid-globex');
+      const result = await controller.resolveSlugById({ id: 'cuid-globex' });
 
       expect(result).toEqual({ slug: 'globex' });
       expect(resolveSlugById).toHaveBeenCalledWith('cuid-globex');

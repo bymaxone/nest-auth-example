@@ -2178,22 +2178,6 @@ describe('resolveTenantSlugById', () => {
     expect(mockFetch).toHaveBeenCalledWith('/api/tenants/slug?id=cmo60aidg00017jf2voxw88ug');
   });
 
-  it('returns null without calling the API when the input is not a CUID', async () => {
-    /*
-     * Scenario: the param is already a slug, which is the ordinary case for a
-     * deep link from an invitation. Spending a round trip to learn that would
-     * be waste, and a 404 answer would be indistinguishable from a real one.
-     * Protects: the CUID_REGEX guard.
-     */
-    const mockFetch = vi.fn<typeof fetch>();
-    vi.stubGlobal('fetch', mockFetch);
-
-    const result = await resolveTenantSlugById('acme');
-
-    expect(result).toBeNull();
-    expect(mockFetch).not.toHaveBeenCalled();
-  });
-
   it('returns null when the API does not recognise the id', async () => {
     /*
      * Scenario: a stale or hand-edited link. Answering null leaves the caller

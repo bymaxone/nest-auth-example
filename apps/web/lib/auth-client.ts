@@ -333,24 +333,25 @@ export async function resolveTenantForLogin(slugOrId: string): Promise<string> {
 }
 
 /**
- * Resolves a tenant CUID back to its slug via `GET /api/tenants/slug?id=`.
+ * Resolves a tenant id back to its slug via `GET /api/tenants/slug?id=`.
  *
  * The inverse of {@link resolveTenantForLogin}, for links that arrive carrying
- * a CUID — every tenant-scoped email the library sends does, because that is
- * what `IEmailProvider` receives. The pages those links land on select a
- * workspace by slug, so a CUID that is not translated is silently dropped and
+ * `Tenant.id` — every tenant-scoped email the library sends does, because that
+ * is what `IEmailProvider` receives. The pages those links land on select a
+ * workspace by slug, so an id that is not translated is silently dropped and
  * the default workspace takes over.
+ *
+ * Takes the value as it stands rather than checking it against a CUID shape:
+ * `Tenant.id` defaults to `cuid()` but nothing guarantees it, and the endpoint
+ * answers 404 for anything it does not know, which is the same `null` here.
  *
  * Never throws: a caller that cannot name the workspace is better off
  * continuing without one than failing the page it is rendering.
  *
- * @param id - Tenant CUID from a URL parameter.
+ * @param id - Tenant id from a URL parameter.
  * @returns The tenant's slug, or `null` when it cannot be resolved.
  */
 export async function resolveTenantSlugById(id: string): Promise<string | null> {
-  if (!CUID_REGEX.test(id)) {
-    return null;
-  }
   try {
     const response = await fetch(`/api/tenants/slug?id=${encodeURIComponent(id)}`);
     if (!response.ok) return null;
