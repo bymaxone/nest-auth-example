@@ -26,6 +26,13 @@
  * future `@SubscribeMessage` handler refused by `WsJwtGuard` answers with the
  * library's `auth.*` error envelope instead of crashing the socket.
  *
+ * Admission and disconnect:
+ *  `disconnectUser` can only reach sockets already in the connection map, so a
+ *  connection still being authenticated would otherwise be registered just
+ *  after and outlive the revocation that targeted it. Every attempt therefore
+ *  carries the monotonic timestamp it started at, and one that started before a
+ *  disconnect for the same user is refused with 4403 instead of registered.
+ *
  * Disconnect-on-suspension:
  *  When a tenant admin or platform admin suspends a user, `disconnectUser(userId)`
  *  is called (via `UsersService` and `PlatformService`). All sockets belonging to
@@ -36,6 +43,7 @@
  */
 
 import type { IncomingMessage } from 'node:http';
+import { performance } from 'node:perf_hooks';
 
 import { Logger, UseFilters, UseGuards } from '@nestjs/common';
 import { WebSocketGateway } from '@nestjs/websockets';
@@ -165,6 +173,25 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
    */
   private readonly userSockets = new Map<string, Set<AuthenticatedSocket>>();
 
+  /**
+   * When each user was last force-disconnected, on the monotonic clock.
+   *
+   * `disconnectUser` can only close sockets that are already in `userSockets`,
+   * and a connection is not there yet while its ticket redemption or its
+   * revocation lookup is in flight. Without this marker such a connection is
+   * registered a moment later and, since an established socket is never
+   * re-authenticated, streams for as long as it stays open — precisely the
+   * device the disconnect was meant to cut off. `admitSocket` compares the
+   * marker against when the connection attempt started and refuses the ones
+   * that raced.
+   *
+   * One number per user ever disconnected in this process, so it grows with the
+   * user table rather than with traffic. Like `userSockets` it is per-process:
+   * a disconnect reaches only the instance holding the socket, so a multi-
+   * instance deployment needs both of these in a shared store, not just this.
+   */
+  private readonly forcedDisconnectAt = new Map<string, number>();
+
   constructor(
     private readonly jwtService: JwtService,
     private readonly wsTickets: WsTicketService,
@@ -198,14 +225,17 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
    */
   async handleConnection(client: AuthenticatedSocket, ...args: unknown[]): Promise<void> {
     const req = args[0] as IncomingMessage | undefined;
+    // Read before the first await: everything after this point can be overtaken
+    // by a disconnect, and `admitSocket` needs to know the attempt predates it.
+    const admissionStartedAt = performance.now();
 
     const ticket = extractTicket(req?.url);
     if (ticket !== undefined) {
-      await this.authenticateWithTicket(client, ticket);
+      await this.authenticateWithTicket(client, ticket, admissionStartedAt);
       return;
     }
 
-    await this.authenticateWithJwt(client, req);
+    await this.authenticateWithJwt(client, req, admissionStartedAt);
   }
 
   /**
@@ -222,8 +252,13 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
    *
    * @param client - The connecting socket, closed in place on refusal.
    * @param ticket - The raw ticket value read from the upgrade URL.
+   * @param admissionStartedAt - Monotonic timestamp taken before the redemption.
    */
-  private async authenticateWithTicket(client: AuthenticatedSocket, ticket: string): Promise<void> {
+  private async authenticateWithTicket(
+    client: AuthenticatedSocket,
+    ticket: string,
+    admissionStartedAt: number,
+  ): Promise<void> {
     let snapshot: WsTicketSnapshot;
     try {
       snapshot = await this.wsTickets.redeem(ticket);
@@ -239,7 +274,7 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
 
     client.data = { userId: snapshot.sub };
     client.handshake = { headers: {} };
-    this.registerSocket(snapshot.sub, client);
+    this.admitSocket(snapshot.sub, client, admissionStartedAt);
   }
 
   /**
@@ -250,10 +285,12 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
    *
    * @param client - The connecting socket, closed in place on refusal.
    * @param req - The HTTP upgrade request carrying the header or cookie.
+   * @param admissionStartedAt - Monotonic timestamp taken before the lookups.
    */
   private async authenticateWithJwt(
     client: AuthenticatedSocket,
     req: IncomingMessage | undefined,
+    admissionStartedAt: number,
   ): Promise<void> {
     const authHeader =
       typeof req?.headers['authorization'] === 'string' ? req.headers['authorization'] : undefined;
@@ -289,7 +326,7 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
       headers: { authorization: authHeader ?? `Bearer ${token}` },
     };
 
-    this.registerSocket(payload.sub, client);
+    this.admitSocket(payload.sub, client, admissionStartedAt);
   }
 
   /**
@@ -324,9 +361,42 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
   }
 
   /**
-   * Adds an authenticated socket to the `userSockets` map and logs the connect.
+   * Registers an authenticated socket unless a disconnect overtook it.
    *
-   * Shared tail of every successful authentication path (ticket, Bearer, cookie).
+   * Shared tail of every successful authentication path (ticket, Bearer,
+   * cookie). The credential was checked before the awaits above; a revocation
+   * that landed since then called `disconnectUser`, which found no socket for
+   * this user to close because this one was not registered yet. Admitting it
+   * now would hand the revoked device a connection nothing re-authenticates.
+   * Refusing on that overlap is what makes admission atomic with the
+   * disconnect, and it fails closed: an attempt that started in the same
+   * millisecond as the disconnect is treated as having raced it.
+   *
+   * Nothing awaits between this check and the registration below, so no
+   * disconnect can slip in between them; one arriving later finds the socket
+   * in the map and closes it the ordinary way.
+   *
+   * @param userId - The authenticated user's internal ID.
+   * @param client - The connected socket.
+   * @param admissionStartedAt - When the connection attempt began, monotonic.
+   */
+  private admitSocket(
+    userId: string,
+    client: AuthenticatedSocket,
+    admissionStartedAt: number,
+  ): void {
+    const forcedAt = this.forcedDisconnectAt.get(userId);
+    if (forcedAt !== undefined && forcedAt >= admissionStartedAt) {
+      this.logger.log({ msg: 'ws:admission_refused', userId, reason: 'disconnect_raced' });
+      client.close(4403, 'Account suspended');
+      return;
+    }
+
+    this.registerSocket(userId, client);
+  }
+
+  /**
+   * Adds an authenticated socket to the `userSockets` map and logs the connect.
    *
    * @param userId - The authenticated user's internal ID.
    * @param client - The connected socket.
@@ -415,9 +485,15 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
    * The call is synchronous and non-blocking — `ws.close` enqueues a close
    * frame; no I/O is awaited.
    *
+   * The marker is stamped first, before the "nothing to close" early return:
+   * having no socket for the user is exactly the case where one is still being
+   * authenticated, and that attempt has to be refused when it arrives.
+   *
    * @param userId - The user whose connections should be terminated.
    */
   disconnectUser(userId: string): void {
+    this.forcedDisconnectAt.set(userId, performance.now());
+
     const sockets = this.userSockets.get(userId);
     if (!sockets) return;
 

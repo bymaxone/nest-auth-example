@@ -6,6 +6,8 @@
  * - Submitting valid data calls changePassword.
  * - Submitting mismatched passwords shows a validation error.
  * - Submitting empty fields shows validation errors.
+ * - A failed realtime disconnect still reports the committed password change
+ *   and restores this tab's socket.
  *
  * @module components/dashboard/password-change-form.test
  */
@@ -35,6 +37,7 @@ vi.mock('sonner', () => ({
 // ── Typed imports after mocks ─────────────────────────────────────────────────
 
 import { changePassword, disconnectRealtime, handleAuthClientError } from '@/lib/auth-client';
+import { toast } from 'sonner';
 import { PasswordChangeForm } from './password-change-form.js';
 
 beforeEach(() => {
@@ -392,5 +395,45 @@ describe('PasswordChangeForm surfaces verbatim copy + isPending reset + field er
     const disconnectOrder = vi.mocked(disconnectRealtime).mock.invocationCallOrder[0] ?? 0;
     const reconnectOrder = mockWsReconnect.mock.invocationCallOrder[0] ?? 0;
     expect(disconnectOrder).toBeLessThan(reconnectOrder);
+  });
+
+  it('still reports the change and restores the socket when the disconnect call fails', async () => {
+    /*
+     * Scenario: the password change committed — the library already revoked the
+     * other sessions — and only the realtime cleanup that follows it failed.
+     * Two things must not happen: reporting the change as failed, which would
+     * send the user back to retry with a password that is no longer current;
+     * and skipping `reconnect()`, because a lost response looks exactly like a
+     * request that never arrived, and in that case the gateway has already
+     * closed this tab's socket with the 4403 that `WsClient` never retries.
+     * Protects: the success toast and reset running before the cleanup, and the
+     * `finally` that reconnects on the failure path too.
+     */
+    vi.mocked(changePassword).mockResolvedValue(undefined);
+    const err = new Error('Disconnect failed');
+    vi.mocked(disconnectRealtime).mockRejectedValue(err);
+
+    render(<PasswordChangeForm />);
+    const inputs = document.querySelectorAll('input');
+    fireEvent.change(inputs[0]!, { target: { value: 'OldPass1!' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.click(screen.getByRole('button', { name: /update password/i }));
+
+    await waitFor(() => expect(mockWsReconnect).toHaveBeenCalledOnce());
+    // The change stands and is reported as such, and the form is cleared.
+    expect(toast.success).toHaveBeenCalledWith('Password updated successfully.');
+    expect((inputs[0] as HTMLInputElement).value).toBe('');
+    // The failed cleanup is still surfaced — the revoked devices keep their
+    // sockets — but as its own error, not as a failed password change.
+    expect(handleAuthClientError).toHaveBeenCalledWith(
+      err,
+      expect.objectContaining({ toast: expect.anything() }),
+    );
+    // The submit button comes back regardless of which path ran.
+    await waitFor(() => {
+      const submit = screen.getByRole('button', { name: /update password/i });
+      expect((submit as HTMLButtonElement).disabled).toBe(false);
+    });
   });
 });

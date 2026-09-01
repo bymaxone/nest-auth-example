@@ -867,4 +867,121 @@ describe('NotificationsGateway', () => {
       expect(delivered).toBe(1);
     });
   });
+
+  // ── Admission racing a forced disconnect ───────────────────────────────────
+
+  describe('admission racing a forced disconnect', () => {
+    it('refuses a ticket connection when the user is disconnected while the ticket is being redeemed', async () => {
+      /*
+       * Scenario: a device is redeeming its upgrade ticket at the moment
+       * "sign out everywhere" (or a suspension) fires. `disconnectUser` walks
+       * `userSockets` and finds nothing for this user — the socket is not
+       * registered until the redemption resolves — so the close reaches every
+       * device except the one still in the handshake. Registering it a moment
+       * later would hand the revoked session a socket that is never
+       * re-authenticated and therefore streams until the browser closes it.
+       * Protects: the admission check against the forced-disconnect marker on
+       * the ticket path, and the marker being stamped even when the disconnect
+       * had no socket to close.
+       */
+      const { gateway, wsTickets } = makeGateway();
+      let releaseRedeem: (snapshot: WsTicketSnapshot) => void = () => undefined;
+      wsTickets.redeem.mockImplementation(
+        () =>
+          new Promise<WsTicketSnapshot>((resolve) => {
+            releaseRedeem = resolve;
+          }),
+      );
+      const client = makeSocket();
+      const req = { headers: {}, url: '/ws/notifications?ticket=tkt-race' };
+
+      const connecting = gateway.handleConnection(client as never, req);
+      // The revocation lands mid-handshake, with nothing yet to close.
+      gateway.disconnectUser('user-001');
+      releaseRedeem(VALID_SNAPSHOT);
+      await connecting;
+
+      expect(client.close).toHaveBeenCalledWith(4403, 'Account suspended');
+      // Never registered: a notification has nowhere to go.
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
+    });
+
+    it('refuses a Bearer connection when the user is disconnected while the revocation lookup is in flight', async () => {
+      /*
+       * Scenario: same race on the JWT path. The token was checked against the
+       * revocation store before the disconnect committed, so the lookup answers
+       * "not revoked" and the socket would otherwise be admitted just after the
+       * disconnect swept the user's other connections.
+       * Protects: the admission check on the JWT path — the branch a
+       * ticket-only test would leave uncovered.
+       */
+      const { gateway, revocation } = makeGateway();
+      let releaseCheck: (revoked: boolean) => void = () => undefined;
+      revocation.isAccessTokenRevoked.mockImplementation(
+        () =>
+          new Promise<boolean>((resolve) => {
+            releaseCheck = resolve;
+          }),
+      );
+      const client = makeSocket();
+      const req = makeRequest({ authorization: 'Bearer valid-token' });
+
+      const connecting = gateway.handleConnection(client as never, req);
+      gateway.disconnectUser('user-001');
+      releaseCheck(false);
+      await connecting;
+
+      expect(client.close).toHaveBeenCalledWith(4403, 'Account suspended');
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
+    });
+
+    it('admits a connection that starts after the disconnect has already happened', async () => {
+      /*
+       * Scenario: the user signs out everywhere and then signs back in, or the
+       * initiating tab reconnects right after the change-password disconnect —
+       * the ordinary case the guard must not break. The marker is older than
+       * the attempt, so it says nothing about this connection.
+       * Protects: the timestamp comparison. A guard that refused on the mere
+       * existence of a marker would lock the user out of realtime for the rest
+       * of the process's life.
+       */
+      const { gateway } = makeGateway();
+      gateway.disconnectUser('user-001');
+
+      const client = makeSocket();
+      const req = makeRequest({ authorization: 'Bearer valid-token' });
+      await gateway.handleConnection(client as never, req);
+
+      expect(client.close).not.toHaveBeenCalled();
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(1);
+    });
+
+    it('does not refuse a connection because a different user was disconnected', async () => {
+      /*
+       * Scenario: two users are active; one is suspended while the other is
+       * mid-handshake. The marker is per-user, so the bystander must connect
+       * normally.
+       * Protects: the per-user key on the marker lookup — a global flag would
+       * refuse every concurrent connection in the process.
+       */
+      const { gateway, revocation } = makeGateway();
+      let releaseCheck: (revoked: boolean) => void = () => undefined;
+      revocation.isAccessTokenRevoked.mockImplementation(
+        () =>
+          new Promise<boolean>((resolve) => {
+            releaseCheck = resolve;
+          }),
+      );
+      const client = makeSocket();
+      const req = makeRequest({ authorization: 'Bearer valid-token' });
+
+      const connecting = gateway.handleConnection(client as never, req);
+      gateway.disconnectUser('someone-else');
+      releaseCheck(false);
+      await connecting;
+
+      expect(client.close).not.toHaveBeenCalled();
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(1);
+    });
+  });
 });

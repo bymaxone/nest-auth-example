@@ -8,6 +8,10 @@
  * session while keeping the caller's cookie-mode session alive), and shows a
  * success or error toast. On success the form resets to blank.
  *
+ * Everything after the change itself is post-commit cleanup: the success is
+ * reported before it runs, so a failure there is never mistaken for the
+ * password change having failed.
+ *
  * @layer components/dashboard
  */
 
@@ -72,20 +76,37 @@ export function PasswordChangeForm() {
         currentPassword: data.currentPassword,
         newPassword: data.newPassword,
       });
-      // The library revokes every OTHER session and bumps the token epoch, but
-      // the gateway authenticates a socket at connect and never revalidates, so
-      // those devices keep streaming on connections opened before the change.
-      // Closing them server-side also drops this tab's socket — the gateway
-      // cannot single one out — so reconnect straight after: this session is
-      // still valid, while the revoked ones are refused and now stop on their
-      // own instead of retrying.
-      await disconnectRealtime();
-      getWsClient().reconnect();
-      toast.success('Password updated successfully.');
-      reset();
     } catch (err) {
       handleAuthClientError(err, { toast });
+      setIsPending(false);
+      return;
+    }
+
+    // Past this point the password is changed and the other sessions are
+    // revoked — committed server-side, whatever happens next. Reporting it
+    // first keeps a failure in the cleanup below from being read as "your
+    // password was not changed", which would send the user to try again with a
+    // password that is no longer current.
+    toast.success('Password updated successfully.');
+    reset();
+
+    // The library revokes every OTHER session and bumps the token epoch, but
+    // the gateway authenticates a socket at connect and never revalidates, so
+    // those devices keep streaming on connections opened before the change.
+    try {
+      await disconnectRealtime();
+    } catch (err) {
+      // Best-effort: the revoked devices keep their sockets until they close
+      // them, which is worth saying out loud, but the password change stands.
+      handleAuthClientError(err, { toast });
     } finally {
+      // Closing them server-side also drops this tab's socket — the gateway
+      // cannot single one out — and 4403 is a code `WsClient` never retries.
+      // This runs even when the call above reported a failure, because a lost
+      // response is indistinguishable from one that never reached the server,
+      // and in that case the sockets are already closed. This session is still
+      // valid; the revoked ones are refused and stop on their own.
+      getWsClient().reconnect();
       setIsPending(false);
     }
   };
