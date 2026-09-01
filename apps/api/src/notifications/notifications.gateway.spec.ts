@@ -868,6 +868,116 @@ describe('NotificationsGateway', () => {
     });
   });
 
+  // ── Ticket corroborated by the access-token cookie ─────────────────────────
+
+  describe('ticket path — revocation corroborated by the cookie', () => {
+    it('refuses a ticket when the upgrade also carries a revoked access token', async () => {
+      /*
+       * Scenario: a device minted a ticket, then the user signed out
+       * everywhere (or changed their password) before the socket opened. The
+       * ticket is still redeemable for its TTL and its snapshot carries no
+       * `jti` or epoch to check, so the redemption alone cannot tell. The
+       * browser sends its cookies on this same-origin upgrade, and the access
+       * token in them does carry the session — revoked, in this case.
+       * Protects: the corroboration check on the ticket path, without which a
+       * ticket minted before a revocation opens a socket nothing revalidates.
+       */
+      const { gateway } = makeGateway(VALID_PAYLOAD, true);
+      const client = makeSocket();
+      const req = {
+        headers: { cookie: 'access_token=revoked-token' },
+        url: '/ws/notifications?ticket=tkt-stale',
+      };
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
+    });
+
+    it('refuses a ticket when a Bearer header carries the revoked token instead of a cookie', async () => {
+      /*
+       * Scenario: a non-browser client that holds both a ticket and its access
+       * token, presenting the token in the header the way the JWT path expects.
+       * The corroboration reads the credential from the same two places that
+       * path does, so the header must count exactly as the cookie does.
+       * Protects: the Authorization-header arm of the token extraction — a
+       * cookie-only reading would silently skip the check for these clients.
+       */
+      const { gateway } = makeGateway(VALID_PAYLOAD, true);
+      const client = makeSocket();
+      const req = {
+        headers: { authorization: 'Bearer revoked-token' },
+        url: '/ws/notifications?ticket=tkt-bearer',
+      };
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
+    });
+
+    it('admits a ticket when the cookie is present and not revoked', async () => {
+      /*
+       * Scenario: the ordinary browser reconnect. The cookie corroborates the
+       * ticket rather than contradicting it.
+       * Protects: the check refusing only on an actual revocation — inverting
+       * it would break every normal ticket connection.
+       */
+      const { gateway } = makeGateway();
+      const client = makeSocket();
+      const req = {
+        headers: { cookie: 'access_token=live-token' },
+        url: '/ws/notifications?ticket=tkt-fresh',
+      };
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(client.close).not.toHaveBeenCalled();
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(1);
+    });
+
+    it('admits a ticket that arrives with no cookie at all', async () => {
+      /*
+       * Scenario: a non-browser client, which never had a cookie. Absence is
+       * not evidence of revocation, and refusing here would break the only
+       * path such a client has.
+       * Protects: the `!token` early return — treating a missing cookie as a
+       * refusal would make the ticket path browser-only.
+       */
+      const { gateway } = makeGateway();
+      const client = makeSocket();
+      const req = { headers: {}, url: '/ws/notifications?ticket=tkt-headless' };
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(client.close).not.toHaveBeenCalled();
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(1);
+    });
+
+    it('admits a ticket whose cookie carries a token that does not verify', async () => {
+      /*
+       * Scenario: the access token expired while the ticket (30 s) is still
+       * good, or the cookie holds a token minted for another plane. Neither
+       * says anything about revocation, and the ticket was itself minted by an
+       * authenticated call moments earlier.
+       * Protects: the `!payload` early return — refusing here would drop
+       * legitimate reconnects whenever the access token aged out first.
+       */
+      const { gateway } = makeGateway(new Error('jwt expired'));
+      const client = makeSocket();
+      const req = {
+        headers: { cookie: 'access_token=expired-token' },
+        url: '/ws/notifications?ticket=tkt-expired-cookie',
+      };
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(client.close).not.toHaveBeenCalled();
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(1);
+    });
+  });
+
   // ── Admission racing a forced disconnect ───────────────────────────────────
 
   describe('admission racing a forced disconnect', () => {

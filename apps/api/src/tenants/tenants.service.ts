@@ -67,6 +67,28 @@ export class TenantsService {
   }
 
   /**
+   * Resolves a tenant CUID back to its URL-safe slug.
+   *
+   * The inverse of {@link resolveBySlug}, and needed because the library hands
+   * providers the CUID: a link mailed from `sendEmailChangeVerification` (or
+   * any other tenant-scoped notification) carries the CUID, while the pages
+   * that receive it pick a workspace by slug. Without this the CUID is
+   * unrecognised and the page silently falls back to the default workspace.
+   *
+   * @param id - Tenant CUID as it appears in a mailed link.
+   * @returns Object with the tenant's `slug`.
+   * @throws `NotFoundException` when no tenant with that id exists.
+   */
+  async resolveSlugById(id: string): Promise<{ slug: string }> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: { slug: true },
+    });
+    if (!tenant) throw new NotFoundException(`Tenant not found: ${id}`);
+    return { slug: tenant.slug };
+  }
+
+  /**
    * Creates a new tenant.
    *
    * Lets the database unique constraint on `slug` be the authoritative source of

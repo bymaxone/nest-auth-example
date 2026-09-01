@@ -26,6 +26,11 @@
  * future `@SubscribeMessage` handler refused by `WsJwtGuard` answers with the
  * library's `auth.*` error envelope instead of crashing the socket.
  *
+ *  A ticket cannot be checked against the revocation channels — its snapshot
+ *  carries no `jti` and no epoch — so when the same-origin upgrade also brings
+ *  the access-token cookie, that token's revocation state is checked alongside
+ *  it. It corroborates the ticket; it never replaces it.
+ *
  * Admission and disconnect:
  *  `disconnectUser` can only reach sockets already in the connection map, so a
  *  connection still being authenticated would otherwise be registered just
@@ -231,7 +236,7 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
 
     const ticket = extractTicket(req?.url);
     if (ticket !== undefined) {
-      await this.authenticateWithTicket(client, ticket, admissionStartedAt);
+      await this.authenticateWithTicket(client, ticket, admissionStartedAt, req);
       return;
     }
 
@@ -250,14 +255,26 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
    * `@SubscribeMessage` handler guarded by `WsJwtGuard` requires the
    * Bearer/cookie path. This gateway is push-only today.
    *
+   * A redeemed ticket says nothing about the session that minted it: the
+   * snapshot carries identity and account status, no `jti` and no epoch
+   * (bymaxone/nest-auth#183). So a ticket minted moments before a logout, a
+   * password change or "sign out everywhere" still redeems for the rest of its
+   * TTL, and the socket it opens is never revalidated. The browser sends its
+   * cookies on this same-origin upgrade, and those DO carry the session — so
+   * the access token's revocation state is checked as well when one is
+   * present. It is corroboration, not a second gate: an absent or unverifiable
+   * token leaves the ticket to stand on its own, exactly as before.
+   *
    * @param client - The connecting socket, closed in place on refusal.
    * @param ticket - The raw ticket value read from the upgrade URL.
    * @param admissionStartedAt - Monotonic timestamp taken before the redemption.
+   * @param req - The upgrade request, read for the access-token cookie.
    */
   private async authenticateWithTicket(
     client: AuthenticatedSocket,
     ticket: string,
     admissionStartedAt: number,
+    req: IncomingMessage | undefined,
   ): Promise<void> {
     let snapshot: WsTicketSnapshot;
     try {
@@ -269,6 +286,12 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
 
     if (isBlockedStatus(snapshot.status)) {
       client.close(4403, 'Account suspended');
+      return;
+    }
+
+    if (await this.isRevokedByCookie(req)) {
+      this.logger.warn({ msg: 'ws:ticket_refused', reason: 'session_revoked' });
+      client.close(4401, 'Unauthorized');
       return;
     }
 
@@ -327,6 +350,32 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
     };
 
     this.admitSocket(payload.sub, client, admissionStartedAt);
+  }
+
+  /**
+   * Whether the upgrade request carries an access token that has been revoked.
+   *
+   * Used to corroborate a ticket, which cannot be checked against the
+   * revocation channels itself. Deliberately answers `false` — "nothing to say"
+   * — in the two cases where the cookie is not evidence: no token at all (a
+   * non-browser client, which never had one) and a token that does not verify
+   * (expired, or minted for another plane). Only a token that verifies AND
+   * comes back revoked refuses the connection, which is exactly the state a
+   * logout, password change or bulk revocation leaves behind.
+   *
+   * @param req - The HTTP upgrade request.
+   * @returns `true` only when a verifiable dashboard token is revoked.
+   */
+  private async isRevokedByCookie(req: IncomingMessage | undefined): Promise<boolean> {
+    const authHeader =
+      typeof req?.headers['authorization'] === 'string' ? req.headers['authorization'] : undefined;
+    const token = extractAccessToken(req, authHeader);
+    if (!token) return false;
+
+    const payload = this.verifyDashboardToken(token);
+    if (!payload) return false;
+
+    return this.revocation.isAccessTokenRevoked(payload);
   }
 
   /**

@@ -46,6 +46,7 @@ import {
   authClient,
   mapAuthClientError,
   resolveTenantForLogin,
+  resolveTenantSlugById,
   TenantNotFoundError,
 } from '@/lib/auth-client';
 import { translateAuthError } from '@/lib/auth-errors';
@@ -68,6 +69,27 @@ function LoginForm() {
     resolveDefaultTenantSlug(searchParams.get('tenantId')),
   );
   const { refresh } = useSession();
+
+  // A `?tenantId=` that is a CUID rather than a slug is not a malformed link —
+  // it is what every tenant-scoped email the library sends carries, because
+  // `IEmailProvider` receives the CUID. `resolveDefaultTenantSlug` cannot match
+  // one against the picker's slugs, so without this it silently selects the
+  // default workspace and the submit below overwrites the `tenant_id` cookie
+  // with the wrong tenant — a confirmation link for Globex signs the user in at
+  // Acme. Translate it instead; a lookup that fails leaves the default, which
+  // is where the selector already was.
+  useEffect(() => {
+    const param = searchParams.get('tenantId');
+    if (param === null) return;
+    let cancelled = false;
+    void (async () => {
+      const slug = await resolveTenantSlugById(param);
+      if (!cancelled && slug !== null) setTenantSlug(slug);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // NEXT_PUBLIC_ vars are statically inlined by Next.js at build time

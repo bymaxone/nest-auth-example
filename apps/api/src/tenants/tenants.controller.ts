@@ -50,6 +50,29 @@ export class TenantsController {
   }
 
   /**
+   * Resolves a tenant CUID back to its slug.
+   *
+   * Public for the same reason `resolve` is: the pages that need it run before
+   * anyone is signed in. A link mailed by the library carries the tenant as a
+   * CUID — that is what `IEmailProvider` receives — while the workspace picker
+   * on the login page keys off slugs, so without this mapping a confirmation
+   * link for a non-default workspace lands the user on the default one.
+   *
+   * It exposes nothing new: the slugs are already public, listed in the
+   * picker, and `resolve` already maps them the other way.
+   *
+   * GET /api/tenants/slug?id=c…
+   *
+   * @param id - Tenant CUID.
+   * @returns Object with the tenant's `slug`.
+   */
+  @Public()
+  @Get('slug')
+  resolveSlugById(@Query('id') id: string): Promise<{ slug: string }> {
+    return this.tenantsService.resolveSlugById(id);
+  }
+
+  /**
    * Returns the list of tenants the authenticated user belongs to.
    *
    * Uses `@CurrentUser()` to receive the JWT-decoded user — never accesses

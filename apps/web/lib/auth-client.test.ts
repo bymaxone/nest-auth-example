@@ -132,6 +132,7 @@ import {
   listPlatformUsers,
   platformUpdateUserStatus,
   resolveTenantForLogin,
+  resolveTenantSlugById,
   TenantNotFoundError,
 } from './auth-client.js';
 import type { SessionInfo, TenantUserInfo, PlatformUserInfo, MfaSetupInfo } from './auth-client.js';
@@ -2154,6 +2155,82 @@ describe('resolveTenantForLogin', () => {
     expect(thrown).toBeInstanceOf(TenantNotFoundError);
     expect(thrown.message).toBe('Tenant not found: globex');
     expect(thrown.name).toBe('TenantNotFoundError');
+  });
+});
+
+describe('resolveTenantSlugById', () => {
+  it('returns the slug for a CUID the API recognises', async () => {
+    /*
+     * Scenario: a mailed link carries the tenant as a CUID — every
+     * tenant-scoped email the library sends does, because that is what
+     * `IEmailProvider` receives. The login page needs the slug to preselect
+     * the workspace in its picker.
+     * Protects: the happy path, and the exact endpoint it calls.
+     */
+    const mockFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(makeJsonResponse({ slug: 'globex' }));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await resolveTenantSlugById('cmo60aidg00017jf2voxw88ug');
+
+    expect(result).toBe('globex');
+    expect(mockFetch).toHaveBeenCalledWith('/api/tenants/slug?id=cmo60aidg00017jf2voxw88ug');
+  });
+
+  it('returns null without calling the API when the input is not a CUID', async () => {
+    /*
+     * Scenario: the param is already a slug, which is the ordinary case for a
+     * deep link from an invitation. Spending a round trip to learn that would
+     * be waste, and a 404 answer would be indistinguishable from a real one.
+     * Protects: the CUID_REGEX guard.
+     */
+    const mockFetch = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await resolveTenantSlugById('acme');
+
+    expect(result).toBeNull();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('returns null when the API does not recognise the id', async () => {
+    /*
+     * Scenario: a stale or hand-edited link. Answering null leaves the caller
+     * on its existing default rather than naming some other workspace.
+     * Protects: the `!response.ok` branch.
+     */
+    const mockFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
+    vi.stubGlobal('fetch', mockFetch);
+
+    expect(await resolveTenantSlugById('cmo60aidg00017jf2voxw88ug')).toBeNull();
+  });
+
+  it('returns null when the network call throws', async () => {
+    /*
+     * Scenario: the API is unreachable. This helper only decides which
+     * workspace a picker preselects, so it must never be the reason a page
+     * fails to render.
+     * Protects: the catch branch.
+     */
+    const mockFetch = vi.fn<typeof fetch>().mockRejectedValueOnce(new TypeError('network down'));
+    vi.stubGlobal('fetch', mockFetch);
+
+    expect(await resolveTenantSlugById('cmo60aidg00017jf2voxw88ug')).toBeNull();
+  });
+
+  it('returns null when the 200 body carries a non-string slug', async () => {
+    /*
+     * Scenario: schema drift. Coercing a non-string into the workspace picker
+     * would select nothing and hide the cause.
+     * Protects: the `typeof data.slug === 'string'` check.
+     */
+    const mockFetch = vi.fn<typeof fetch>().mockResolvedValueOnce(makeJsonResponse({ slug: 7 }));
+    vi.stubGlobal('fetch', mockFetch);
+
+    expect(await resolveTenantSlugById('cmo60aidg00017jf2voxw88ug')).toBeNull();
   });
 });
 

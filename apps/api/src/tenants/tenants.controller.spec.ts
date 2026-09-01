@@ -62,18 +62,20 @@ describe('TenantsController', () => {
   let listForUser: jest.Mock<() => Promise<Tenant[]>>;
   let create: jest.Mock<() => Promise<Tenant>>;
   let resolveBySlug: jest.Mock<() => Promise<{ id: string }>>;
+  let resolveSlugById: jest.Mock<() => Promise<{ slug: string }>>;
 
   beforeEach(async () => {
     listForUser = jest.fn<() => Promise<Tenant[]>>();
     create = jest.fn<() => Promise<Tenant>>();
     resolveBySlug = jest.fn<() => Promise<{ id: string }>>();
+    resolveSlugById = jest.fn<() => Promise<{ slug: string }>>();
 
     const moduleRef = await Test.createTestingModule({
       controllers: [TenantsController],
       providers: [
         {
           provide: TenantsService,
-          useValue: { listForUser, create, resolveBySlug },
+          useValue: { listForUser, create, resolveBySlug, resolveSlugById },
         },
         Reflector,
       ],
@@ -144,6 +146,22 @@ describe('TenantsController', () => {
 
       expect(result).toEqual({ id: 'cuid-acme' });
       expect(resolveBySlug).toHaveBeenCalledWith('acme');
+    });
+  });
+
+  // ─── resolveSlugById ──────────────────────────────────────────────────────
+
+  describe('resolveSlugById', () => {
+    it('delegates to service.resolveSlugById and returns the slug payload', async () => {
+      // Also @Public(): the page that needs it is the login page, reached from
+      // a mailed link before anyone is signed in. Without the mapping a link
+      // carrying a CUID selects the default workspace instead of the right one.
+      resolveSlugById.mockResolvedValue({ slug: 'globex' });
+
+      const result = await controller.resolveSlugById('cuid-globex');
+
+      expect(result).toEqual({ slug: 'globex' });
+      expect(resolveSlugById).toHaveBeenCalledWith('cuid-globex');
     });
   });
 });

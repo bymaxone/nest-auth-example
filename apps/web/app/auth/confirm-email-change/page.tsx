@@ -70,7 +70,9 @@ function SuccessState({ tenantParam }: { tenantParam: string }) {
   // falls back to the default tenant, overwriting the `tenant_id` cookie before
   // it submits. Dropping the tenant here would therefore send someone who just
   // confirmed a non-default workspace address to the default one, where their
-  // new credentials are rejected.
+  // new credentials are rejected. The value mailed by the library is the
+  // tenant's CUID rather than its slug — the login page translates it before
+  // seeding the selector.
   const loginHref =
     tenantParam === ''
       ? '/auth/login?email_changed=1'

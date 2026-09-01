@@ -243,4 +243,55 @@ describe('TenantsService', () => {
       await expect(service.resolveBySlug('missing')).rejects.toThrow('Tenant not found: missing');
     });
   });
+
+  // ─── resolveSlugById ───────────────────────────────────────────────────────
+
+  describe('resolveSlugById', () => {
+    // Its own mock: this lookup selects `slug`, not `id`, so it cannot share
+    // the return type of the `resolveBySlug` double above.
+    let findUniqueForSlug: jest.Mock<() => Promise<{ slug: string } | null>>;
+
+    beforeEach(async () => {
+      findUniqueForSlug = jest.fn<() => Promise<{ slug: string } | null>>();
+
+      const moduleRef = await Test.createTestingModule({
+        providers: [
+          TenantsService,
+          {
+            provide: PrismaService,
+            useValue: { tenant: { findUnique: findUniqueForSlug } },
+          },
+        ],
+      }).compile();
+      service = moduleRef.get(TenantsService);
+    });
+
+    it('returns the slug when the CUID matches an existing tenant', async () => {
+      // Every tenant-scoped email the library sends carries the CUID, because
+      // that is what IEmailProvider receives — while the pages those links land
+      // on pick a workspace by slug. This is the mapping between the two, and
+      // like resolveBySlug it returns nothing but the one field.
+      findUniqueForSlug.mockResolvedValue({ slug: 'globex' });
+
+      const result = await service.resolveSlugById('cuid-globex');
+
+      expect(result).toEqual({ slug: 'globex' });
+      expect(findUniqueForSlug).toHaveBeenCalledWith({
+        where: { id: 'cuid-globex' },
+        select: { slug: true },
+      });
+    });
+
+    it('throws NotFoundException when no tenant carries that id', async () => {
+      // A stale or hand-edited link must not resolve to some other workspace;
+      // the caller treats the 404 as "workspace unknown" and leaves the
+      // selector alone rather than guessing.
+      findUniqueForSlug.mockResolvedValue(null);
+
+      await expect(service.resolveSlugById('cuid-gone')).rejects.toThrow(NotFoundException);
+      await expect(service.resolveSlugById('cuid-gone')).rejects.toThrow(
+        'Tenant not found: cuid-gone',
+      );
+    });
+  });
 });
