@@ -32,6 +32,7 @@
  */
 
 import { createAuthClient, createAuthFetch, AuthClientError } from '@bymax-one/nest-auth/client';
+import { translateAuthError } from './auth-errors';
 import type {
   AuthClient,
   AuthClientConfig,
@@ -211,12 +212,20 @@ export function mapAuthClientError(error: unknown): {
 } {
   if (error instanceof AuthClientError) {
     const code = (error.code ?? 'UNKNOWN') as AuthErrorCode | 'UNKNOWN';
-    const message = error.body?.message ?? error.message;
+    // Translate the machine code rather than surfacing `body.message`. The
+    // server's wording is an internal detail — it can name a field, a limit or
+    // a provider — and rendering it raw is the pitfall AGENTS.md #31 calls out.
+    // `translateAuthError` already answers with a generic sentence for a code
+    // it does not know, so an unrecognised one degrades safely instead of
+    // leaking whatever the API happened to say.
+    const message = translateAuthError(code);
     return REDIRECT_TO_LOGIN_CODES.has(code)
       ? { code, message, redirectTo: '/auth/login' as const }
       : { code, message };
   }
 
+  // Not an API error: a thrown `Error` here is ours (a network failure, a bug),
+  // never server-authored, so its message is safe to show.
   return {
     code: 'UNKNOWN' as const,
     message: error instanceof Error ? error.message : 'An unexpected error occurred.',

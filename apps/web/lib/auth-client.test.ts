@@ -28,6 +28,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AuthClientError } from '@bymax-one/nest-auth/client';
+import { translateAuthError } from './auth-errors';
 import type { RefreshOutcome } from '@bymax-one/nest-auth/client';
 
 // ── Mock @bymax-one/nest-auth/client ──────────────────────────────────────────
@@ -211,11 +212,14 @@ afterEach(() => {
 // ── mapAuthClientError ────────────────────────────────────────────────────────
 
 describe('mapAuthClientError', () => {
-  it('normalises an AuthClientError with a code into { code, message }', () => {
+  it('translates the code into a catalogue message instead of the server wording', () => {
     /*
-     * Scenario: the most common case — an AuthClientError with a server-issued
-     * auth code. The function must extract and return the code and message.
-     * Protects: correct extraction of typed error codes for callers.
+     * Scenario: the most common case — an AuthClientError carrying a
+     * server-issued code. The code is passed through, and the message comes
+     * from the local catalogue rather than the API. The server's wording is an
+     * internal detail (it can name a field, a limit, a provider) and rendering
+     * it raw is the pitfall AGENTS.md #31 calls out.
+     * Protects: the translation, and the code still reaching callers intact.
      */
     const err = new AuthClientError('Invalid credentials', 401, {
       code: 'auth.invalid_credentials',
@@ -225,7 +229,7 @@ describe('mapAuthClientError', () => {
     });
     const result = mapAuthClientError(err);
     expect(result.code).toBe('auth.invalid_credentials');
-    expect(result.message).toBe('Invalid credentials');
+    expect(result.message).toBe(translateAuthError('auth.invalid_credentials'));
     expect(result.redirectTo).toBeUndefined();
   });
 
@@ -276,32 +280,39 @@ describe('mapAuthClientError', () => {
     expect(result.redirectTo).toBe('/auth/login');
   });
 
-  it('uses the body.message over error.message when body is present', () => {
+  it('never surfaces the server-authored message', () => {
     /*
-     * Scenario: when the AuthClientError carries a parsed body with a `message`
-     * field, that message must take precedence over the base Error message.
-     * Protects: correct message extraction — body.message > error.message.
+     * Scenario: the API supplies its own wording in `body.message`. That string
+     * must not reach the UI — this is the assertion that would fail if someone
+     * reinstated `body.message ?? error.message`, which is precisely the
+     * regression the translation exists to prevent.
+     * Protects: the absence of server wording, not merely the presence of a
+     * translated string.
      */
     const err = new AuthClientError('Generic message', 400, {
       code: 'auth.invalid_credentials',
-      message: 'Body-level message',
+      message: 'column "password_hash" violates constraint xyz',
       error: 'Bad Request',
       statusCode: 400,
     });
     const result = mapAuthClientError(err);
-    expect(result.message).toBe('Body-level message');
+    expect(result.message).not.toContain('password_hash');
+    expect(result.message).toBe(translateAuthError('auth.invalid_credentials'));
   });
 
-  it('falls back to error.message when AuthClientError has no code', () => {
+  it('degrades to the generic sentence when the code is unknown', () => {
     /*
-     * Scenario: an AuthClientError constructed without a body (no server code)
-     * must map its code to UNKNOWN and use error.message as the message.
-     * Protects: graceful handling of partial AuthClientError without a code.
+     * Scenario: an AuthClientError with no body, so no code. Falling back to
+     * the raw `error.message` here would reopen the same leak for exactly the
+     * responses the catalogue does not describe — the ones most likely to
+     * carry internals. The catalogue answers with its generic sentence.
+     * Protects: unknown codes degrading safely rather than passing through.
      */
     const err = new AuthClientError('Something went wrong', 500);
     const result = mapAuthClientError(err);
     expect(result.code).toBe('UNKNOWN');
-    expect(result.message).toBe('Something went wrong');
+    expect(result.message).toBe(translateAuthError('UNKNOWN'));
+    expect(result.message).not.toContain('Something went wrong');
     expect(result.redirectTo).toBeUndefined();
   });
 

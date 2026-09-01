@@ -19,7 +19,13 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 vi.mock('@/lib/auth-client', () => ({
   changePassword: vi.fn(),
+  disconnectRealtime: vi.fn(),
   handleAuthClientError: vi.fn(),
+}));
+
+const mockWsReconnect = vi.fn();
+vi.mock('@/lib/ws-client', () => ({
+  getWsClient: () => ({ reconnect: mockWsReconnect }),
 }));
 
 vi.mock('sonner', () => ({
@@ -28,11 +34,12 @@ vi.mock('sonner', () => ({
 
 // ── Typed imports after mocks ─────────────────────────────────────────────────
 
-import { changePassword, handleAuthClientError } from '@/lib/auth-client';
+import { changePassword, disconnectRealtime, handleAuthClientError } from '@/lib/auth-client';
 import { PasswordChangeForm } from './password-change-form.js';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(disconnectRealtime).mockResolvedValue(undefined);
 });
 
 describe('PasswordChangeForm rendering', () => {
@@ -358,5 +365,32 @@ describe('PasswordChangeForm surfaces verbatim copy + isPending reset + field er
     await waitFor(() => {
       expect(inputs[2]!.className).toContain('border-red');
     });
+  });
+
+  it('closes the revoked devices sockets and reconnects this one', async () => {
+    /*
+     * Scenario: the library revokes every other session and bumps the token
+     * epoch, but the gateway authenticates a socket at connect and never
+     * revalidates — so devices with a socket opened before the change keep
+     * receiving notifications on a session that no longer exists.
+     * The server-side close cannot single out this tab, so it drops ours too;
+     * reconnecting immediately is what keeps the initiating client working
+     * while the revoked ones stay refused.
+     * Protects: both calls, and their order.
+     */
+    vi.mocked(changePassword).mockResolvedValue(undefined);
+
+    render(<PasswordChangeForm />);
+    const inputs = document.querySelectorAll('input');
+    fireEvent.change(inputs[0]!, { target: { value: 'OldPass1!' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.click(screen.getByRole('button', { name: /update password/i }));
+
+    await waitFor(() => expect(disconnectRealtime).toHaveBeenCalledOnce());
+    expect(mockWsReconnect).toHaveBeenCalledOnce();
+    const disconnectOrder = vi.mocked(disconnectRealtime).mock.invocationCallOrder[0] ?? 0;
+    const reconnectOrder = mockWsReconnect.mock.invocationCallOrder[0] ?? 0;
+    expect(disconnectOrder).toBeLessThan(reconnectOrder);
   });
 });

@@ -22,7 +22,8 @@ import { KeyRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/auth/password-input';
-import { changePassword, handleAuthClientError } from '@/lib/auth-client';
+import { changePassword, disconnectRealtime, handleAuthClientError } from '@/lib/auth-client';
+import { getWsClient } from '@/lib/ws-client';
 import { cn } from '@/lib/utils';
 
 /** Tailwind error-border class applied to a password input on validation failure. */
@@ -71,6 +72,15 @@ export function PasswordChangeForm() {
         currentPassword: data.currentPassword,
         newPassword: data.newPassword,
       });
+      // The library revokes every OTHER session and bumps the token epoch, but
+      // the gateway authenticates a socket at connect and never revalidates, so
+      // those devices keep streaming on connections opened before the change.
+      // Closing them server-side also drops this tab's socket — the gateway
+      // cannot single one out — so reconnect straight after: this session is
+      // still valid, while the revoked ones are refused and now stop on their
+      // own instead of retrying.
+      await disconnectRealtime();
+      getWsClient().reconnect();
       toast.success('Password updated successfully.');
       reset();
     } catch (err) {

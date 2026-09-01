@@ -61,8 +61,21 @@ function MissingTokenState() {
  *
  * The copy names the notice sent to the previous address, because that notice
  * is the user's signal if the change was not theirs.
+ *
+ * @param tenantParam - Tenant from the confirmation URL, carried into the login
+ *   link so the workspace survives the hand-off.
  */
-function SuccessState() {
+function SuccessState({ tenantParam }: { tenantParam: string }) {
+  // The login page seeds its workspace selector from `?tenantId=` and otherwise
+  // falls back to the default tenant, overwriting the `tenant_id` cookie before
+  // it submits. Dropping the tenant here would therefore send someone who just
+  // confirmed a non-default workspace address to the default one, where their
+  // new credentials are rejected.
+  const loginHref =
+    tenantParam === ''
+      ? '/auth/login?email_changed=1'
+      : `/auth/login?email_changed=1&tenantId=${encodeURIComponent(tenantParam)}`;
+
   return (
     <div className="flex flex-col items-center gap-6 text-center">
       <MailCheck className="h-8 w-8 text-success" />
@@ -74,7 +87,7 @@ function SuccessState() {
         </p>
       </div>
       <Link
-        href="/auth/login?email_changed=1"
+        href={loginHref}
         className="text-sm text-brand-500/80 transition-colors hover:text-brand-500"
       >
         Continue to sign in
@@ -170,7 +183,7 @@ function ConfirmEmailChangeContent() {
   }
 
   if (isConfirmed) {
-    return <SuccessState />;
+    return <SuccessState tenantParam={tenantParam} />;
   }
 
   return <ConfirmPrompt isSubmitting={isSubmitting} onConfirm={() => void handleConfirm()} />;
