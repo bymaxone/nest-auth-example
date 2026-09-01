@@ -7,7 +7,8 @@
  * - Clicking confirm revokes every other session AND logs the current one out
  *   before redirecting — the pairing that makes the dialog's "including the
  *   current one" promise true.
- * - A failed logout surfaces an error and does NOT redirect.
+ * - A failed logout surfaces an error, does NOT redirect, and restores the
+ *   socket the server-side disconnect closed under this tab.
  *
  * @module components/dashboard/sign-out-everywhere-button.test
  */
@@ -46,8 +47,9 @@ vi.mock('sonner', () => ({
 }));
 
 const mockWsClose = vi.fn();
+const mockWsReconnect = vi.fn();
 vi.mock('@/lib/ws-client', () => ({
-  getWsClient: () => ({ close: mockWsClose }),
+  getWsClient: () => ({ close: mockWsClose, reconnect: mockWsReconnect }),
 }));
 
 // ── Typed imports after mocks ─────────────────────────────────────────────────
@@ -191,6 +193,9 @@ describe('SignOutEverywhereButton dialog flow', () => {
       expect(triggerBtn).not.toBeNull();
       expect(triggerBtn?.disabled).toBe(false);
     });
+    // The failure landed before the server-side disconnect, so this tab's
+    // socket was never closed and must not be torn down and re-opened.
+    expect(mockWsReconnect).not.toHaveBeenCalled();
   });
 
   it('closes the notification socket so it stops streaming after sign-out', async () => {
@@ -251,6 +256,31 @@ describe('SignOutEverywhereButton dialog flow', () => {
     const disconnectOrder = vi.mocked(disconnectRealtime).mock.invocationCallOrder[0] ?? 0;
     const logoutOrder = mockFetch.mock.invocationCallOrder[0] ?? 0;
     expect(disconnectOrder).toBeLessThan(logoutOrder);
+  });
+
+  it('restores the socket on this tab when the logout fails after the realtime disconnect', async () => {
+    /*
+     * Scenario: the revoke and the server-side disconnect both succeed, then
+     * `POST /api/auth/logout` answers non-2xx. The disconnect closed EVERY
+     * socket for the user, this tab's included — the gateway cannot exempt one
+     * device — with code 4403, which `WsClient` treats as final and stops
+     * reconnecting on. The session is still live and the user stays on the
+     * dashboard, so without an explicit `reconnect()` they sit there receiving
+     * no notifications until they reload.
+     * Protects: the `reconnect()` call on the post-disconnect failure path, and
+     * the guard that gates it on the disconnect having been requested.
+     */
+    vi.mocked(revokeAllSessions).mockResolvedValue(undefined);
+    mockFetch.mockResolvedValue(new Response(null, { status: 500 }));
+
+    render(<SignOutEverywhereButton />);
+    fireEvent.click(screen.getByRole('button', { name: /sign out everywhere/i }));
+    const allButtons = screen.getAllByRole('button', { name: /sign out everywhere/i });
+    fireEvent.click(allButtons[allButtons.length - 1]!);
+
+    await waitFor(() => expect(mockWsReconnect).toHaveBeenCalledOnce());
+    // Restoring the stream is not the same as ending it — the session survived.
+    expect(mockWsClose).not.toHaveBeenCalled();
   });
 
   it('surfaces an error and does not redirect when the logout call fails', async () => {

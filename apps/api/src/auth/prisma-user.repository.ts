@@ -272,11 +272,16 @@ export class PrismaUserRepository implements IUserRepository {
   }
 
   /**
-   * Links an existing user account to an OAuth provider identity.
+   * Re-writes the OAuth identity on an account that is already linked to it.
    *
-   * Called during the account-linking flow when a user authenticates via OAuth
-   * for the first time on an existing email-password account. Scoped by
-   * `(id, tenantId)` like every other write on this port.
+   * Reached only from the library's `link` branch, which runs when
+   * `findByOAuthId` has already matched a row by `(provider, providerId)` — so
+   * this re-authenticates an established link rather than creating one. Since
+   * lib v1.4.x there is no email-based linking: an OAuth profile whose address
+   * already belongs to an account in the tenant is refused with
+   * `auth.oauth_email_mismatch` before any write happens, so a caller must
+   * never rely on this method to attach a provider to a password account.
+   * Scoped by `(id, tenantId)` like every other write on this port.
    *
    * @param params - `{ id, tenantId, provider, providerId }`.
    */
@@ -288,18 +293,23 @@ export class PrismaUserRepository implements IUserRepository {
   }
 
   /**
-   * Creates or links a user originating from an OAuth provider.
+   * Creates a user originating from an OAuth provider.
    *
-   * Implemented as an upsert on `(tenantId, email)`:
-   * - **New user** (no row with that email in the tenant) — inserts a fresh row
-   *   with no password hash and the OAuth identity pre-populated.
-   * - **Existing email/password user** (first-time OAuth sign-in with a matching
-   *   email) — updates only the OAuth fields and sets `emailVerified = true`.
-   *   Name, role, and status of the existing account are preserved.
+   * The library calls this only after its own `findByEmail` came back empty, so
+   * in the OAuth flow the address is new to the tenant. An OAuth profile whose
+   * address already belongs to an account is refused upstream with
+   * `auth.oauth_email_mismatch` — a stranger who controls the provider identity
+   * for someone else's address must not inherit their account.
    *
-   * This behaviour satisfies the account-linking guarantee: a user who first
-   * registered with email+password and later signs in with Google is linked to
-   * the same row rather than creating a duplicate.
+   * Implemented as an upsert on `(tenantId, email)` rather than a create:
+   * - **Insert branch** — the normal path. A fresh row with no password hash
+   *   and the OAuth identity pre-populated.
+   * - **Update branch** — reached only in the race where a row for that address
+   *   is committed between the library's check and this write. It touches the
+   *   OAuth identity and `emailVerified` alone, leaving name, role, and status
+   *   as they were, so a concurrent insert cannot be escalated through this
+   *   path. A plain `create` would answer that race with a unique-constraint
+   *   crash instead.
    *
    * Blocked-status guard (two-phase):
    * 1. Pre-upsert `findUnique` — rejects blocked existing users before the upsert
@@ -320,12 +330,13 @@ export class PrismaUserRepository implements IUserRepository {
     const status = Object.values(UserStatus).find((s) => s === data.status) ?? UserStatus.ACTIVE;
     const email = data.email.toLowerCase();
 
-    // Pre-upsert blocked-status check: reject blocked existing users before any
-    // write occurs. Without this guard the upsert's `update` branch would commit
-    // `emailVerified = true` on a blocked account even though the post-upsert
-    // check below prevents token issuance. A blocked user could thereby skip
-    // email verification by repeatedly triggering the OAuth flow and then being
-    // re-activated by an admin.
+    // Pre-upsert blocked-status check: reject a blocked existing row before any
+    // write occurs. This port is the boundary, so it does not assume the caller
+    // screened the address first — reaching the update branch on a blocked
+    // account would commit `emailVerified = true` on it, and the post-upsert
+    // check below only withholds tokens, it does not undo that write. A blocked
+    // user could otherwise bank a verified email for whenever an admin
+    // re-activates them.
     const existingForStatusCheck = await this.prisma.user.findUnique({
       where: { tenantId_email: { tenantId: data.tenantId, email } },
       select: { status: true },
@@ -339,8 +350,8 @@ export class PrismaUserRepository implements IUserRepository {
 
     const row = await this.prisma.user.upsert({
       where: { tenantId_email: { tenantId: data.tenantId, email } },
-      // When an existing email/password user first signs in via OAuth, update
-      // only the OAuth identity fields — do not overwrite name, role, or status.
+      // Only reachable on the concurrent-insert race described above. Update
+      // the OAuth identity fields alone — never name, role, or status.
       update: {
         oauthProvider: data.oauthProvider,
         oauthProviderId: data.oauthProviderId,

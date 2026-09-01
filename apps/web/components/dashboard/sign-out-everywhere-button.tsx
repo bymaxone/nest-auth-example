@@ -14,6 +14,10 @@
  *   4. `getWsClient().close()` — closes this tab's own socket, which the
  *      server-side disconnect cannot reach once the session is gone.
  *
+ * When a step after the disconnect fails the session survives, so the catch
+ * calls `reconnect()`: step 3 closes this tab's socket too (the gateway cannot
+ * exempt one device) with a code `WsClient` treats as final.
+ *
  * Step 2 is not optional garnish: without it the caller's refresh cookie stays
  * valid and a silent refresh re-authenticates the very browser the user just
  * told to sign out — which is exactly what the confirmation dialog promises
@@ -93,8 +97,13 @@ export function SignOutEverywhereButton() {
 
   const handleConfirm = async () => {
     setIsPending(true);
+    // Set once the server-side disconnect has been asked for. Past that point a
+    // failure leaves this browser signed in but with the socket the gateway
+    // closed underneath it, so the catch has to bring the stream back.
+    let realtimeDisconnectRequested = false;
     try {
       await revokeAllSessions();
+      realtimeDisconnectRequested = true;
       // The revoke ends the other sessions' HTTP credentials, but the gateway
       // authenticates a socket only at connect, so every OTHER device keeps
       // streaming on a socket that is already open. Closing the local client
@@ -116,6 +125,14 @@ export function SignOutEverywhereButton() {
       toast.success('All sessions revoked.');
       router.replace('/auth/login');
     } catch (err) {
+      // The gateway closes this tab's socket with 4403 alongside the other
+      // devices' — it cannot single one out — and `WsClient` treats that code as
+      // final, so the stream never comes back on its own. On this path the
+      // session is still live and the user stays on the dashboard, which would
+      // leave them silently unnotified until a reload.
+      if (realtimeDisconnectRequested) {
+        getWsClient().reconnect();
+      }
       handleAuthClientError(err, { toast });
       setIsPending(false);
     }
