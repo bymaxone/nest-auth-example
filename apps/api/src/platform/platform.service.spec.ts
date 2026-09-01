@@ -20,6 +20,7 @@
 import { Logger, NotFoundException } from '@nestjs/common';
 import { jest } from '@jest/globals';
 import { Test } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { UserStatus } from '@prisma/client';
 import type { Tenant, User } from '@prisma/client';
 
@@ -126,6 +127,11 @@ describe('PlatformService', () => {
         // The library-namespaced Redis client backs the UserStatusGuard cache
         // invalidation performed after a status change.
         { provide: BYMAX_AUTH_REDIS_CLIENT, useValue: { del: redisDel } },
+        // The status-cache key is namespaced from REDIS_NAMESPACE.
+        {
+          provide: ConfigService,
+          useValue: { getOrThrow: () => 'nest-auth-example' },
+        },
       ],
     }).compile();
 

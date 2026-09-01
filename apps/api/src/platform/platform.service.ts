@@ -24,10 +24,14 @@
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { BYMAX_AUTH_REDIS_CLIENT, MfaService } from '@bymax-one/nest-auth';
 import { NotificationsGateway } from '../notifications/notifications.gateway.js';
+import { userStatusCacheKey } from '../redis/user-status-cache-key.js';
 import { Prisma } from '@prisma/client';
 import type { Tenant } from '@prisma/client';
 import type { Redis } from 'ioredis';
 
+import { ConfigService } from '@nestjs/config';
+
+import type { Env } from '../config/env.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { UpdateUserStatusDto } from './dto/update-user-status.dto.js';
 
@@ -80,6 +84,7 @@ export class PlatformService {
     private readonly mfaService: MfaService,
     private readonly notificationsGateway: NotificationsGateway,
     @Inject(BYMAX_AUTH_REDIS_CLIENT) private readonly authRedis: Redis,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   /**
@@ -257,7 +262,11 @@ export class PlatformService {
     // own TTL.
     try {
       await this.authRedis.del(
-        `nest-auth-example:us:${encodeURIComponent(updated.tenantId)}:${encodeURIComponent(targetUserId)}`,
+        userStatusCacheKey(
+          this.config.getOrThrow<string>('REDIS_NAMESPACE'),
+          updated.tenantId,
+          targetUserId,
+        ),
       );
     } catch (err: unknown) {
       this.logger.error({

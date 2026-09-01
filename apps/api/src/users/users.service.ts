@@ -19,7 +19,10 @@ import type { SafeAuthUser } from '@bymax-one/nest-auth';
 import type { Redis } from 'ioredis';
 
 import { PrismaUserRepository } from '../auth/prisma-user.repository.js';
+import { ConfigService } from '@nestjs/config';
+import type { Env } from '../config/env.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { userStatusCacheKey } from '../redis/user-status-cache-key.js';
 import { NotificationsGateway } from '../notifications/notifications.gateway.js';
 import type { UpdateStatusDto } from './dto/update-status.dto.js';
 
@@ -57,6 +60,7 @@ export class UsersService {
     private readonly prisma: PrismaService,
     private readonly notificationsGateway: NotificationsGateway,
     @Inject(BYMAX_AUTH_REDIS_CLIENT) private readonly authRedis: Redis,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   /**
@@ -114,9 +118,13 @@ export class UsersService {
     // for up to 60s. Since lib v1.3.2 the cache key is TENANT-SCOPED:
     // `us:{encodeURIComponent(tenantId)}:{encodeURIComponent(userId)}` — a
     // bare-userId delete is a silent no-op. The library's AuthRedisService
-    // prefixes all keys with the configured namespace (`nest-auth-example:`).
+    // prefixes all keys with the configured namespace.
     await this.authRedis.del(
-      `nest-auth-example:us:${encodeURIComponent(adminTenantId)}:${encodeURIComponent(targetUserId)}`,
+      userStatusCacheKey(
+        this.config.getOrThrow<string>('REDIS_NAMESPACE'),
+        adminTenantId,
+        targetUserId,
+      ),
     );
 
     // Write audit log — non-blocking: a write failure must not abort the status update.

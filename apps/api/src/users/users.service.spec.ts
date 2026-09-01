@@ -15,6 +15,7 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { jest } from '@jest/globals';
 import { Test } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import type { TestingModule } from '@nestjs/testing';
 import { UserStatus } from '@prisma/client';
 import { BYMAX_AUTH_REDIS_CLIENT } from '@bymax-one/nest-auth';
@@ -137,6 +138,11 @@ describe('UsersService', () => {
         {
           provide: NotificationsGateway,
           useValue: { maybeDisconnectBlockedUser },
+        },
+        // The status-cache key is namespaced from REDIS_NAMESPACE.
+        {
+          provide: ConfigService,
+          useValue: { getOrThrow: () => 'nest-auth-example' },
         },
         {
           provide: BYMAX_AUTH_REDIS_CLIENT,

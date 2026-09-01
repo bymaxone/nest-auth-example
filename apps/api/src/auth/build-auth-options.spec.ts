@@ -39,6 +39,7 @@ function makeConfig(overrides: Record<string, string | boolean | undefined> = {}
     PASSWORD_RESET_METHOD: 'token',
     NODE_ENV: 'test',
     WEB_ORIGIN: 'http://localhost:3000',
+    REDIS_NAMESPACE: 'nest-auth-example',
   };
 
   const merged: Record<string, string | boolean | undefined> = { ...defaults, ...overrides };

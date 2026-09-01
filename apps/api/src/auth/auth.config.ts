@@ -187,9 +187,13 @@ function buildAccountFlowOptions(
 /**
  * Tenancy, RBAC, and infrastructure naming — all static, none env-derived.
  *
+ * @param redisNamespace - Validated `REDIS_NAMESPACE`; prefixes every
+ *   library-owned key so deployments can share one Redis instance.
  * @returns The tenancy slice of the module options.
  */
-function buildTenancyOptions(): Pick<
+function buildTenancyOptions(
+  redisNamespace: string,
+): Pick<
   BymaxAuthModuleOptions,
   'platform' | 'invitations' | 'roles' | 'blockedStatuses' | 'redisNamespace' | 'routePrefix'
 > {
@@ -229,8 +233,11 @@ function buildTenancyOptions(): Pick<
 
     // ── Redis namespace ───────────────────────────────────────────────────────
     // All library-owned keys are prefixed with this namespace. App-owned keys
-    // live under `nest-auth-example:app:*` — see redis-guidelines.md.
-    redisNamespace: 'nest-auth-example',
+    // live under `<namespace>:app:*` — see redis-guidelines.md. Read from the
+    // environment because a shared Redis instance needs one namespace per
+    // deployment; hard-coding it made REDIS_NAMESPACE a knob that silently did
+    // nothing.
+    redisNamespace,
 
     // ── Route prefix ─────────────────────────────────────────────────────────
     // Combined with the global `/api` prefix in main.ts → final: /api/auth/*
@@ -367,6 +374,7 @@ export function buildAuthOptions(config: ConfigService<Env, true>): BymaxAuthMod
   const nodeEnv = config.getOrThrow<'production' | 'development' | 'test'>('NODE_ENV');
   const isProduction = nodeEnv === 'production';
   const webOrigin = config.getOrThrow<string>('WEB_ORIGIN');
+  const redisNamespace = config.getOrThrow<string>('REDIS_NAMESPACE');
   // ConfigService reads LIVE process.env strings (config.module.ts deliberately
   // skips the `validate` transform), so the Zod boolean coercion never applies
   // here — compare the string form, exactly like app.module.ts does for the
@@ -395,7 +403,7 @@ export function buildAuthOptions(config: ConfigService<Env, true>): BymaxAuthMod
       trustedProxyHops: Number(config.get('TRUSTED_PROXY_HOPS') ?? 0),
     }),
     ...buildAccountFlowOptions(config.getOrThrow<'token' | 'otp'>('PASSWORD_RESET_METHOD')),
-    ...buildTenancyOptions(),
+    ...buildTenancyOptions(redisNamespace),
     secureCookies: isProduction,
     tenantIdResolver: resolveTenantId,
     cookies: buildCookieOptions(webOrigin, resolveDomains),
