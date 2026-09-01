@@ -1,13 +1,16 @@
 /**
  * @fileoverview "Sign out everywhere" button — ends every session, this one included.
  *
- * Two calls are required, in this order:
+ * Three steps are required, in this order:
  *
  *   1. `POST /auth/sessions/revoke-all` — the library's bulk revocation, which
  *      by design preserves the session making the call
  *      (`SessionService.revokeAllExceptCurrent`).
  *   2. `POST /api/auth/logout` — terminates that surviving session, so the
  *      device in front of the user is signed out too.
+ *   3. `getWsClient().close()` — closes the notification socket, which the
+ *      gateway would otherwise keep serving: it authenticates on connect and
+ *      never revalidates.
  *
  * Step 2 is not optional garnish: without it the caller's refresh cookie stays
  * valid and a silent refresh re-authenticates the very browser the user just
@@ -37,6 +40,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { revokeAllSessions, handleAuthClientError } from '@/lib/auth-client';
+import { getWsClient } from '@/lib/ws-client';
 
 /**
  * Route handler that clears the auth cookies for the calling session.
@@ -94,6 +98,13 @@ export function SignOutEverywhereButton() {
       if (!response.ok) {
         throw new Error(`Logout failed with status ${response.status}`);
       }
+      // The gateway authenticates a socket once, at connect time, and never
+      // revalidates an established one, so revoking the HTTP credentials
+      // leaves an open socket streaming notifications to a browser that has
+      // just been told every session ended. Close it here — `close()` also
+      // stops the reconnect backoff, which would otherwise hammer an endpoint
+      // that now rejects the upgrade.
+      getWsClient().close();
       toast.success('All sessions revoked.');
       router.replace('/auth/login');
     } catch (err) {

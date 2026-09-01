@@ -44,6 +44,11 @@ vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
+const mockWsClose = vi.fn();
+vi.mock('@/lib/ws-client', () => ({
+  getWsClient: () => ({ close: mockWsClose }),
+}));
+
 // ── Typed imports after mocks ─────────────────────────────────────────────────
 
 import { revokeAllSessions, handleAuthClientError } from '@/lib/auth-client';
@@ -184,6 +189,44 @@ describe('SignOutEverywhereButton dialog flow', () => {
       expect(triggerBtn).not.toBeNull();
       expect(triggerBtn?.disabled).toBe(false);
     });
+  });
+
+  it('closes the notification socket so it stops streaming after sign-out', async () => {
+    /*
+     * Scenario: the gateway authenticates a socket on connect and never
+     * revalidates it, so revoking the HTTP credentials leaves an open socket
+     * delivering notifications to a browser that was just told every session
+     * ended. Closing it also stops the reconnect backoff from hammering an
+     * endpoint that now refuses the upgrade.
+     * Protects: the `close()` call — nothing else in this flow ends the socket.
+     */
+    vi.mocked(revokeAllSessions).mockResolvedValue(undefined);
+
+    render(<SignOutEverywhereButton />);
+    fireEvent.click(screen.getByRole('button', { name: /sign out everywhere/i }));
+    const allButtons = screen.getAllByRole('button', { name: /sign out everywhere/i });
+    fireEvent.click(allButtons[allButtons.length - 1]!);
+
+    await waitFor(() => expect(mockWsClose).toHaveBeenCalledOnce());
+  });
+
+  it('leaves the socket open when the logout call fails', async () => {
+    /*
+     * Scenario: the logout failed, so the session is still live and the user
+     * stays on the page. Killing their notification stream there would be a
+     * silent degradation of a session that still works.
+     * Protects: the ordering — the socket closes only on the success path.
+     */
+    vi.mocked(revokeAllSessions).mockResolvedValue(undefined);
+    mockFetch.mockResolvedValue(new Response(null, { status: 500 }));
+
+    render(<SignOutEverywhereButton />);
+    fireEvent.click(screen.getByRole('button', { name: /sign out everywhere/i }));
+    const allButtons = screen.getAllByRole('button', { name: /sign out everywhere/i });
+    fireEvent.click(allButtons[allButtons.length - 1]!);
+
+    await waitFor(() => expect(handleAuthClientError).toHaveBeenCalled());
+    expect(mockWsClose).not.toHaveBeenCalled();
   });
 
   it('surfaces an error and does not redirect when the logout call fails', async () => {

@@ -146,8 +146,12 @@ export default function SecurityPage() {
           Starts the library's two-step address change: password re-proof
           here, then a confirmation link mailed to the new address which
           lands on /auth/confirm-email-change. Rendered only once the
-          session has resolved so an anonymous flash never shows the form. */}
-      {user !== null && (
+          session has resolved so an anonymous flash never shows the form,
+          and only for accounts that HAVE a password: the change re-proves
+          the current one, which an OAuth-only account cannot supply, so
+          showing the card there would offer an action that can never
+          succeed. Their address is owned by the identity provider. */}
+      {user !== null && hasPassword && (
         <div className="max-w-xl">
           <EmailChangeCard />
         </div>

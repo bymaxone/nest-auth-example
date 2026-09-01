@@ -24,7 +24,9 @@ import type { Type } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import {
   AllowAllBreachChecker,
+  BYMAX_AUTH_OPTIONS,
   BymaxAuthModule,
+  CommonPasswordChecker,
   BYMAX_AUTH_BREACH_CHECKER,
   BYMAX_AUTH_EMAIL_PROVIDER,
   BYMAX_AUTH_HOOKS,
@@ -33,7 +35,12 @@ import {
   BYMAX_AUTH_USER_REPOSITORY,
   HibpBreachChecker,
 } from '@bymax-one/nest-auth';
-import type { BymaxAuthModuleOptions, IEmailProvider } from '@bymax-one/nest-auth';
+import type {
+  BymaxAuthModuleOptions,
+  IEmailProvider,
+  IPasswordBreachChecker,
+  ResolvedOptions,
+} from '@bymax-one/nest-auth';
 import { Redis } from 'ioredis';
 
 import { PrismaModule } from '../prisma/prisma.module.js';
@@ -85,30 +92,35 @@ function isGoogleOAuthConfigured(): boolean {
 const EmailProviderClass = chooseEmailProviderClass();
 
 /**
- * Builds the optional `BYMAX_AUTH_BREACH_CHECKER` binding from
- * `PASSWORD_BREACH_CHECKER` at process startup.
+ * Provider for `BYMAX_AUTH_BREACH_CHECKER`, selected from validated config.
  *
- * Evaluated synchronously at module decoration time (same accepted `process.env`
- * exception as `chooseEmailProviderClass`):
- * - `hibp` — the library's `HibpBreachChecker` (k-anonymity Have I Been Pwned
- *   range queries, fails open) replaces the default offline checker.
- * - `off` — the library's `AllowAllBreachChecker` (every password passes) for
- *   e2e suites with fixed fixtures; never production.
- * - `common` / unset — no binding: the library's default `CommonPasswordChecker`
- *   (top-10k list + `password.blocklist`) applies.
+ * The token is bound unconditionally so the choice can come from an injected
+ * `ConfigService<Env, true>` rather than a raw `process.env` read at module
+ * decoration time — the library only skips its own default when the consumer
+ * supplies this token, so an "only bind sometimes" shape would force the
+ * decision back outside the schema lifecycle.
  *
- * @returns Zero-or-one provider entries to spread into `extraProviders`.
+ * - `hibp` — `HibpBreachChecker` (k-anonymity Have I Been Pwned range queries,
+ *   fails open).
+ * - `off` — `AllowAllBreachChecker`, every password passes. For e2e suites with
+ *   fixed fixtures; the schema refuses it in production.
+ * - `common` (default) — `CommonPasswordChecker`, the same class the library
+ *   would have bound, constructed with the module options so the configured
+ *   `password.blocklist` still applies.
  */
-function breachCheckerProviders(): { provide: symbol; useValue: unknown }[] {
-  const mode = (process.env['PASSWORD_BREACH_CHECKER'] ?? 'common').toLowerCase();
-  if (mode === 'hibp') {
-    return [{ provide: BYMAX_AUTH_BREACH_CHECKER, useValue: new HibpBreachChecker() }];
-  }
-  if (mode === 'off') {
-    return [{ provide: BYMAX_AUTH_BREACH_CHECKER, useValue: new AllowAllBreachChecker() }];
-  }
-  return [];
-}
+const breachCheckerProvider = {
+  provide: BYMAX_AUTH_BREACH_CHECKER,
+  inject: [ConfigService, BYMAX_AUTH_OPTIONS],
+  useFactory: (
+    config: ConfigService<Env, true>,
+    options: ResolvedOptions,
+  ): IPasswordBreachChecker => {
+    const mode = config.getOrThrow<string>('PASSWORD_BREACH_CHECKER');
+    if (mode === 'hibp') return new HibpBreachChecker();
+    if (mode === 'off') return new AllowAllBreachChecker();
+    return new CommonPasswordChecker(options);
+  },
+};
 
 /**
  * Application auth module that registers `BymaxAuthModule` with all four
@@ -163,11 +175,8 @@ function breachCheckerProviders(): { provide: symbol; useValue: unknown }[] {
         { provide: BYMAX_AUTH_PLATFORM_USER_REPOSITORY, useClass: PrismaPlatformUserRepository },
         { provide: BYMAX_AUTH_EMAIL_PROVIDER, useClass: EmailProviderClass },
         { provide: BYMAX_AUTH_HOOKS, useClass: AppAuthHooks },
-        // Optional override of the library's default CommonPasswordChecker —
-        // PASSWORD_BREACH_CHECKER=hibp binds HibpBreachChecker (k-anonymity),
-        // =off binds AllowAllBreachChecker (e2e fixtures), unset keeps the
-        // offline default.
-        ...breachCheckerProviders(),
+        // Breach checker, chosen from validated config — see the provider above.
+        breachCheckerProvider,
       ],
     }),
   ],
