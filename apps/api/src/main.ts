@@ -77,9 +77,11 @@ class LegacyRouteWarningFilter implements LoggerService {
  * @returns True when the instance exposes Express's `set` settings API.
  */
 function isExpressApplication(value: unknown): value is Application {
-  return (
-    typeof value === 'object' && value !== null && typeof (value as Application).set === 'function'
-  );
+  // An Express application is a callable request handler with methods hung off
+  // it, so `typeof` is 'function', not 'object'. Checking only for 'object'
+  // rejects the real adapter and aborts the boot.
+  const isObjectLike = typeof value === 'function' || (typeof value === 'object' && value !== null);
+  return isObjectLike && typeof (value as Application).set === 'function';
 }
 
 async function bootstrap(): Promise<void> {
