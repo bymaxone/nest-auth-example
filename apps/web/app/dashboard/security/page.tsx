@@ -39,6 +39,12 @@ import { Card } from '@/components/ui/card';
  * latest server-side state and the page swaps to the correct card on the
  * next render tick.
  */
+/** How many times the MFA-status request is attempted before giving up. */
+const STATUS_FETCH_ATTEMPTS = 3;
+
+/** Pause between status-request attempts, in milliseconds. */
+const STATUS_RETRY_DELAY_MS = 750;
+
 export default function SecurityPage() {
   const { user, refresh } = useSession();
   const searchParams = useSearchParams();
@@ -59,17 +65,30 @@ export default function SecurityPage() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      try {
-        const status = await getMfaStatus();
-        if (!cancelled) {
-          setIsMfaRequired(status.required);
-          setHasPassword(status.hasPassword);
+      // Retry rather than guess. `hasPassword` decides whether the cards ask
+      // for a password, and a single transient failure must not settle that
+      // for the rest of the page's life — the user has no way to re-trigger
+      // the request short of reloading. Attempts are bounded: if the API is
+      // still unreachable after these, the page has larger problems than a
+      // missing capability flag.
+      for (let attempt = 0; attempt < STATUS_FETCH_ATTEMPTS; attempt += 1) {
+        try {
+          const status = await getMfaStatus();
+          if (!cancelled) {
+            setIsMfaRequired(status.required);
+            setHasPassword(status.hasPassword);
+          }
+          return;
+        } catch {
+          if (cancelled) return;
+          // The banner is informational, so a failure here is not surfaced;
+          // the dashboard shell already redirected the user when the policy
+          // applies. `hasPassword` stays unknown for the consumers below.
+          setIsMfaRequired(false);
+          if (attempt < STATUS_FETCH_ATTEMPTS - 1) {
+            await new Promise((resolve) => setTimeout(resolve, STATUS_RETRY_DELAY_MS));
+          }
         }
-      } catch {
-        // Leave `hasPassword` unknown rather than guessing. A single transient
-        // failure must not permanently decide a capability the user cannot
-        // re-trigger without a reload.
-        if (!cancelled) setIsMfaRequired(false);
       }
     })();
     return () => {
