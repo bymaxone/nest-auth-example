@@ -345,6 +345,57 @@ describe('PlatformService', () => {
       );
     });
 
+    it('still writes the audit row when cache invalidation fails after the commit', async () => {
+      /*
+       * Scenario: the status update has already committed when the Redis DEL
+       * rejects. Letting that escape would answer 500 — telling the operator
+       * the change failed when it did not — and would skip the audit row for a
+       * change that actually happened. The stale cache entry expires on its own
+       * TTL, so degrading here costs only a short enforcement delay.
+       * Protects: the try/catch around the invalidation, and the fact that the
+       * audit write still runs afterwards.
+       */
+      const existing = makeSafeUser({ status: UserStatus.ACTIVE });
+      userFindUnique.mockResolvedValue(existing);
+      userUpdate.mockResolvedValue(makeSafeUser({ status: UserStatus.BANNED }));
+      auditLogCreate.mockResolvedValue({});
+      redisDel.mockRejectedValue(new Error('redis down'));
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+      const dto: UpdateUserStatusDto = { status: UserStatus.BANNED };
+      await expect(
+        service.updateUserStatus('user-1', dto, 'admin-1', '127.0.0.1', 'jest'),
+      ).resolves.toBeDefined();
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          msg: 'UserStatusGuard cache invalidation failed after status change',
+        }),
+      );
+      expect(auditLogCreate).toHaveBeenCalled();
+      errorSpy.mockRestore();
+    });
+
+    it('stringifies a non-Error cache-invalidation rejection', async () => {
+      /*
+       * Scenario: an ioredis client can reject with a bare string. `err.message`
+       * is undefined on that path, so the log line must fall back to String(err)
+       * rather than recording `undefined` as the cause.
+       * Protects: the false arm of the `err instanceof Error` ternary.
+       */
+      userFindUnique.mockResolvedValue(makeSafeUser({ status: UserStatus.ACTIVE }));
+      userUpdate.mockResolvedValue(makeSafeUser({ status: UserStatus.BANNED }));
+      auditLogCreate.mockResolvedValue({});
+      redisDel.mockRejectedValue('connection reset');
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+      const dto: UpdateUserStatusDto = { status: UserStatus.BANNED };
+      await service.updateUserStatus('user-1', dto, 'admin-1', '127.0.0.1', 'jest');
+
+      expect(errorSpy).toHaveBeenCalledWith(expect.objectContaining({ error: 'connection reset' }));
+      errorSpy.mockRestore();
+    });
+
     it('runs the transaction with SERIALIZABLE isolation level', async () => {
       /*
        * Scenario: SERIALIZABLE isolation is required to prevent two concurrent

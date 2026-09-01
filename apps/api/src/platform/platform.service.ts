@@ -248,9 +248,24 @@ export class PlatformService {
     // v1.3.2) so the new status bites on the target's very next request
     // instead of after the 60s TTL. The target's tenantId comes from the
     // updated row — platform admins operate across tenants.
-    await this.authRedis.del(
-      `nest-auth-example:us:${encodeURIComponent(updated.tenantId)}:${encodeURIComponent(targetUserId)}`,
-    );
+    //
+    // Non-blocking, for the same reason the audit write below is: the status
+    // change has already committed. Letting a Redis failure escape would
+    // answer 500 — telling the operator the change failed when it did not —
+    // and would skip the audit row entirely. The cost of degrading here is
+    // bounded: without the delete the stale status simply expires with its
+    // own TTL.
+    try {
+      await this.authRedis.del(
+        `nest-auth-example:us:${encodeURIComponent(updated.tenantId)}:${encodeURIComponent(targetUserId)}`,
+      );
+    } catch (err: unknown) {
+      this.logger.error({
+        msg: 'UserStatusGuard cache invalidation failed after status change',
+        targetUserId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
 
     // Write audit log AFTER the transaction commits — non-blocking: a write
     // failure must not roll back the status update.
