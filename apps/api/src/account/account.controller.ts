@@ -28,6 +28,7 @@ import {
   AuthRateLimit,
   AuthRateLimitGuard,
   AuthService,
+  ChangePasswordDto,
   CurrentUser,
   SkipMfa,
   TokenDeliveryService,
@@ -41,7 +42,7 @@ import type {
 
 import { AccountService } from './account.service.js';
 import type { MfaStatusInfo, WorkspaceInfo } from './account.service.js';
-import { ChangePasswordDto } from './dto/change-password.dto.js';
+
 import { SwitchWorkspaceDto } from './dto/switch-workspace.dto.js';
 
 /**

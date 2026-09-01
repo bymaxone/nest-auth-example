@@ -18,7 +18,7 @@ import type { Request, Response } from 'express';
 
 import { AccountController } from './account.controller.js';
 import { AccountService } from './account.service.js';
-import type { ChangePasswordDto } from './dto/change-password.dto.js';
+import type { ChangePasswordDto } from '@bymax-one/nest-auth';
 import type { SwitchWorkspaceDto } from './dto/switch-workspace.dto.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
