@@ -23,6 +23,7 @@
 
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { BYMAX_AUTH_REDIS_CLIENT, MfaService } from '@bymax-one/nest-auth';
+import { NotificationsGateway } from '../notifications/notifications.gateway.js';
 import { Prisma } from '@prisma/client';
 import type { Tenant } from '@prisma/client';
 import type { Redis } from 'ioredis';
@@ -77,6 +78,7 @@ export class PlatformService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mfaService: MfaService,
+    private readonly notificationsGateway: NotificationsGateway,
     @Inject(BYMAX_AUTH_REDIS_CLIENT) private readonly authRedis: Redis,
   ) {}
 
@@ -116,6 +118,14 @@ export class PlatformService {
     // The library performs the whole reset: repository write, session
     // revocation, epoch bump, and the owner notification email.
     await this.mfaService.resetMfa(targetUserId, 'dashboard', existing.tenantId);
+
+    // The gateway authenticates a socket once, at connect time, so a session
+    // already streaming notifications survives the revocation the reset just
+    // performed. Close it here — an administrative MFA reset is a response to
+    // a suspected compromise, and leaving the suspect's live socket open would
+    // undo the point of revoking every HTTP credential. Mirrors the status
+    // path in `UsersService`.
+    this.notificationsGateway.disconnectUser(targetUserId);
 
     // Write audit log AFTER the reset — non-blocking, same policy as the
     // status mutation above.

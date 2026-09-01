@@ -25,6 +25,7 @@ import type { Tenant, User } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { BYMAX_AUTH_REDIS_CLIENT, MfaService } from '@bymax-one/nest-auth';
+import { NotificationsGateway } from '../notifications/notifications.gateway.js';
 
 import { PlatformService } from './platform.service.js';
 import type { PlatformSafeUser } from './platform.service.js';
@@ -68,6 +69,7 @@ function makeSafeUser(overrides: Partial<PlatformSafeUser> = {}): PlatformSafeUs
 describe('PlatformService', () => {
   let service: PlatformService;
   let resetMfa: jest.Mock<() => Promise<void>>;
+  let disconnectUser: jest.Mock<() => void>;
   let redisDel: jest.Mock<() => Promise<number>>;
 
   // Prisma mock stubs
@@ -102,6 +104,7 @@ describe('PlatformService', () => {
       });
 
     resetMfa = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    disconnectUser = jest.fn<() => void>();
     redisDel = jest.fn<() => Promise<number>>().mockResolvedValue(1);
 
     const moduleRef = await Test.createTestingModule({
@@ -118,6 +121,8 @@ describe('PlatformService', () => {
         },
         // The library's MfaService backs the administrative reset flow.
         { provide: MfaService, useValue: { resetMfa } },
+        // The gateway closes live sockets once the reset revokes the session.
+        { provide: NotificationsGateway, useValue: { disconnectUser } },
         // The library-namespaced Redis client backs the UserStatusGuard cache
         // invalidation performed after a status change.
         { provide: BYMAX_AUTH_REDIS_CLIENT, useValue: { del: redisDel } },
@@ -547,6 +552,41 @@ describe('PlatformService', () => {
 
       await expect(service.resetUserMfa(...ARGS)).rejects.toBeInstanceOf(NotFoundException);
       expect(resetMfa).toHaveBeenCalled();
+    });
+
+    it('closes the target user live notification sockets after the reset', async () => {
+      /*
+       * Scenario: the gateway authenticates a socket once, at connect time, so
+       * a connection opened before the reset keeps streaming afterwards even
+       * though `resetMfa` revoked the session and bumped the token epoch. An
+       * administrative reset answers a suspected compromise, so leaving the
+       * suspect's socket open would undo the revocation it just performed.
+       * Protects: the `disconnectUser` call — nothing else in the HTTP path
+       * would ever close that socket.
+       */
+      userFindUnique
+        .mockResolvedValueOnce({ id: 'user-1', tenantId: 'tenant-1' })
+        .mockResolvedValueOnce(makeSafeUser());
+      auditLogCreate.mockResolvedValue({});
+
+      await service.resetUserMfa(...ARGS);
+
+      expect(disconnectUser).toHaveBeenCalledWith('user-1');
+    });
+
+    it('does not close sockets when the target user does not exist', async () => {
+      /*
+       * Scenario: the pre-read finds no row, so no reset happens and no
+       * revocation occurred. Disconnecting here would drop a live session
+       * belonging to whoever currently holds that id — a denial of service
+       * driven by a typo'd id.
+       * Protects: the ordering — disconnect happens after a successful reset,
+       * never on the not-found path.
+       */
+      userFindUnique.mockResolvedValue(null);
+
+      await expect(service.resetUserMfa(...ARGS)).rejects.toBeInstanceOf(NotFoundException);
+      expect(disconnectUser).not.toHaveBeenCalled();
     });
 
     it('writes a platform-scoped audit row with the documented fields', async () => {

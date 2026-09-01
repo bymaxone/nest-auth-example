@@ -17,6 +17,7 @@
 import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module.js';
+import { NotificationsModule } from '../notifications/notifications.module.js';
 import { PrismaModule } from '../prisma/prisma.module.js';
 import { PlatformController } from './platform.controller.js';
 import { PlatformService } from './platform.service.js';
@@ -27,10 +28,14 @@ import { PlatformService } from './platform.service.js';
  * Contains no auth business logic — it delegates to `@bymax-one/nest-auth`
  * guards for authentication and authorization.
  *
+ * Imports `NotificationsModule` so `PlatformService` can close a user's live
+ * sockets after an administrative MFA reset, mirroring how `UsersModule` wires
+ * the gateway for status changes.
+ *
  * @public
  */
 @Module({
-  imports: [AuthModule, PrismaModule],
+  imports: [AuthModule, PrismaModule, NotificationsModule],
   controllers: [PlatformController],
   providers: [PlatformService],
 })
