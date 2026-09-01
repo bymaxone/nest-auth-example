@@ -2,7 +2,10 @@
 
 Session store, brute-force counters, OTPs, JWT revocation blacklist, and app-owned pub/sub.
 
-- **Package**: `ioredis` `^5.10.x`
+- **Package**: `ioredis` `^6.0.x` — v6 raises the floor to Node 20 (this repo is on 24) and makes
+  RESP3 the default protocol. Reply shapes are unchanged: `replyMapping` defaults to `legacy`, so
+  map replies still arrive as flat `[key, value, …]` arrays and doubles as strings, exactly as on
+  v5. Pass `protocol: 2` to go back to the v5 wire protocol if a server needs it.
 - **Server version**: Redis 7 (Alpine in dev)
 - **Dev port**: `6379` (`127.0.0.1` bind only)
 - **Config**: `docker/redis/redis.conf` (AOF on, volatile-LRU eviction, 256 MB)

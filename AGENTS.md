@@ -132,12 +132,12 @@ Versions pinned in `package.json` at root and in each app. Full inventory below;
 | Language           | TypeScript **6.0** strict                                                                        |
 | Backend framework  | NestJS **11.1** on Express **5**                                                                 |
 | ORM                | Prisma **7.7** + PostgreSQL **18**                                                               |
-| Cache / sessions   | `ioredis` **5.10** + Redis **7**                                                                 |
+| Cache / sessions   | `ioredis` **6.0** + Redis **7**                                                                  |
 | Logging            | `nestjs-pino` **4.6** + Pino **10.3** + `pino-http` **11**                                       |
 | Validation         | `class-validator` **0.15** + `class-transformer` **0.5**, Zod **4.3**                            |
-| Email              | `nodemailer` **8.0** (Mailpit dev), Resend SDK (prod)                                            |
+| Email              | `nodemailer` **9.1** (Mailpit dev), Resend SDK (prod)                                            |
 | Backend testing    | Jest **30**, supertest **7.2**                                                                   |
-| Frontend framework | Next.js **16.2** (App Router)                                                                    |
+| Frontend framework | Next.js **16.3** (App Router)                                                                    |
 | React              | **19.2**                                                                                         |
 | Styling            | Tailwind **4.2** + `@tailwindcss/postcss`, shadcn/ui, Radix UI, lucide-react                     |
 | Forms              | React Hook Form **7.72** + `@hookform/resolvers` **5.2**                                         |

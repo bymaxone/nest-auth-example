@@ -28,7 +28,7 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import { MailCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { confirmEmailChange, resolveTenantForLogin, AuthClientError } from '@/lib/auth-client';
+import { confirmEmailChange, AuthClientError } from '@/lib/auth-client';
 import { translateAuthError } from '@/lib/auth-errors';
 
 /**
@@ -161,10 +161,16 @@ function ConfirmEmailChangeContent() {
     try {
       // The link is opened from the NEW mailbox, so this browser usually has no
       // `tenant_id` cookie and `tenantAwareFetch` would send no `X-Tenant-Id`.
-      // Stash the tenant from the URL first, exactly as the reset page does.
+      // Stash the tenant from the URL first.
+      //
+      // Used verbatim, not resolved: the library hands `IEmailProvider` the
+      // tenant's id and this link is built from that argument, so the value in
+      // the URL is already what `X-Tenant-Id` wants. Running it through the
+      // slug lookup would ask the server to translate an id — answered with a
+      // 404 for any deployment whose ids are neither CUIDs nor equal to their
+      // slugs, which would fail the confirmation before the token is read.
       if (tenantParam !== '') {
-        const resolvedTenantId = await resolveTenantForLogin(tenantParam);
-        document.cookie = `tenant_id=${resolvedTenantId}; Path=/; SameSite=Lax; Max-Age=31536000`;
+        document.cookie = `tenant_id=${tenantParam}; Path=/; SameSite=Lax; Max-Age=31536000`;
       }
       await confirmEmailChange(token);
       setIsConfirmed(true);

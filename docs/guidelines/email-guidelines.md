@@ -2,7 +2,12 @@
 
 Implementations of `IEmailProvider` for `@bymax-one/nest-auth`. One dev provider (Mailpit) and one prod reference (Resend); both go through a single transport-agnostic interface.
 
-- **Packages**: `nodemailer` `^8.0.x`, Resend SDK (`resend`) when `EMAIL_PROVIDER=resend`
+- **Packages**: `nodemailer` `^9.1.x`, Resend SDK (`resend`) when `EMAIL_PROVIDER=resend` — v9
+  validates TLS certificates by default on the HTTPS requests it makes for remote attachment
+  content, OAuth2 token endpoints and proxy CONNECT. Nothing here does any of those (Mailpit over
+  plain SMTP in dev, the Resend SDK in prod), so the change is inert for this app; a deployment
+  that fetches attachments from a host with a self-signed certificate opts out per request with
+  `tls.rejectUnauthorized = false`.
 - **Library contract**: `IEmailProvider` (lib v1.3.1+: every method takes `tenantId` as its FIRST parameter, before the recipient) — `sendPasswordResetToken`, `sendPasswordResetOtp`, `sendEmailVerificationOtp`, `sendMfaEnabledNotification`, `sendMfaDisabledNotification`, `sendInvitation`, plus optional `sendNewSessionAlert`, `sendPasswordChangedNotification`, `sendEmailChangeVerification`, `sendEmailChangedNotification`. Alternative: extend the library's `DefaultAuthEmailProvider` and implement only the narrow `AuthEmailSink` port.
 - **Dev sink**: Mailpit on `smtp://localhost:1025`, UI at http://localhost:8025
 - **Official docs**: https://nodemailer.com, https://resend.com/docs, https://mailpit.axllent.org

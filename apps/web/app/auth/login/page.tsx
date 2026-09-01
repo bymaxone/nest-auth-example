@@ -121,7 +121,12 @@ function LoginForm() {
     setTenantRequestId((id) => id + 1);
   }, []);
 
-  /** The user naming the workspace settles it as surely as a lookup would. */
+  /**
+   * The user naming the workspace settles it as surely as a lookup would.
+   *
+   * Reachable for every option, including the one the picker would have shown
+   * by default, because the control renders empty while unsettled.
+   */
   const handleTenantChange = useCallback((slug: string) => {
     setTenantSlug(slug);
     setTenantState('settled');
@@ -259,10 +264,21 @@ function LoginForm() {
           </Label>
           <select
             id="tenantId"
-            value={tenantSlug}
+            // Empty while the workspace is unsettled, so the control does not
+            // assert one the page has not established — and so that picking the
+            // workspace it would otherwise be showing still fires `onChange`.
+            // With the value pre-set to the default, choosing that same option
+            // is a no-op, which left the notice offering an escape the select
+            // could not deliver.
+            value={isTenantUnsettled ? '' : tenantSlug}
             onChange={(e) => handleTenantChange(e.target.value)}
             className="flex h-12 w-full appearance-none rounded-full border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.05)] px-5 py-2 text-sm text-white transition-shadow duration-200 focus-visible:ring-2 focus-visible:ring-[#ff6224]/50 focus-visible:outline-none"
           >
+            {isTenantUnsettled && (
+              <option value="" disabled className="bg-[#1a1a1a] text-white">
+                Select your workspace…
+              </option>
+            )}
             {TENANT_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value} className="bg-[#1a1a1a] text-white">
                 {opt.label}
