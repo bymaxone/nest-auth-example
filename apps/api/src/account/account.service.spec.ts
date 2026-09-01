@@ -34,6 +34,7 @@ import { Test } from '@nestjs/testing';
 import type { TestingModule } from '@nestjs/testing';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { USER_CONNECTION_PORT } from '../realtime/user-connection.port.js';
 import { AccountService } from './account.service.js';
 import { PasswordResetService } from '@bymax-one/nest-auth';
 import type { ChangePasswordDto } from '@bymax-one/nest-auth';
@@ -95,6 +96,7 @@ describe('AccountService', () => {
   let userUpdate: jest.Mock<() => Promise<unknown>>;
   let tenantFindMany: jest.Mock<() => Promise<Array<{ id: string }>>>;
   let configGet: jest.Mock<(key: string) => string | undefined>;
+  let disconnectUser: jest.Mock<(userId: string) => void>;
 
   beforeEach(async () => {
     userFindUnique = jest.fn();
@@ -103,6 +105,7 @@ describe('AccountService', () => {
     libChangePassword = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
     tenantFindMany = jest.fn();
     configGet = jest.fn<(key: string) => string | undefined>();
+    disconnectUser = jest.fn<(userId: string) => void>();
     // Default: no tenant requires MFA. Individual tests override per case.
     configGet.mockReturnValue('');
     // Default: tenant lookup returns no matches; tests that need a match
@@ -127,6 +130,13 @@ describe('AccountService', () => {
         {
           provide: PasswordResetService,
           useValue: { changePassword: libChangePassword },
+        },
+        // The gateway is reached through the shared port, never imported —
+        // `maybeDisconnectBlockedUser` is unused here, so the double supplies
+        // only what this service calls.
+        {
+          provide: USER_CONNECTION_PORT,
+          useValue: { disconnectUser, maybeDisconnectBlockedUser: jest.fn() },
         },
       ],
     }).compile();
@@ -159,6 +169,49 @@ describe('AccountService', () => {
       await service.changePassword('user-1', 'tenant-acme', dto);
 
       expect(libChangePassword).toHaveBeenCalledWith('user-1', 'tenant-acme', dto);
+    });
+
+    it('closes the user sockets after the library call, not before it', async () => {
+      /*
+       * Scenario: the library ends the sessions, but the gateway authenticates
+       * a socket once at the upgrade and never revalidates it, so every device
+       * keeps streaming on credentials that no longer exist. On this route the
+       * caller's own session dies too — no refresh token reaches `/api/account`
+       * — so the disconnect is not a partial cleanup, it is the rest of the
+       * revocation. Ordering matters: disconnecting first would drop the
+       * sockets of a change that then failed its current-password check.
+       * Protects: the `disconnectUser` call, its subject, and its position
+       * after the delegation.
+       */
+      await service.changePassword('user-1', 'tenant-acme', {
+        currentPassword: 'CurrentPassw0rd!',
+        newPassword: 'BrandNewPassw0rd!!',
+      });
+
+      expect(disconnectUser).toHaveBeenCalledWith('user-1');
+      const changeOrder = libChangePassword.mock.invocationCallOrder[0] ?? 0;
+      const disconnectOrder = disconnectUser.mock.invocationCallOrder[0] ?? 0;
+      expect(changeOrder).toBeLessThan(disconnectOrder);
+    });
+
+    it('leaves the sockets alone when the library rejects the change', async () => {
+      /*
+       * Scenario: a wrong current password, an OAuth-only account, or a
+       * breached new password. Nothing was revoked, so cutting the user's
+       * notification streams would punish a failed attempt — including one
+       * made by someone who simply mistyped.
+       * Protects: the disconnect being reachable only on the success path.
+       */
+      libChangePassword.mockRejectedValueOnce(new Error('auth.invalid_credentials'));
+
+      await expect(
+        service.changePassword('user-1', 'tenant-acme', {
+          currentPassword: 'WrongPassw0rd!',
+          newPassword: 'BrandNewPassw0rd!!',
+        }),
+      ).rejects.toThrow('auth.invalid_credentials');
+
+      expect(disconnectUser).not.toHaveBeenCalled();
     });
 
     it('never writes the password itself through Prisma', async () => {

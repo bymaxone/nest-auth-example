@@ -1,24 +1,27 @@
 /**
  * @fileoverview "Sign out everywhere" button — ends every session, this one included.
  *
- * Four steps are required, in this order:
+ * Four steps are required, and the order is the point:
  *
  *   1. `POST /auth/sessions/revoke-all` — the library's bulk revocation, which
  *      by design preserves the session making the call
  *      (`SessionService.revokeAllExceptCurrent`).
- *   2. `POST /api/auth/logout` — terminates that surviving session, so the
- *      device in front of the user is signed out too.
- *   3. `POST /api/account/realtime/disconnect` — closes the sockets on every
+ *   2. `POST /api/account/realtime/disconnect` — closes the sockets on every
  *      OTHER device, which the gateway would otherwise keep serving: it
  *      authenticates on connect and never revalidates an established socket.
+ *      It is an authenticated endpoint, so it has to run while the caller's
+ *      session is still alive — which is why it comes before the logout and
+ *      not after it.
+ *   3. `POST /api/auth/logout` — terminates that surviving session, so the
+ *      device in front of the user is signed out too.
  *   4. `getWsClient().close()` — closes this tab's own socket, which the
  *      server-side disconnect cannot reach once the session is gone.
  *
  * When a step after the disconnect fails the session survives, so the catch
- * calls `reconnect()`: step 3 closes this tab's socket too (the gateway cannot
+ * calls `reconnect()`: step 2 closes this tab's socket too (the gateway cannot
  * exempt one device) with a code `WsClient` treats as final.
  *
- * Step 2 is not optional garnish: without it the caller's refresh cookie stays
+ * Step 3 is not optional garnish: without it the caller's refresh cookie stays
  * valid and a silent refresh re-authenticates the very browser the user just
  * told to sign out — which is exactly what the confirmation dialog promises
  * will not happen. `revokeAllSessions`' own JSDoc in `lib/auth-client.ts`

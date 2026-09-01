@@ -20,6 +20,7 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -32,6 +33,7 @@ import { ChangePasswordDto, PasswordResetService } from '@bymax-one/nest-auth';
 import type { Env } from '../config/env.schema.js';
 import { parseRequiredTenantSlugs } from '../auth/tenant-mfa-policy.guard.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { USER_CONNECTION_PORT, type UserConnectionPort } from '../realtime/user-connection.port.js';
 
 /**
  * One workspace the current user can sign into — a tenant where their email has
@@ -132,6 +134,8 @@ export class AccountService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<Env, true>,
     private readonly passwordReset: PasswordResetService,
+    @Inject(USER_CONNECTION_PORT)
+    private readonly userConnections: UserConnectionPort,
   ) {}
 
   /**
@@ -302,6 +306,10 @@ export class AccountService {
    * @param userId   - Authenticated user's ID (from JWT).
    * @param tenantId - Authenticated user's tenant ID (from JWT).
    * @param dto      - Validated `currentPassword` + `newPassword`.
+   * On success every socket the user holds is closed, because a credential
+   * rotation that leaves an authenticated stream open has not really ended the
+   * sessions it revoked.
+   *
    * @throws `BadRequestException`  when the account has no password (OAuth-only).
    * @throws `UnauthorizedException` when `currentPassword` is wrong.
    */
@@ -320,6 +328,14 @@ export class AccountService {
     // direction: a change that leaves an unidentified session alive is the
     // failure the control exists to prevent.
     await this.passwordReset.changePassword(userId, tenantId, dto);
+
+    // Revoking the sessions does not reach the sockets they opened: the
+    // gateway authenticates a connection once, at the upgrade, and never
+    // revalidates an established one. Without this the user's devices keep
+    // receiving notifications on credentials that no longer exist — and on
+    // this route that is every device, since the fallback above ended every
+    // session rather than sparing the caller's.
+    this.userConnections.disconnectUser(userId);
 
     this.logger.log({ msg: 'changePassword: password updated', userId });
   }

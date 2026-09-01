@@ -2,6 +2,11 @@
  * @fileoverview Security settings page — MFA enrollment / disablement plus
  * the email-address change card.
  *
+ * Both cards depend on whether the account has a password, which arrives from
+ * `getMfaStatus()`. That answer has three states, not two: until it lands,
+ * neither card can be rendered honestly, so unknown gets its own state rather
+ * than a default.
+ *
  * Uses `useSession()` from the auth library to read `mfaEnabled` and to
  * refresh the client-side session cache after every toggle. The page wires
  * the lib's `refresh()` (NOT the Next.js `router.refresh()`) so the
@@ -25,6 +30,7 @@ import { ShieldAlert } from 'lucide-react';
 import { useSession } from '@bymax-one/nest-auth/react';
 import { MfaSetupCard } from '@/components/dashboard/mfa-setup-card';
 import { MfaDisableCard } from '@/components/dashboard/mfa-disable-card';
+import { MfaStatusUnavailableCard } from '@/components/dashboard/mfa-status-unavailable-card';
 import { EmailChangeCard } from '@/components/dashboard/email-change-card';
 import { getMfaStatus } from '@/lib/auth-client';
 import { Card } from '@/components/ui/card';
@@ -55,6 +61,10 @@ export default function SecurityPage() {
   // they cannot fill, or drop the password requirement for accounts that do
   // have one. Consumers below decide what unknown means for them.
   const [hasPassword, setHasPassword] = useState<boolean | null>(null);
+  // Bumped by the "Try again" control so the effect below re-runs. The
+  // automatic attempts are bounded, and once they are spent the user is the
+  // only thing that can ask again short of reloading the page.
+  const [statusRequestId, setStatusRequestId] = useState(0);
 
   // Fetch the workspace MFA policy on mount. We only need the `required`
   // flag here — the recovery-code counter inside MfaDisableCard has its
@@ -94,7 +104,7 @@ export default function SecurityPage() {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user, statusRequestId]);
 
   // The cards expect a fire-and-forget `() => void` callback; the lib's
   // `refresh` is async. `void` discards the promise so the callback's
@@ -104,6 +114,11 @@ export default function SecurityPage() {
   const handleToggle = useCallback(() => {
     void refresh();
   }, [refresh]);
+
+  /** Re-runs the status effect after its bounded attempts have been spent. */
+  const handleStatusRetry = useCallback(() => {
+    setStatusRequestId((id) => id + 1);
+  }, []);
 
   const arrivedViaMfaRedirect = searchParams.get('reason') === 'mfa_required';
 
@@ -162,8 +177,10 @@ export default function SecurityPage() {
           </Card>
         ) : user.mfaEnabled ? (
           <MfaDisableCard onDisabled={handleToggle} />
+        ) : hasPassword === null ? (
+          <MfaStatusUnavailableCard onRetry={handleStatusRetry} />
         ) : (
-          <MfaSetupCard onEnabled={handleToggle} hasPassword={hasPassword ?? true} />
+          <MfaSetupCard onEnabled={handleToggle} hasPassword={hasPassword} />
         )}
       </div>
 
