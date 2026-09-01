@@ -589,6 +589,31 @@ describe('MfaSetupCard password re-authentication step', () => {
     expect(screen.queryByText('Enter your current password to continue.')).toBeNull();
   });
 
+  it('renders no password field or password copy for an OAuth-only account', () => {
+    /*
+     * Scenario: the request already succeeds without a password, but a form
+     * still asking for one tells the user the opposite — they have no value to
+     * type and would reasonably conclude enrollment is unavailable.
+     * Protects: the `hasPassword` gate on the input and on the copy, which the
+     * prop's own documentation promises.
+     */
+    render(<MfaSetupCard onEnabled={vi.fn()} hasPassword={false} />);
+
+    expect(screen.queryByTestId('mfa-setup-password')).toBeNull();
+    expect(screen.queryByText(/confirm your password/i)).toBeNull();
+  });
+
+  it('still renders the password field for an account that has one', () => {
+    /*
+     * Scenario: the mirror case. Gating the field must not hide it from the
+     * accounts that genuinely need to re-prove their password.
+     * Protects: the true arm of the same gate.
+     */
+    render(<MfaSetupCard onEnabled={vi.fn()} />);
+
+    expect(screen.getByTestId('mfa-setup-password')).toBeDefined();
+  });
+
   it('sends no password field at all for an OAuth-only account', async () => {
     /*
      * Scenario: sending an empty string instead of omitting the field would be

@@ -66,14 +66,17 @@ export class AccountController {
   /**
    * Changes the authenticated user's password.
    *
-   * Verifies `currentPassword` against the stored scrypt hash before replacing
-   * it with a hash of `newPassword`. Returns `204 No Content` on success.
+   * Returns `204 No Content` on success.
    *
-   * Reference pattern only: since lib v1.1.0 the library ships its own
-   * `POST /api/auth/password/change` route (used by the web app), which also
-   * enforces the password policy/breach check and revokes other sessions.
-   * This endpoint stays as an example of composing an app-owned flow on
-   * `AuthService` when the deployment needs custom change-password UX.
+   * Reference pattern only: the library ships its own
+   * `POST /api/auth/password/change` route, which the web app uses. This
+   * endpoint stays as an example of an app-owned route composed over a library
+   * service — `AccountService` delegates the whole credential operation to
+   * `PasswordResetService.changePassword`, so hash format, the configured
+   * minimum length, breach checking and the session consequences of a rotation
+   * remain the library's. It previously verified and wrote the hash itself,
+   * which broke outright when the hash format changed; a reference app should
+   * not teach that shape.
    *
    * POST /api/account/change-password
    *

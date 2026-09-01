@@ -168,29 +168,35 @@ export function MfaSetupCard({ onEnabled, hasPassword = true }: MfaSetupCardProp
         {isStepIdle && (
           <div className="space-y-3">
             <p className="text-sm text-[rgba(255,255,255,0.55)]">
-              Protect your account with a TOTP authenticator app (Google Authenticator, Authy,
-              etc.). Confirm your password to begin.
+              {hasPassword
+                ? 'Protect your account with a TOTP authenticator app (Google Authenticator, Authy, etc.). Confirm your password to begin.'
+                : 'Protect your account with a TOTP authenticator app (Google Authenticator, Authy, etc.).'}
             </p>
-            <div className="space-y-1.5">
-              <Label htmlFor="mfa-setup-password" className="text-xs text-[rgba(255,255,255,0.6)]">
-                Current password
-              </Label>
-              <Input
-                id="mfa-setup-password"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                aria-describedby={passwordError !== null ? 'mfa-setup-password-error' : undefined}
-                aria-invalid={passwordError !== null}
-                data-testid="mfa-setup-password"
-              />
-              {passwordError !== null && (
-                <p id="mfa-setup-password-error" className="text-xs text-red-400">
-                  {passwordError}
-                </p>
-              )}
-            </div>
+            {hasPassword && (
+              <div className="space-y-1.5">
+                <Label
+                  htmlFor="mfa-setup-password"
+                  className="text-xs text-[rgba(255,255,255,0.6)]"
+                >
+                  Current password
+                </Label>
+                <Input
+                  id="mfa-setup-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  aria-describedby={passwordError !== null ? 'mfa-setup-password-error' : undefined}
+                  aria-invalid={passwordError !== null}
+                  data-testid="mfa-setup-password"
+                />
+                {passwordError !== null && (
+                  <p id="mfa-setup-password-error" className="text-xs text-red-400">
+                    {passwordError}
+                  </p>
+                )}
+              </div>
+            )}
             <Button
               size="sm"
               onClick={() => void handleSetup()}
