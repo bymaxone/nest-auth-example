@@ -464,6 +464,21 @@ describe('ResendEmailProvider', () => {
     );
   });
 
+  it('sendEmailChangeVerification — carries the tenant in the confirm URL', async () => {
+    /*
+     * Scenario: the confirmation link is opened from the NEW mailbox, routinely
+     * in a browser that has never seen this app. With no `tenant_id` cookie the
+     * web client sends no `X-Tenant-Id`, and the API's tenant resolver refuses
+     * the confirm call before the token is read — so the tenant has to travel
+     * in the URL, exactly as the password-reset link already does.
+     * Protects: the `tenantId` query parameter, whose absence breaks the whole
+     * flow for the most common way a user opens the link.
+     */
+    await provider.sendEmailChangeVerification('acme', 'new@example.test', 'tok-abc123');
+
+    expect(lastSentHtml()).toContain('tenantId=acme');
+  });
+
   it('sendEmailChangeVerification — percent-encodes a token containing URL metacharacters', async () => {
     /*
      * Scenario: an unencoded `&` or `#` truncates the query string, so the

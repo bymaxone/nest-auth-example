@@ -44,6 +44,7 @@ import {
   type OAuthProfile,
   type SafeAuthUser,
   type SessionAlertInfo,
+  sha256,
 } from '@bymax-one/nest-auth';
 import type { Prisma } from '@prisma/client';
 
@@ -201,8 +202,14 @@ export class AppAuthHooks implements IAuthHooks {
     },
     context: HookContext,
   ): Promise<void> {
+    // A failed login carries whatever address was submitted, which for
+    // credential-stuffing traffic is an arbitrary third party's — often with no
+    // account here at all. Storing the digest keeps the row correlatable across
+    // attempts without accumulating other people's addresses in a long-retained
+    // table (observability-guidelines.md § metadata: "pin to IDs, enums, and
+    // hashes (email_sha256)").
     await this.record('user.login.failed', context, {
-      email: details.email,
+      emailSha256: sha256(details.email),
       tenantId: details.tenantId,
       userId: details.userId ?? null,
       reason: details.reason,
@@ -223,8 +230,10 @@ export class AppAuthHooks implements IAuthHooks {
     details: { email: string; tenantId: string; retryAfterSeconds: number },
     context: HookContext,
   ): Promise<void> {
+    // Same reasoning as `onLoginFailed`: a lockout is reached through failed
+    // attempts, so the address is equally untrusted.
     await this.record('user.lockout', context, {
-      email: details.email,
+      emailSha256: sha256(details.email),
       tenantId: details.tenantId,
       retryAfterSeconds: details.retryAfterSeconds,
     });

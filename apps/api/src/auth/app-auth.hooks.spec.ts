@@ -203,10 +203,12 @@ describe('AppAuthHooks', () => {
   // ─── onLoginFailed ─────────────────────────────────────────────────────────
 
   describe('onLoginFailed', () => {
-    it('writes a user.login.failed audit row with email, tenantId, userId, and reason', async () => {
-      // A burst of invalid_credentials rows for one email is a credential-stuffing
-      // signal — every field the hook receives must land in the payload so
-      // SIEM-style alerting can key on it.
+    it('writes a user.login.failed audit row keyed by the email digest, not the address', async () => {
+      // A burst of invalid_credentials rows for one address is a
+      // credential-stuffing signal, so the payload must stay correlatable —
+      // but a failed login carries whatever address was submitted, frequently
+      // a third party's with no account here. The digest keeps the signal and
+      // keeps other people's addresses out of a long-retained table.
       const ctx = makeContext({ tenantId: 'acme' });
 
       await hooks.onLoginFailed(
@@ -225,7 +227,7 @@ describe('AppAuthHooks', () => {
           data: expect.objectContaining({
             event: 'user.login.failed',
             payload: expect.objectContaining({
-              email: 'alice@example.test',
+              emailSha256: '69b1145a03334875161ea18c1373b5703aeeff144990a9f847867ff83ed5aaad',
               tenantId: 'acme',
               userId: 'user-1',
               reason: 'invalid_credentials',
@@ -272,9 +274,11 @@ describe('AppAuthHooks', () => {
   // ─── onLockout ─────────────────────────────────────────────────────────────
 
   describe('onLockout', () => {
-    it('writes a user.lockout audit row with email, tenantId, and retryAfterSeconds', async () => {
+    it('writes a user.lockout audit row keyed by the email digest, not the address', async () => {
       // The row marks when the brute-force threshold was crossed — one row per
       // lockout, carrying the remaining window so support can advise the user.
+      // A lockout is reached through failed attempts, so the address is as
+      // untrusted as it is on `onLoginFailed` and is stored as a digest.
       const ctx = makeContext({ tenantId: 'acme' });
 
       await hooks.onLockout(
@@ -288,13 +292,37 @@ describe('AppAuthHooks', () => {
           data: expect.objectContaining({
             event: 'user.lockout',
             payload: expect.objectContaining({
-              email: 'alice@example.test',
+              emailSha256: '69b1145a03334875161ea18c1373b5703aeeff144990a9f847867ff83ed5aaad',
               tenantId: 'acme',
               retryAfterSeconds: 900,
             }),
           }),
         }),
       );
+    });
+
+    it('never lets the submitted address itself reach the audit payload', async () => {
+      /*
+       * Scenario: the digest assertions above pin what IS written; this pins
+       * what must NOT be. An implementation that added the raw address back
+       * alongside the hash would satisfy every `objectContaining` above while
+       * reintroducing exactly the exposure the hash exists to prevent.
+       * Protects: the absence of the raw address on both untrusted-input hooks.
+       */
+      const ctx = makeContext({ tenantId: 'acme' });
+
+      await hooks.onLoginFailed(
+        { email: 'victim@elsewhere.test', tenantId: 'acme', reason: 'invalid_credentials' },
+        ctx,
+      );
+      await hooks.onLockout(
+        { email: 'victim@elsewhere.test', tenantId: 'acme', retryAfterSeconds: 900 },
+        ctx,
+      );
+
+      const written = JSON.stringify(auditLogCreate.mock.calls);
+      expect(written).not.toContain('victim@elsewhere.test');
+      expect(written).toContain('emailSha256');
     });
 
     it('swallows AuditLog write failures so the lockout response is never blocked', async () => {

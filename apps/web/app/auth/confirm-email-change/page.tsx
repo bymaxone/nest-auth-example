@@ -3,8 +3,11 @@
  * address-change flow.
  *
  * Visual shell is provided by `app/auth/layout.tsx`. This page:
- *   - Reads `?token=` from the URL (mailed to the NEW address by the API's
- *     email provider after `POST /api/auth/email/change`)
+ *   - Reads `?token=` and `?tenantId=` from the URL (mailed to the NEW address
+ *     by the API's email provider after `POST /api/auth/email/change`). The
+ *     tenant is resolved and stashed in the `tenant_id` cookie before the
+ *     confirm call, because this link is routinely opened in a browser that
+ *     has never seen this app and therefore carries no tenant cookie.
  *   - On the explicit "Confirm" click: POSTs the token to
  *     `POST /api/auth/email/change/confirm` via the `confirmEmailChange`
  *     client slice — a button rather than an on-mount submit so a link
@@ -25,7 +28,7 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import { MailCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { confirmEmailChange, AuthClientError } from '@/lib/auth-client';
+import { confirmEmailChange, resolveTenantForLogin, AuthClientError } from '@/lib/auth-client';
 import { translateAuthError } from '@/lib/auth-errors';
 
 /**
@@ -133,6 +136,7 @@ function ConfirmPrompt({
 function ConfirmEmailChangeContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token') ?? '';
+  const tenantParam = searchParams.get('tenantId') ?? '';
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isConfirmed, setIsConfirmed] = useState(false);
@@ -140,6 +144,13 @@ function ConfirmEmailChangeContent() {
   const handleConfirm = async () => {
     setIsSubmitting(true);
     try {
+      // The link is opened from the NEW mailbox, so this browser usually has no
+      // `tenant_id` cookie and `tenantAwareFetch` would send no `X-Tenant-Id`.
+      // Stash the tenant from the URL first, exactly as the reset page does.
+      if (tenantParam !== '') {
+        const resolvedTenantId = await resolveTenantForLogin(tenantParam);
+        document.cookie = `tenant_id=${resolvedTenantId}; Path=/; SameSite=Lax; Max-Age=31536000`;
+      }
       await confirmEmailChange(token);
       setIsConfirmed(true);
       toast.success('Your email address has been updated.');

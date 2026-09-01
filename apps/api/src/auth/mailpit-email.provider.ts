@@ -310,18 +310,26 @@ export class MailpitEmailProvider implements IEmailProvider {
    * is enabled — the library refuses to boot without it. The raw token is
    * embedded in the confirm URL only — never logged.
    *
-   * @param _tenantId - Tenant scope (unused; templates are tenant-agnostic here).
+   * @param tenantId - Tenant the account belongs to; travels in the confirm URL.
    * @param newEmail - The address the account is moving to (the recipient).
    * @param token - Single-use confirmation token. Never logged.
    * @param _locale - BCP 47 locale tag (unused).
    */
   async sendEmailChangeVerification(
-    _tenantId: string,
+    tenantId: string,
     newEmail: string,
     token: string,
     _locale?: string,
   ): Promise<void> {
-    const confirmUrl = `${this.webOrigin}/auth/confirm-email-change?token=${encodeURIComponent(token)}`;
+    // The tenant travels in the URL for the same reason the reset link carries
+    // it: the confirmation is opened from the NEW mailbox, routinely in another
+    // browser or a private window, where no `tenant_id` cookie exists. Without
+    // it `tenantAwareFetch` sends no `X-Tenant-Id` and the API's resolver
+    // refuses the confirm call before the token is ever read.
+    const confirmUrl =
+      `${this.webOrigin}/auth/confirm-email-change` +
+      `?token=${encodeURIComponent(token)}` +
+      `&tenantId=${encodeURIComponent(tenantId)}`;
     const html = this.render('email-change-verification', {}, { confirmUrl });
     await this.send(newEmail, 'Confirm your new email address', html);
   }
