@@ -33,10 +33,10 @@ export class TenantsController {
   constructor(private readonly tenantsService: TenantsService) {}
 
   /**
-   * Resolves a tenant slug to its internal CUID.
+   * Resolves a tenant slug to its internal id.
    *
    * Public endpoint — no authentication required. Used by the login page to
-   * convert a `?tenantId=<slug>` URL parameter to the CUID needed in the
+   * convert a `?tenantId=<slug>` URL parameter to the id needed in the
    * `X-Tenant-Id` header before the login request is sent.
    *
    * GET /api/tenants/resolve?slug=acme
@@ -46,7 +46,7 @@ export class TenantsController {
    * driver error as a 500, where the boundary owes the caller a 400.
    *
    * @param query - Validated `{ slug }`.
-   * @returns Object with the tenant's `id` (CUID).
+   * @returns Object with the tenant's `id`.
    */
   @Public()
   @Get('resolve')
@@ -55,21 +55,27 @@ export class TenantsController {
   }
 
   /**
-   * Resolves a tenant CUID back to its slug.
+   * Resolves a tenant id back to its slug.
    *
    * Public for the same reason `resolve` is: the pages that need it run before
-   * anyone is signed in. A link mailed by the library carries the tenant as a
-   * CUID — that is what `IEmailProvider` receives — while the workspace picker
-   * on the login page keys off slugs, so without this mapping a confirmation
-   * link for a non-default workspace lands the user on the default one.
+   * anyone is signed in. A link mailed by the library carries the tenant as
+   * `Tenant.id` — that is what `IEmailProvider` receives — while the workspace
+   * picker on the login page keys off slugs, so without this mapping a
+   * confirmation link for a non-default workspace lands the user on the default
+   * one.
    *
    * It exposes nothing new: the slugs are already public, listed in the
    * picker, and `resolve` already maps them the other way.
    *
-   * GET /api/tenants/slug?id=c…
+   * GET /api/tenants/slug?id=…
    *
-   * Validated as a DTO for the same reason `resolve` is, and pinned to the CUID
-   * shape: every legitimate caller got this value from a link the app mailed.
+   * Validated as a DTO for the same reason `resolve` is — a bare primitive
+   * arrives as `undefined` and fails inside Prisma as a 500 — but the DTO
+   * checks only that the id is a non-empty bounded string. It does NOT pin a
+   * CUID: `Tenant.id` defaults to `cuid()` and nothing enforces that, this
+   * repo's own e2e stack seeds readable ids, and a shape assumption here would
+   * make the endpoint work in one environment and refuse in another. Unknown
+   * ids are a 404 from the lookup, which is the authority.
    *
    * @param query - Validated `{ id }`.
    * @returns Object with the tenant's `slug`.

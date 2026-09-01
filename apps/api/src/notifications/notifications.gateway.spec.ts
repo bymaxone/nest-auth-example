@@ -923,6 +923,52 @@ describe('NotificationsGateway', () => {
       expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
     });
 
+    it('refuses a ticket paired with a live token belonging to someone else', async () => {
+      /*
+       * Scenario: a ticket kept across a revocation, presented with a different
+       * account's working credential. The socket would be registered under the
+       * TICKET's subject, so a token that merely proves "somebody has a live
+       * session" is not enough — it has to prove that this is that somebody.
+       * Otherwise the retained ticket plus any other login the client can
+       * perform hands back the original account's stream.
+       * Protects: the subject binding between token and snapshot.
+       */
+      const { gateway } = makeGateway({ ...VALID_PAYLOAD, sub: 'user-999' });
+      const client = makeSocket();
+      const req = {
+        headers: { cookie: 'access_token=other-users-token' },
+        url: '/ws/notifications?ticket=tkt-borrowed',
+      };
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
+    });
+
+    it('refuses a ticket paired with a token for the same user in another tenant', async () => {
+      /*
+       * Scenario: the same subject, a different workspace. Tenancy is the other
+       * half of the identity here — every row and every socket in this app is
+       * scoped by it — so a credential from a tenant the ticket was not minted
+       * in proves nothing about the session that was revoked in the tenant it
+       * was.
+       * Protects: the tenant half of the binding, which a subject-only check
+       * would leave open.
+       */
+      const { gateway } = makeGateway({ ...VALID_PAYLOAD, tenantId: 'tenant-other' });
+      const client = makeSocket();
+      const req = {
+        headers: { cookie: 'access_token=other-tenant-token' },
+        url: '/ws/notifications?ticket=tkt-cross-tenant',
+      };
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
+    });
+
     it('admits a ticket when the cookie is present and not revoked', async () => {
       /*
        * Scenario: the ordinary browser reconnect. The cookie corroborates the

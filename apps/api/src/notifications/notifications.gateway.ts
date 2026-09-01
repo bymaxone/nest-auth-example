@@ -27,10 +27,11 @@
  * library's `auth.*` error envelope instead of crashing the socket.
  *
  *  A ticket cannot be checked against the revocation channels — its snapshot
- *  carries no `jti` and no epoch — so a ticket upgrade must also carry the
- *  access token, whose revocation state is checked alongside it. Browsers send
- *  it as a same-origin cookie, which is why `NEXT_PUBLIC_WS_URL` must be
- *  same-origin; anything that can set headers does not need a ticket at all.
+ *  carries no `jti` and no epoch — so a ticket upgrade must also carry an
+ *  access token for the same user and tenant, whose revocation state is checked
+ *  alongside it. Browsers send it as a same-origin cookie, which is why
+ *  `NEXT_PUBLIC_WS_URL` must be same-origin; anything that can set headers does
+ *  not need a ticket at all.
  *
  * Admission and disconnect:
  *  `disconnectUser` can only reach sockets already in the connection map, so a
@@ -261,8 +262,9 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
    * (bymaxone/nest-auth#183). So a ticket minted moments before a logout, a
    * password change or "sign out everywhere" would still redeem for the rest of
    * its TTL, and the socket it opens is never revalidated. The upgrade must
-   * therefore also carry an access token — same-origin cookie for a browser,
-   * header for anything else — which does have a `jti` and an epoch to check.
+   * therefore also carry an access token for the same user and tenant —
+   * same-origin cookie for a browser, header for anything else — which does
+   * have a `jti` and an epoch to check.
    *
    * @param client - The connecting socket, closed in place on refusal.
    * @param ticket - The raw ticket value read from the upgrade URL.
@@ -288,7 +290,7 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
       return;
     }
 
-    if (!(await this.hasLiveCredential(req))) {
+    if (!(await this.hasLiveCredentialFor(snapshot, req))) {
       client.close(4401, 'Unauthorized');
       return;
     }
@@ -351,7 +353,7 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
   }
 
   /**
-   * Whether the upgrade request carries a live, unrevoked access token.
+   * Whether the upgrade carries a live, unrevoked token for the ticket's owner.
    *
    * A ticket cannot be checked against the revocation channels — its snapshot
    * has no `jti` and no epoch — so it is required to arrive alongside a
@@ -359,20 +361,32 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
    * treating "no token" as "nothing to say" leaves the whole check optional,
    * and anyone whose session was revoked can simply not send one.
    *
-   * That costs nothing here. Tickets exist because a browser cannot set headers
-   * on a WS upgrade, and `NEXT_PUBLIC_WS_URL` is same-origin precisely so it
-   * sends the auth cookies instead; a non-browser client sets the header and
-   * needs no ticket at all. The token is also younger than the ticket in
-   * practice — minting one is an authenticated call that refreshes it — so
-   * "expired while the ticket is still good" is a millisecond window this app's
-   * own client cannot land in. The refusal is logged with its reason so a
-   * cross-origin `NEXT_PUBLIC_WS_URL`, which would strip the cookies and refuse
-   * every ticket, is diagnosable rather than silent.
+   * The token must also BE the ticket's owner. A token that is merely live
+   * proves someone has a session, not that this someone is the account the
+   * socket would be registered under — so a ticket retained across a revocation
+   * could otherwise be paired with any other working credential to get the
+   * original account's stream back. Subject and tenant must both match.
    *
+   * Requiring the credential costs nothing here. Tickets exist because a
+   * browser cannot set headers on a WS upgrade, and `NEXT_PUBLIC_WS_URL` is
+   * same-origin precisely so it sends the auth cookies instead; a non-browser
+   * client sets the header and needs no ticket at all. The token is also
+   * younger than the ticket in practice — minting one is an authenticated call
+   * that refreshes it — so "expired while the ticket is still good" is a
+   * millisecond window this app's own client cannot land in. Every refusal is
+   * logged with its reason so a cross-origin `NEXT_PUBLIC_WS_URL`, which would
+   * strip the cookies and refuse every ticket, is diagnosable rather than
+   * silent.
+   *
+   * @param snapshot - The redeemed ticket's bound identity.
    * @param req - The HTTP upgrade request.
-   * @returns `true` only when a dashboard token is present, valid and unrevoked.
+   * @returns `true` only when a dashboard token for that same identity is
+   *   present, valid and unrevoked.
    */
-  private async hasLiveCredential(req: IncomingMessage | undefined): Promise<boolean> {
+  private async hasLiveCredentialFor(
+    snapshot: WsTicketSnapshot,
+    req: IncomingMessage | undefined,
+  ): Promise<boolean> {
     const authHeader =
       typeof req?.headers['authorization'] === 'string' ? req.headers['authorization'] : undefined;
     const token = extractAccessToken(req, authHeader);
@@ -384,6 +398,11 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
     const payload = this.verifyDashboardToken(token);
     if (!payload) {
       this.logger.warn({ msg: 'ws:ticket_refused', reason: 'credential_invalid' });
+      return false;
+    }
+
+    if (payload.sub !== snapshot.sub || payload.tenantId !== snapshot.tenantId) {
+      this.logger.warn({ msg: 'ws:ticket_refused', reason: 'credential_mismatch' });
       return false;
     }
 
