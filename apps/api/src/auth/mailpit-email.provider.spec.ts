@@ -32,6 +32,8 @@ interface MailOptions {
   to?: string;
   subject?: string;
   html?: string;
+  /** Plain-text alternative — every kind ships one alongside the HTML. */
+  text?: string;
 }
 
 /**
@@ -104,6 +106,11 @@ function lastMailOptions(): MailOptions {
   // safe fallback that satisfies the compiler without casting through `unknown`.
   const lastCall = calls[calls.length - 1] ?? ([{}] as [MailOptions]);
   return lastCall[0];
+}
+
+/** Every plain-text body handed to the transport, in call order. */
+function sentTexts(): string[] {
+  return mockSendMail.mock.calls.map((call) => call[0].text ?? '');
 }
 
 /** Returns the HTML body string passed to the last `sendMail` call. */
@@ -553,5 +560,47 @@ describe('MailpitEmailProvider', () => {
     const html = lastSentHtml();
     expect(html).not.toContain('<script>alert(1)</script>');
     expect(html).toContain('&lt;script&gt;');
+  });
+
+  // ─── Plain-text alternative ──────────────────────────────────────────────
+
+  it('sends a plain-text alternative alongside the HTML on every kind', async () => {
+    /*
+     * Scenario: a text-only client, or a filter that strips HTML, leaves an
+     * HTML-only message with no readable body — which for the reset, confirm
+     * and invitation kinds means an action the recipient can no longer
+     * complete, and for the security notices a warning they never see.
+     * Protects: every message carries a non-empty `text` part. Asserted across
+     * kinds rather than on one, because the regression this guards against is
+     * adding a tenth kind and forgetting the text body.
+     */
+    await provider.sendPasswordResetToken('acme', 'a@example.test', 'tok');
+    await provider.sendPasswordResetOtp('acme', 'a@example.test', '123456');
+    await provider.sendEmailVerificationOtp('acme', 'a@example.test', '654321');
+    await provider.sendMfaEnabledNotification('acme', 'a@example.test');
+    await provider.sendMfaDisabledNotification('acme', 'a@example.test');
+    await provider.sendEmailChangeVerification('acme', 'new@example.test', 'tok2');
+    await provider.sendEmailChangedNotification('acme', 'old@example.test', 'new@example.test');
+
+    const texts = sentTexts();
+    expect(texts).toHaveLength(7);
+    for (const text of texts) {
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('puts the actionable link in the plain-text body, not only in the HTML', async () => {
+    /*
+     * Scenario: a recipient reading the text part must still be able to finish
+     * the flow. A text body that omitted the URL would satisfy a "has text"
+     * check while leaving the message useless in the client that needed it.
+     * Protects: the confirm URL — token and tenant included — reaching the
+     * text alternative.
+     */
+    await provider.sendEmailChangeVerification('acme', 'new@example.test', 'tok-abc');
+
+    const text = sentTexts()[0] ?? '';
+    expect(text).toContain('/auth/confirm-email-change?token=tok-abc');
+    expect(text).toContain('tenantId=acme');
   });
 });

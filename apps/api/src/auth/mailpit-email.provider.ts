@@ -28,6 +28,7 @@ import type { Transporter } from 'nodemailer';
 import type { IEmailProvider, InviteData, SessionAlertInfo } from '@bymax-one/nest-auth';
 
 import type { Env } from '../config/env.schema.js';
+import { emailTextBodies } from './email-text-bodies.js';
 
 /**
  * Directory that contains the HTML email templates.
@@ -166,9 +167,9 @@ export class MailpitEmailProvider implements IEmailProvider {
    * @param html - Rendered HTML body.
    * @throws Re-throws transport errors so the caller decides on retry strategy.
    */
-  private async send(to: string, subject: string, html: string): Promise<void> {
+  private async send(to: string, subject: string, html: string, text: string): Promise<void> {
     try {
-      await this.transporter.sendMail({ from: this.from, to, subject, html });
+      await this.transporter.sendMail({ from: this.from, to, subject, html, text });
       this.logger.log({ msg: 'Email sent', subject, to });
     } catch (err: unknown) {
       this.logger.error({
@@ -207,7 +208,12 @@ export class MailpitEmailProvider implements IEmailProvider {
       `&tenantId=${encodeURIComponent(tenantId)}` +
       `&token=${encodeURIComponent(token)}`;
     const html = this.render('password-reset-token', {}, { resetUrl });
-    await this.send(email, 'Reset your password', html);
+    await this.send(
+      email,
+      'Reset your password',
+      html,
+      emailTextBodies.passwordResetToken(resetUrl),
+    );
   }
 
   /**
@@ -225,7 +231,7 @@ export class MailpitEmailProvider implements IEmailProvider {
     _locale?: string,
   ): Promise<void> {
     const html = this.render('password-reset-otp', { otp });
-    await this.send(email, 'Your password reset code', html);
+    await this.send(email, 'Your password reset code', html, emailTextBodies.passwordResetOtp(otp));
   }
 
   /**
@@ -243,7 +249,12 @@ export class MailpitEmailProvider implements IEmailProvider {
     _locale?: string,
   ): Promise<void> {
     const html = this.render('verify-email', { otp });
-    await this.send(email, 'Verify your email address', html);
+    await this.send(
+      email,
+      'Verify your email address',
+      html,
+      emailTextBodies.emailVerificationOtp(otp),
+    );
   }
 
   /**
@@ -259,7 +270,7 @@ export class MailpitEmailProvider implements IEmailProvider {
     _locale?: string,
   ): Promise<void> {
     const html = this.render('mfa-enabled', {});
-    await this.send(email, 'Two-factor authentication enabled', html);
+    await this.send(email, 'Two-factor authentication enabled', html, emailTextBodies.mfaEnabled());
   }
 
   /**
@@ -275,7 +286,12 @@ export class MailpitEmailProvider implements IEmailProvider {
     _locale?: string,
   ): Promise<void> {
     const html = this.render('mfa-disabled', {});
-    await this.send(email, 'Two-factor authentication disabled', html);
+    await this.send(
+      email,
+      'Two-factor authentication disabled',
+      html,
+      emailTextBodies.mfaDisabled(),
+    );
   }
 
   /**
@@ -300,7 +316,12 @@ export class MailpitEmailProvider implements IEmailProvider {
       ip: sessionInfo.ip,
       sessionHash: sessionInfo.sessionHash,
     });
-    await this.send(email, 'New sign-in detected on your account', html);
+    await this.send(
+      email,
+      'New sign-in detected on your account',
+      html,
+      emailTextBodies.newSessionAlert(sessionInfo.device, sessionInfo.ip),
+    );
   }
 
   /**
@@ -331,7 +352,12 @@ export class MailpitEmailProvider implements IEmailProvider {
       `?token=${encodeURIComponent(token)}` +
       `&tenantId=${encodeURIComponent(tenantId)}`;
     const html = this.render('email-change-verification', {}, { confirmUrl });
-    await this.send(newEmail, 'Confirm your new email address', html);
+    await this.send(
+      newEmail,
+      'Confirm your new email address',
+      html,
+      emailTextBodies.emailChangeVerification(confirmUrl),
+    );
   }
 
   /**
@@ -352,7 +378,12 @@ export class MailpitEmailProvider implements IEmailProvider {
     _locale?: string,
   ): Promise<void> {
     const html = this.render('email-changed', { newEmail });
-    await this.send(oldEmail, 'Your email address was changed', html);
+    await this.send(
+      oldEmail,
+      'Your email address was changed',
+      html,
+      emailTextBodies.emailChanged(newEmail),
+    );
   }
 
   /**
@@ -384,6 +415,16 @@ export class MailpitEmailProvider implements IEmailProvider {
     );
     // Strip CRLF from tenantName to prevent SMTP header injection in the subject line.
     const safeSubject = inviteData.tenantName.replace(/[\r\n]/g, '');
-    await this.send(email, `You've been invited to join ${safeSubject}`, html);
+    await this.send(
+      email,
+      `You've been invited to join ${safeSubject}`,
+      html,
+      emailTextBodies.invitation(
+        inviteData.inviterName,
+        inviteData.tenantName,
+        acceptUrl,
+        inviteData.expiresAt.toUTCString(),
+      ),
+    );
   }
 }
