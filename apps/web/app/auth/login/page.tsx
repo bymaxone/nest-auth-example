@@ -30,7 +30,7 @@
 
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
@@ -41,6 +41,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/auth/password-input';
+import { TenantLookupFailedNotice } from '@/components/auth/tenant-lookup-failed-notice';
 import { loginSchema, type LoginFormValues } from '@/lib/schemas/auth';
 import {
   authClient,
@@ -69,17 +70,21 @@ function LoginForm() {
     resolveDefaultTenantSlug(searchParams.get('tenantId')),
   );
   const { refresh } = useSession();
-  // True while a CUID parameter is being translated. The selector shows the
-  // default workspace until it resolves, and submitting against that default
-  // would write the wrong `tenant_id` cookie and send real credentials to the
-  // wrong workspace — a browser's password manager can autofill and submit
-  // inside that window without the user doing anything. Set from the initial
-  // parameter rather than by the effect, so it is already true on the very
-  // first render.
-  const [isResolvingTenant, setIsResolvingTenant] = useState(() => {
+  // Whether the workspace this page will sign into is settled. It is not while
+  // a `?tenantId=` the picker does not recognise is being translated, and it is
+  // not after that lookup fails — in both states the selector still shows the
+  // default, and acting on it would write the wrong `tenant_id` cookie and send
+  // real credentials to a workspace nobody chose. A password manager can
+  // autofill and submit inside that window with no help from the user, so the
+  // state is seeded from the parameter itself rather than by the effect below,
+  // and it is already closed on the very first render.
+  const [tenantState, setTenantState] = useState<'settled' | 'resolving' | 'failed'>(() => {
     const param = searchParams.get('tenantId');
-    return param !== null && !isKnownTenantSlug(param);
+    return param !== null && !isKnownTenantSlug(param) ? 'resolving' : 'settled';
   });
+  // Bumped by the retry control so the effect runs again after a failure.
+  const [tenantRequestId, setTenantRequestId] = useState(0);
+  const isTenantUnsettled = tenantState !== 'settled';
 
   // A `?tenantId=` the picker does not recognise is not a malformed link — it
   // is what every tenant-scoped email the library sends carries, because
@@ -87,8 +92,7 @@ function LoginForm() {
   // cannot match one against the picker's slugs, so without this it silently
   // selects the default workspace and the submit below overwrites the
   // `tenant_id` cookie with the wrong tenant — a confirmation link for Globex
-  // signs the user in at Acme. Translate it instead; a lookup that fails leaves
-  // the default, which is where the selector already was.
+  // signs the user in at Acme.
   useEffect(() => {
     const param = searchParams.get('tenantId');
     if (param === null || isKnownTenantSlug(param)) return;
@@ -96,13 +100,32 @@ function LoginForm() {
     void (async () => {
       const slug = await resolveTenantSlugById(param);
       if (cancelled) return;
-      if (slug !== null) setTenantSlug(slug);
-      setIsResolvingTenant(false);
+      if (slug === null) {
+        // Unknown stays unknown. Reverting to the default here is what would
+        // sign a Globex user into Acme, so the controls stay shut until either
+        // a retry succeeds or the user names the workspace themselves.
+        setTenantState('failed');
+        return;
+      }
+      setTenantSlug(slug);
+      setTenantState('settled');
     })();
     return () => {
       cancelled = true;
     };
-  }, [searchParams]);
+  }, [searchParams, tenantRequestId]);
+
+  /** Re-runs the lookup after a failure. */
+  const handleTenantRetry = useCallback(() => {
+    setTenantState('resolving');
+    setTenantRequestId((id) => id + 1);
+  }, []);
+
+  /** The user naming the workspace settles it as surely as a lookup would. */
+  const handleTenantChange = useCallback((slug: string) => {
+    setTenantSlug(slug);
+    setTenantState('settled');
+  }, []);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // NEXT_PUBLIC_ vars are statically inlined by Next.js at build time
@@ -237,7 +260,7 @@ function LoginForm() {
           <select
             id="tenantId"
             value={tenantSlug}
-            onChange={(e) => setTenantSlug(e.target.value)}
+            onChange={(e) => handleTenantChange(e.target.value)}
             className="flex h-12 w-full appearance-none rounded-full border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.05)] px-5 py-2 text-sm text-white transition-shadow duration-200 focus-visible:ring-2 focus-visible:ring-[#ff6224]/50 focus-visible:outline-none"
           >
             {TENANT_OPTIONS.map((opt) => (
@@ -246,6 +269,7 @@ function LoginForm() {
               </option>
             ))}
           </select>
+          {tenantState === 'failed' && <TenantLookupFailedNotice onRetry={handleTenantRetry} />}
         </div>
 
         {/* Email */}
@@ -302,7 +326,7 @@ function LoginForm() {
         {/* Submit */}
         <Button
           type="submit"
-          disabled={isSubmitting || isResolvingTenant}
+          disabled={isSubmitting || isTenantUnsettled}
           size="lg"
           className="mt-1 w-full"
         >
@@ -330,6 +354,11 @@ function LoginForm() {
               resolved value verbatim as the FK on `User.tenantId` (Tenant.id
               is a CUID, not the slug), so the slug must be resolved first.
 
+              Disabled while the workspace is unsettled, for the same reason the
+              submit is: the handler resolves whatever slug the picker currently
+              shows, so a click before the link's workspace is known starts
+              OAuth in the default one and writes its cookie.
+
               A button, deliberately, not a link: the resolve is asynchronous,
               so the destination is only correct once it has finished. An
               anchor offers the browser a native path to that URL — middle
@@ -339,6 +368,7 @@ function LoginForm() {
               that is right before the resolve, so there is no href. */}
           <button
             type="button"
+            disabled={isTenantUnsettled}
             onClick={() => {
               void (async () => {
                 try {
@@ -356,7 +386,7 @@ function LoginForm() {
                 }
               })();
             }}
-            className="flex w-full items-center justify-center gap-2 rounded-full border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.04)] px-6 py-3 text-sm font-medium text-[rgba(255,255,255,0.7)] transition-colors hover:bg-[rgba(255,255,255,0.08)] hover:text-white"
+            className="flex w-full items-center justify-center gap-2 rounded-full border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.04)] px-6 py-3 text-sm font-medium text-[rgba(255,255,255,0.7)] transition-colors hover:bg-[rgba(255,255,255,0.08)] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
               <path
