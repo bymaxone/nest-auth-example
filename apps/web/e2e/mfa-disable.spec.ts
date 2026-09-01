@@ -82,6 +82,11 @@ test.describe('MFA disable via UI', () => {
 
     // ── 2. Navigate to the security page and start MFA setup. ──────────────
     await page.goto('/dashboard/security');
+    // Setup re-authenticates: since lib v1.1.0 `POST /auth/mfa/setup` requires
+    // the current password before it will return the TOTP secret, so the card
+    // collects it on the idle step. Without this the click is a no-op and the
+    // secret never renders.
+    await page.getByTestId('mfa-setup-password').fill(MFA_PASSWORD);
     await page
       .getByRole('button', { name: /set up authenticator|enable.*mfa|configure.*2fa/i })
       .click();
@@ -94,25 +99,42 @@ test.describe('MFA disable via UI', () => {
 
     // ── 4. Submit the enrollment code. ─────────────────────────────────────
     await fillOtp(page, authenticator.generate(secret));
-    await page.getByRole('button', { name: /verify.*enable|confirm|enable/i }).click();
+    // Anchored to the exact MFA button: the security page also carries the
+    // email-change card, whose "Send confirmation link" button matched the
+    // previous `|confirm|` alternative and tripped Playwright strict mode.
+    await page.getByRole('button', { name: /verify\s*&\s*enable/i }).click();
 
     // Recovery-codes modal confirms enrollment succeeded. Dismiss so the
     // page is interactive again for the disable step.
     await expect(page.getByText(/save your recovery codes/i)).toBeVisible({ timeout: 5_000 });
     await page.getByRole('button', { name: /saved my codes/i }).click();
 
-    // ── 5. Wait for the next TOTP step. ────────────────────────────────────
+    // ── 5. Sign in again — enabling MFA ends the current session. ──────────
+    // `MfaService.verifyAndEnable` invalidates every session when it flips
+    // `mfaEnabled` false → true (its own docs contrast this with
+    // `regenerateRecoveryCodes`, which deliberately does not). So the browser
+    // is bounced to the login page and the disable step needs a fresh
+    // session — reached through the MFA challenge the user now has.
+    await page.request.post('/api/auth/logout').catch(() => null);
+    await page.context().clearCookies();
+    await page.goto(`/auth/login?tenantId=${TENANT_ID}`);
+    await page.getByLabel(/email/i).fill(MFA_EMAIL);
+    await page.getByLabel(/password/i).fill(MFA_PASSWORD);
+    await page.getByRole('button', { name: /sign in/i }).click();
+
+    await page.waitForURL(/\/auth\/mfa-challenge/, { timeout: 10_000 });
     // The lib's anti-replay guard rejects re-submission of any TOTP value for
-    // 90 s, so the disable code must come from a fresh step.
+    // 90 s, so every subsequent code must come from a fresh step.
     await waitForNextTotpStep(page);
+    await fillOtp(page, authenticator.generate(secret));
+    await page.getByRole('button', { name: /verify|submit|confirm/i }).click();
+    await page.waitForURL('/dashboard', { timeout: 15_000 });
 
     // ── 6. Open the disable form on the security page. ─────────────────────
-    // The page now shows the `MfaDisableCard` because the user has MFA
-    // enabled. The security page's `onEnabled` callback calls the lib's
-    // `useSession().refresh()` which re-issues `GET /api/auth/me`, picks
-    // up the just-persisted `mfaEnabled: true`, and swaps the rendered
-    // card. Playwright's auto-wait on the next locator holds until that
-    // card transition completes — no manual reload required.
+    // The page shows `MfaDisableCard` because the session now carries
+    // `mfaEnabled: true`.
+    await page.goto('/dashboard/security');
+    await waitForNextTotpStep(page);
     await page.getByRole('button', { name: /disable two-factor authentication/i }).click();
 
     // ── 7. Submit a fresh TOTP and confirm. ────────────────────────────────
@@ -130,12 +152,22 @@ test.describe('MFA disable via UI', () => {
     expect(disableResult.status()).toBeLessThan(300);
 
     // ── 8. Assert MFA is now off. ──────────────────────────────────────────
-    // The page re-renders the setup card once `mfaEnabled` flips back to
-    // false. The `onDisabled` callback in the security page calls the
-    // lib's `useSession().refresh()` which re-fetches `GET /api/auth/me`
-    // and updates the `AuthProvider` state in place. Playwright's
-    // auto-wait holds the `toBeVisible` assertion until the card
-    // transition completes — no manual reload required.
+    // `MfaService.disable` invalidates every session too — the library groups
+    // it with `verifyAndEnable` because both flip the `mfaEnabled` credential.
+    // So sign in once more (no challenge this time, MFA is off) and read the
+    // security page from a session that reflects the new state.
+    await page.request.post('/api/auth/logout').catch(() => null);
+    await page.context().clearCookies();
+    await page.goto(`/auth/login?tenantId=${TENANT_ID}`);
+    await page.getByLabel(/email/i).fill(MFA_EMAIL);
+    await page.getByLabel(/password/i).fill(MFA_PASSWORD);
+    await page.getByRole('button', { name: /sign in/i }).click();
+    // Landing on /dashboard rather than /auth/mfa-challenge is itself the
+    // proof that the disable persisted: a still-enabled account would be
+    // challenged here.
+    await page.waitForURL('/dashboard', { timeout: 15_000 });
+    await page.goto('/dashboard/security');
+
     await expect(page.getByRole('button', { name: /set up authenticator/i })).toBeVisible({
       timeout: 10_000,
     });

@@ -62,6 +62,11 @@ test.describe('MFA enroll and login', () => {
 
     // 3. Start MFA setup. The button reads "Set up authenticator" (no "MFA"
     //    or "2FA" substring), so the regex must include that phrase.
+    // Setup re-authenticates: since lib v1.1.0 `POST /auth/mfa/setup` requires
+    // the current password before it will return the TOTP secret, so the card
+    // collects it on the idle step. Without this the click is a no-op and the
+    // secret never renders.
+    await page.getByTestId('mfa-setup-password').fill(MEMBER_PASSWORD);
     await page
       .getByRole('button', { name: /set up authenticator|enable.*mfa|configure.*2fa/i })
       .click();
@@ -75,7 +80,10 @@ test.describe('MFA enroll and login', () => {
 
     // 5. Generate a valid TOTP code and submit it to confirm MFA setup.
     await fillOtp(page, authenticator.generate(secret));
-    await page.getByRole('button', { name: /verify.*enable|confirm|enable/i }).click();
+    // Anchored to the exact MFA button: the security page also carries the
+    // email-change card, whose "Send confirmation link" button matched the
+    // previous `|confirm|` alternative and tripped Playwright strict mode.
+    await page.getByRole('button', { name: /verify\s*&\s*enable/i }).click();
 
     // 6. MFA enable success surfaces as the "Save your recovery codes" modal.
     await expect(page.getByText(/save your recovery codes/i)).toBeVisible({ timeout: 5_000 });
