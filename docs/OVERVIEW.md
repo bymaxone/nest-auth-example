@@ -238,7 +238,7 @@ Every row maps to a feature exposed by `@bymax-one/nest-auth`. Each one is exerc
 | 9   | TOTP MFA challenge on login                      | `MfaChallengeDto`, `MfaRequiredGuard`                                                                             | `app/auth/mfa-challenge` redirect path                                                                                         | ✅     |
 | 10  | MFA recovery codes (download + use)              | `mfa.recoveryCodeCount`                                                                                           | Modal in `dashboard/security`; usable in challenge page                                                                        | ✅     |
 | 11  | MFA disable                                      | `MfaDisableDto`                                                                                                   | Action in `dashboard/security`                                                                                                 | ✅     |
-| 12  | OAuth (Google) sign-in & link                    | `controllers.oauth: true`, `GoogleOAuthPlugin`                                                                    | "Continue with Google" button on login + register pages                                                                        | ✅     |
+| 12  | OAuth (Google) sign-in, no silent link           | `controllers.oauth: true`, `GoogleOAuthPlugin`                                                                    | "Continue with Google" button on login + register pages                                                                        | ✅     |
 | 13  | Active sessions listing + revoke                 | `controllers.sessions: true`, `GET /auth/sessions`, `DELETE /auth/sessions/:id`, `POST /auth/sessions/revoke-all` | `dashboard/sessions` page                                                                                                      | ✅     |
 | 14  | Session limit + FIFO eviction                    | `sessions.defaultMaxSessions`                                                                                     | Limit displayed; e2e test asserts oldest evicted                                                                               | ✅     |
 | 15  | New-session email alerts                         | `IEmailProvider.sendNewSessionAlert`                                                                              | Captured in Mailpit on each fresh login                                                                                        | ✅     |
@@ -399,7 +399,7 @@ Detailed lifetimes are documented in `docs/REDIS.md`.
 2. **Login with brute-force lockout** → unlock window expires → retry succeeds.
 3. **MFA enrollment** with Google Authenticator → re-login with TOTP challenge → use a recovery code.
 4. **Password reset** in both modes (token link and OTP).
-5. **OAuth sign-in with Google**, including account linking with an existing email.
+5. **OAuth sign-in with Google**, including the refusal when the address already belongs to an account.
 6. **Invitation flow** — admin invites a teammate, recipient accepts, role applied.
 7. **Active sessions** — multi-device login → list → revoke a single session → revoke all.
 8. **Tenant switching** — a user belonging to two tenants picks one; data isolation verified.

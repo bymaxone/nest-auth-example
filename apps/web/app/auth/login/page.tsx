@@ -284,15 +284,22 @@ function LoginForm() {
               Tenant delivery: since lib v1.4.2 a `?tenantId=` query param is
               REFUSED when the API configures a `tenantIdResolver`, and a
               top-level navigation cannot carry the `X-Tenant-Id` header — so
-              the onClick resolves the slug to the tenant's CUID and stores it
+              the handler resolves the slug to the tenant's CUID and stores it
               in the `tenant_id` cookie BEFORE navigating; the API resolver
               falls back to that cookie for navigation flows. The lib uses the
               resolved value verbatim as the FK on `User.tenantId` (Tenant.id
-              is a CUID, not the slug), so the slug must be resolved first. */}
-          <a
-            href="/api/auth/oauth/google"
-            onClick={(e) => {
-              e.preventDefault();
+              is a CUID, not the slug), so the slug must be resolved first.
+
+              A button, deliberately, not a link: the resolve is asynchronous,
+              so the destination is only correct once it has finished. An
+              anchor offers the browser a native path to that URL — middle
+              click, "open in new tab", a restored session — that runs no
+              handler and would arrive with no tenant cookie, or worse, with a
+              stale one pointing at a different workspace. There is no href
+              that is right before the resolve, so there is no href. */}
+          <button
+            type="button"
+            onClick={() => {
               void (async () => {
                 try {
                   const tenantId = await resolveTenantForLogin(tenantSlug);
@@ -330,7 +337,7 @@ function LoginForm() {
               />
             </svg>
             Continue with Google
-          </a>
+          </button>
         </>
       )}
 
