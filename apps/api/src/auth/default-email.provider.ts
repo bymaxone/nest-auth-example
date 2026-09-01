@@ -24,8 +24,24 @@
  *   publishes nothing the channel wrote — the channel's original error may
  *   quote the message body, credential included, so it must never be logged raw.
  *
- * Dev/test only, like the Mailpit provider: `EMAIL_PROVIDER=mailpit-default`
- * is rejected in production by the env schema.
+ * **Known limitation — links in this provider carry no tenant.** The catalogue
+ * renderers receive only their own payload (`emailChangeVerification` gets
+ * `{ token, locale }`, `passwordResetToken` gets `{ token, locale }`); the
+ * tenant and the recipient address stay on the class methods and never reach
+ * the renderer. So the URLs built here cannot include `tenantId`, and the
+ * reset URL cannot include the `mode`/`email` the reset page reads either.
+ *
+ * A recipient opening one of these links in a browser with no `tenant_id`
+ * cookie is refused by the API's tenant resolver. The hand-written providers
+ * do not have this problem — they build URLs in the class method, where the
+ * tenant is in scope — so the gap is specific to demonstrating the library's
+ * own renderer. Working around it would mean stashing per-call state on the
+ * instance between the method and an async render, which races, or
+ * re-implementing rendering and escaping, which defeats the purpose of the
+ * demonstration. The fix belongs upstream: give the renderers the tenant.
+ *
+ * This is why the provider is confined to dev. `EMAIL_PROVIDER=mailpit-default`
+ * is rejected in production by the env schema, so no deployment can hit it.
  *
  * @layer auth
  * @see docs/guidelines/email-guidelines.md

@@ -11,6 +11,19 @@
  * changes again there is a single line to update instead of a silent no-op
  * delete in every service that suspends a user.
  *
+ * **Known trade-off.** AGENTS.md rule 9 gives the library the whole
+ * `<namespace>:*` prefix, and this file writes into it. That is deliberate but
+ * not free: the format is the library's private business and it already moved
+ * once (v1.3.2 added the tenant segment). If it moves again, the delete
+ * silently stops matching — a suspension would then take effect only when the
+ * entry expires, with nothing failing loudly to say so.
+ *
+ * The alternative is to drop the invalidation and accept up to the full TTL of
+ * stale enforcement after every suspension, which is worse. The real fix is a
+ * supported invalidation method on the library: `UserStatusGuard` exposes only
+ * `canActivate`, and `invalidateUserSessions` clears refresh sessions rather
+ * than this cache, so there is nothing to call today.
+ *
  * @layer redis
  * @see docs/guidelines/redis-guidelines.md
  */
