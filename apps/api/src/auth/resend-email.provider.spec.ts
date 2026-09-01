@@ -66,17 +66,6 @@ const { ResendEmailProvider } = await import('./resend-email.provider.js');
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Minimal `PrismaService` stub returning a fixed tenantId for reset-token tests. */
-function makePrismaService() {
-  return {
-    user: {
-      findFirst: jest.fn<() => Promise<{ tenantId: string } | null>>().mockResolvedValue({
-        tenantId: 'tenant-cuid-1',
-      }),
-    },
-  };
-}
-
 /**
  * Minimal `ConfigService` stub that satisfies the `getOrThrow` calls made
  * during `ResendEmailProvider` construction.
@@ -122,7 +111,7 @@ describe('ResendEmailProvider', () => {
     // Reset call records and restore the happy-path default for each test.
     mockEmailsSend.mockClear();
     mockEmailsSend.mockResolvedValue({ data: { id: 'test-email-id' }, error: null });
-    provider = new ResendEmailProvider(makeConfigService() as never, makePrismaService() as never);
+    provider = new ResendEmailProvider(makeConfigService() as never);
   });
 
   // ─── sendPasswordResetToken ───────────────────────────────────────────────
@@ -130,7 +119,7 @@ describe('ResendEmailProvider', () => {
   it('sendPasswordResetToken — calls emails.send with correct to, from and subject; HTML contains the encoded token in a URL', async () => {
     // FCM #6 — the reset-token email must embed the signed token in a URL so the
     // browser can submit it to /auth/reset-password?mode=token.
-    await provider.sendPasswordResetToken('alice@example.test', 'my-reset-token');
+    await provider.sendPasswordResetToken('tenant-cuid-1', 'alice@example.test', 'my-reset-token');
 
     const opts = lastMailOptions();
     expect(opts.to).toBe('alice@example.test');
@@ -145,19 +134,14 @@ describe('ResendEmailProvider', () => {
     expect(html).toContain(encodeURIComponent('tenant-cuid-1'));
   });
 
-  it('sendPasswordResetToken — falls back to tenantId="default" when the user row is not found', async () => {
-    // Anti-enumeration: forgotPassword on a non-existent email still calls into
-    // the provider. The provider must compose a URL with a "default" tenant
-    // placeholder rather than crashing on a null lookup result.
-    const prisma = makePrismaService();
-    (
-      prisma.user.findFirst as jest.Mock<() => Promise<{ tenantId: string } | null>>
-    ).mockResolvedValueOnce(null);
-    provider = new ResendEmailProvider(makeConfigService() as never, prisma as never);
+  it('sendPasswordResetToken — URI-encodes the tenantId argument verbatim in the reset URL', async () => {
+    // The tenantId in the URL comes straight from the tenantId argument the
+    // library resolves (lib v1.3.1+ passes it first) — no database lookup is
+    // involved. Reserved characters must survive the trip URI-encoded so the
+    // reset page can pass the exact tenant back to the API.
+    await provider.sendPasswordResetToken('tenant/with+chars', 'ghost@example.test', 'tk');
 
-    await provider.sendPasswordResetToken('ghost@example.test', 'tk');
-
-    expect(lastSentHtml()).toContain(`tenantId=${encodeURIComponent('default')}`);
+    expect(lastSentHtml()).toContain(`tenantId=${encodeURIComponent('tenant/with+chars')}`);
   });
 
   // ─── sendPasswordResetOtp ────────────────────────────────────────────────
@@ -165,7 +149,7 @@ describe('ResendEmailProvider', () => {
   it('sendPasswordResetOtp — calls emails.send with the correct subject and embeds the OTP in the HTML body', async () => {
     // FCM #7 — the OTP must appear verbatim in the rendered template so the user
     // can copy-paste it into the reset-password screen.
-    await provider.sendPasswordResetOtp('bob@example.test', '123456');
+    await provider.sendPasswordResetOtp('acme', 'bob@example.test', '123456');
 
     const opts = lastMailOptions();
     expect(opts.to).toBe('bob@example.test');
@@ -178,7 +162,7 @@ describe('ResendEmailProvider', () => {
   it('sendEmailVerificationOtp — calls emails.send with the verify-email subject and embeds the OTP', async () => {
     // FCM #5 — the verification OTP must appear in the HTML so the user can enter
     // it on the verification screen; the correct subject signals the purpose.
-    await provider.sendEmailVerificationOtp('carol@example.test', '654321');
+    await provider.sendEmailVerificationOtp('acme', 'carol@example.test', '654321');
 
     const opts = lastMailOptions();
     expect(opts.to).toBe('carol@example.test');
@@ -191,7 +175,7 @@ describe('ResendEmailProvider', () => {
   it('sendMfaEnabledNotification — calls emails.send once with the MFA-enabled subject', async () => {
     // Security notification: confirms the correct subject reaches the recipient
     // so they know MFA was activated on their account.
-    await provider.sendMfaEnabledNotification('dave@example.test');
+    await provider.sendMfaEnabledNotification('acme', 'dave@example.test');
 
     const opts = lastMailOptions();
     expect(opts.to).toBe('dave@example.test');
@@ -204,7 +188,7 @@ describe('ResendEmailProvider', () => {
   it('sendMfaDisabledNotification — calls emails.send once with the MFA-disabled subject', async () => {
     // Security alert: the correct subject warns the recipient that MFA has been
     // removed — they must act if the change was not authorised.
-    await provider.sendMfaDisabledNotification('eve@example.test');
+    await provider.sendMfaDisabledNotification('acme', 'eve@example.test');
 
     const opts = lastMailOptions();
     expect(opts.to).toBe('eve@example.test');
@@ -217,7 +201,7 @@ describe('ResendEmailProvider', () => {
   it('sendNewSessionAlert — calls emails.send and includes device, ip and sessionHash in the HTML body', async () => {
     // FCM #15 — the session-alert email body must show device, IP, and session ID
     // so the user can recognise or dispute the sign-in.
-    await provider.sendNewSessionAlert('frank@example.test', {
+    await provider.sendNewSessionAlert('acme', 'frank@example.test', {
       device: 'Firefox on Windows',
       ip: '198.51.100.7',
       sessionHash: 'deadbeef',
@@ -238,7 +222,7 @@ describe('ResendEmailProvider', () => {
   it('sendInvitation — calls emails.send; subject contains tenantName; HTML contains inviterName', async () => {
     // FCM #21 — the invitation email must name the inviting organisation in the
     // subject line and the inviter's name in the body so the recipient has context.
-    await provider.sendInvitation('grace@example.test', {
+    await provider.sendInvitation('acme', 'grace@example.test', {
       inviterName: 'Alice Admin',
       tenantName: 'Acme Corp',
       inviteToken: 'tok-xyz',
@@ -258,7 +242,7 @@ describe('ResendEmailProvider', () => {
   it('sendInvitation — strips CRLF from tenantName and produces the canonical subject verbatim', async () => {
     // Security: a malicious tenant name containing CR+LF characters could inject
     // extra headers if included verbatim in the subject line.
-    await provider.sendInvitation('target@example.test', {
+    await provider.sendInvitation('acme', 'target@example.test', {
       inviterName: 'Attacker',
       tenantName: 'Evil\r\nBcc: victim@example.test',
       inviteToken: 'tok-evil',
@@ -279,7 +263,7 @@ describe('ResendEmailProvider', () => {
   it('sendInvitation — HTML-escapes inviterName to prevent script injection in the email body', async () => {
     // Security: user-controlled display names must be HTML-escaped before embedding
     // in the template to prevent the recipient's email client from executing scripts.
-    await provider.sendInvitation('victim@example.test', {
+    await provider.sendInvitation('acme', 'victim@example.test', {
       inviterName: '<script>alert(1)</script>',
       tenantName: 'Safe Corp',
       inviteToken: 'tok-safe',
@@ -303,9 +287,9 @@ describe('ResendEmailProvider', () => {
       error: { name: 'validation_error' },
     });
 
-    await expect(provider.sendPasswordResetOtp('err@example.test', '000000')).rejects.toThrow(
-      'Email delivery failed',
-    );
+    await expect(
+      provider.sendPasswordResetOtp('acme', 'err@example.test', '000000'),
+    ).rejects.toThrow('Email delivery failed');
   });
 
   // ─── Resend SDK success path ──────────────────────────────────────────────
@@ -316,7 +300,7 @@ describe('ResendEmailProvider', () => {
     mockEmailsSend.mockResolvedValueOnce({ data: { id: 'ok-id' }, error: null });
 
     await expect(
-      provider.sendEmailVerificationOtp('ok@example.test', '999888'),
+      provider.sendEmailVerificationOtp('acme', 'ok@example.test', '999888'),
     ).resolves.toBeUndefined();
   });
 
@@ -351,9 +335,9 @@ describe('ResendEmailProvider', () => {
     );
   });
 
-  // ─── Logging, escape, and Prisma call-shape contract ─────────────────────
+  // ─── Logging and escape contract ─────────────────────────────────────────
 
-  describe('logging, escape, and Prisma call shape', () => {
+  describe('logging and escape contract', () => {
     it('logs the subject and recipient on a successful send (no body or secrets)', async () => {
       /*
        * Scenario: every successful email through Resend must surface
@@ -365,7 +349,7 @@ describe('ResendEmailProvider', () => {
         .spyOn((provider as unknown as { logger: { log: (m: unknown) => void } }).logger, 'log')
         .mockImplementation(() => undefined);
 
-      await provider.sendPasswordResetOtp('alice@example.test', '123456');
+      await provider.sendPasswordResetOtp('acme', 'alice@example.test', '123456');
 
       expect(logSpy).toHaveBeenCalledTimes(1);
       const arg = logSpy.mock.calls[0]?.[0] as { msg?: string; subject?: string; to?: string };
@@ -396,9 +380,9 @@ describe('ResendEmailProvider', () => {
         } as unknown as { name: string },
       });
 
-      await expect(provider.sendPasswordResetOtp('bob@example.test', '999999')).rejects.toThrow(
-        'Email delivery failed',
-      );
+      await expect(
+        provider.sendPasswordResetOtp('acme', 'bob@example.test', '999999'),
+      ).rejects.toThrow('Email delivery failed');
 
       expect(errorSpy).toHaveBeenCalledTimes(1);
       const arg = errorSpy.mock.calls[0]?.[0] as {
@@ -440,29 +424,6 @@ describe('ResendEmailProvider', () => {
       expect(out).not.toContain("'");
     });
 
-    it('looks up the reset-token tenant by lowercased email with a narrow {tenantId} projection', async () => {
-      /*
-       * Scenario: the lib calls password reset with whatever casing
-       * the user typed. The lookup MUST normalise to lower case so
-       * the canonical row is found regardless of input casing. The
-       * select MUST stay narrow to {tenantId} so the lookup never
-       * reads the password hash or MFA secret as a side effect of
-       * resolving the tenant.
-       */
-      const prisma = makePrismaService();
-      provider = new ResendEmailProvider(makeConfigService() as never, prisma as never);
-
-      await provider.sendPasswordResetToken('Mixed@Example.TEST', 'tok');
-
-      expect(prisma.user.findFirst).toHaveBeenCalledTimes(1);
-      const call = (prisma.user.findFirst as unknown as jest.Mock).mock.calls[0]?.[0] as {
-        where: { email: string };
-        select: { tenantId: boolean };
-      };
-      expect(call.where.email).toBe('mixed@example.test');
-      expect(call.select).toEqual({ tenantId: true });
-    });
-
     it('embeds the URI-encoded inviteToken in the accept URL on the invitation email', async () => {
       /*
        * Scenario: the invitation accept URL carries the raw token
@@ -470,7 +431,7 @@ describe('ResendEmailProvider', () => {
        * mail clients. A drift that dropped the encoding or the
        * token would break every invitation link in production.
        */
-      await provider.sendInvitation('invite@example.test', {
+      await provider.sendInvitation('acme', 'invite@example.test', {
         inviterName: 'Alice',
         tenantName: 'Acme',
         inviteToken: 'token with +special &chars',
@@ -481,5 +442,68 @@ describe('ResendEmailProvider', () => {
       expect(html).toContain('/auth/accept-invitation?token=');
       expect(html).toContain(encodeURIComponent('token with +special &chars'));
     });
+  });
+
+  // ─── Email change (lib v1.1.0+) ──────────────────────────────────────────
+
+  it('sendEmailChangeVerification — mails the NEW address a confirm link carrying the token', async () => {
+    /*
+     * Scenario: same contract as the Mailpit provider — the verification link
+     * proves control of the address the account is moving TO, so it must go
+     * there and carry the single-use token.
+     * Protects: recipient selection, confirm path, and token presence on the
+     * production email backend.
+     */
+    await provider.sendEmailChangeVerification('acme', 'new@example.test', 'tok-abc123');
+
+    const opts = lastMailOptions();
+    expect(opts.to).toBe('new@example.test');
+    expect(opts.subject).toBe('Confirm your new email address');
+    expect(lastSentHtml()).toContain(
+      'http://localhost:3000/auth/confirm-email-change?token=tok-abc123',
+    );
+  });
+
+  it('sendEmailChangeVerification — percent-encodes a token containing URL metacharacters', async () => {
+    /*
+     * Scenario: an unencoded `&` or `#` truncates the query string, so the
+     * confirm page receives a different token than the one issued.
+     * Protects: the encodeURIComponent call on the token.
+     */
+    await provider.sendEmailChangeVerification('acme', 'new@example.test', 'a&b#c+d');
+
+    expect(lastSentHtml()).toContain(`token=${encodeURIComponent('a&b#c+d')}`);
+  });
+
+  it('sendEmailChangedNotification — tells the OLD address which address the account moved to', async () => {
+    /*
+     * Scenario: the notice is the previous owner's signal that a takeover may
+     * be under way, so it must reach the OLD address and name the new one.
+     * Protects: recipient selection and the newEmail substitution.
+     */
+    await provider.sendEmailChangedNotification('acme', 'old@example.test', 'new@example.test');
+
+    const opts = lastMailOptions();
+    expect(opts.to).toBe('old@example.test');
+    expect(opts.subject).toBe('Your email address was changed');
+    expect(lastSentHtml()).toContain('new@example.test');
+  });
+
+  it('sendEmailChangedNotification — HTML-escapes the new address in the notice body', async () => {
+    /*
+     * Scenario: `newEmail` travels the escaped textVars path, so a value
+     * carrying markup must arrive inert rather than rendering in an email the
+     * victim is being asked to trust.
+     * Protects: routing newEmail through textVars rather than urlVars.
+     */
+    await provider.sendEmailChangedNotification(
+      'acme',
+      'old@example.test',
+      '<script>alert(1)</script>@evil.test',
+    );
+
+    const html = lastSentHtml();
+    expect(html).not.toContain('<script>alert(1)</script>');
+    expect(html).toContain('&lt;script&gt;');
   });
 });

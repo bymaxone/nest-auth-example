@@ -7,8 +7,11 @@ import { WsAdapter } from '@nestjs/platform-ws';
  *  1. POST /api/auth/register returns 201 with PENDING status; Mailpit receives
  *     the OTP email.
  *  2. POST /api/auth/verify-email with the correct OTP marks the user as verified.
- *  3. Duplicate registration in the same tenant is rejected (4xx).
+ *  3. Duplicate registration in the same tenant is rejected (409
+ *     `auth.email_already_exists`).
  *  4. verify-email with an incorrect OTP is rejected (4xx).
+ *  5. A register body naming `tenantId` is refused (400 `auth.validation`) —
+ *     the tenant travels ONLY in the X-Tenant-Id header.
  *
  * Requires `docker-compose.test.yml` services to be running (Postgres at 55432,
  * Redis at 56379, Mailpit SMTP at 51025, Mailpit UI at 58025).
@@ -38,8 +41,12 @@ process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0
 
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import {
+  AUTH_ERROR_CODES,
+  AUTH_ERROR_STATUS,
+  createAuthValidationPipe,
+} from '@bymax-one/nest-auth';
+import { Test, type TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import * as supertest from 'supertest';
 
@@ -47,6 +54,7 @@ import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { clearMailpit, waitForEmail, extractOtpFromHtml } from './helpers/mailpit.js';
+import { resetAuthRateLimits } from './helpers/throttle.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -69,6 +77,12 @@ async function truncateTables(prisma: PrismaService): Promise<void> {
 
 // ─── Suite ───────────────────────────────────────────────────────────────────
 
+/**
+ * Testing module handle, kept at module scope so rate-limit counters can be
+ * reset between tests. Assigned in `beforeAll`.
+ */
+let moduleRef: TestingModule;
+
 describe('Register & Verify — register → OTP email → verify-email', () => {
   let app: INestApplication;
   let prisma: PrismaService;
@@ -81,7 +95,7 @@ describe('Register & Verify — register → OTP email → verify-email', () => 
       stdio: 'pipe',
     });
 
-    const moduleRef = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
@@ -99,7 +113,7 @@ describe('Register & Verify — register → OTP email → verify-email', () => 
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({
+      createAuthValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
@@ -116,6 +130,10 @@ describe('Register & Verify — register → OTP email → verify-email', () => 
   });
 
   beforeEach(async () => {
+    // Clear both rate limiters (in-memory ThrottlerGuard + the library's
+    // Redis-backed per-IP counters) so auth-route limits never bleed across
+    // tests or spec files in a sequential run.
+    await resetAuthRateLimits(moduleRef);
     // Clear the Mailpit inbox and accumulated test data before each spec.
     await clearMailpit();
     await truncateTables(prisma);
@@ -134,7 +152,7 @@ describe('Register & Verify — register → OTP email → verify-email', () => 
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password: 'P@ssw0rd12345', name: 'Test User', tenantId: 'acme' });
+      .send({ email, password: 'Str0ngUniqu3Passw0rd!', name: 'Test User' });
 
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({ user: { email, status: 'PENDING' } });
@@ -161,7 +179,7 @@ describe('Register & Verify — register → OTP email → verify-email', () => 
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password: 'P@ssw0rd12345', name: 'Verify User', tenantId: 'acme' });
+      .send({ email, password: 'Str0ngUniqu3Passw0rd!', name: 'Verify User' });
 
     // Poll Mailpit and extract the 6-digit OTP from the email body.
     const html = await waitForEmail(email);
@@ -173,7 +191,7 @@ describe('Register & Verify — register → OTP email → verify-email', () => 
       .post('/api/auth/verify-email')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, otp, tenantId: 'acme' });
+      .send({ email, otp });
 
     expect(verifyRes.status).toBe(204);
 
@@ -190,8 +208,8 @@ describe('Register & Verify — register → OTP email → verify-email', () => 
   it('rejects duplicate registration with the same email in the same tenant', async () => {
     // Scenario: the unique constraint on (tenantId, email) must prevent a second
     // registration attempt for an address already registered in the 'acme' tenant.
-    // The library must return a 4xx client-error response, not a 5xx. Covers FCM #1
-    // error-path and the anti-duplicate-account rule.
+    // Since lib v1.4.1 `auth.email_already_exists` answers 409 Conflict (was a
+    // generic 4xx before). Covers FCM #1 error-path and the anti-duplicate rule.
     const email = uniqueEmail('dup');
 
     // First registration — must succeed.
@@ -200,7 +218,7 @@ describe('Register & Verify — register → OTP email → verify-email', () => 
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password: 'P@ssw0rd12345', name: 'First User', tenantId: 'acme' });
+      .send({ email, password: 'Str0ngUniqu3Passw0rd!', name: 'First User' });
 
     expect(firstRes.status).toBe(201);
 
@@ -210,10 +228,44 @@ describe('Register & Verify — register → OTP email → verify-email', () => 
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password: 'An0therP@ss!', name: 'Duplicate User', tenantId: 'acme' });
+      .send({ email, password: 'An0therStr0ngP@ss!x', name: 'Duplicate User' });
 
-    expect(secondRes.status).toBeGreaterThanOrEqual(400);
-    expect(secondRes.status).toBeLessThan(500);
+    expect(secondRes.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.EMAIL_ALREADY_EXISTS]);
+    expect(secondRes.body).toMatchObject({
+      code: AUTH_ERROR_CODES.EMAIL_ALREADY_EXISTS,
+      statusCode: 409,
+    });
+  });
+
+  it('refuses a request body that names tenantId with 400 auth.validation', async () => {
+    // Scenario: the API configures a `tenantIdResolver` that reads ONLY the
+    // X-Tenant-Id header, so since lib v1.4.2 any register body naming a
+    // non-null `tenantId` is refused outright with 400 `auth.validation` —
+    // a spoofed body tenant can no longer silently disagree with the header.
+    // The library names the offending field in `error.details`; the app's
+    // AuthExceptionFilter intentionally flattens the envelope to
+    // `{ code, message, statusCode }`, so the field-level detail is asserted
+    // in the library's own tests and the flattened envelope is pinned here.
+    const email = uniqueEmail('body-tenant');
+
+    const res = await supertest
+      .agent(app.getHttpServer())
+      .post('/api/auth/register')
+      .set('Content-Type', 'application/json')
+      .set('X-Tenant-Id', 'acme')
+      .send({ email, password: 'Str0ngUniqu3Passw0rd!', name: 'Body Tenant', tenantId: 'acme' });
+
+    expect(res.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.VALIDATION]);
+    expect(res.body).toMatchObject({
+      code: AUTH_ERROR_CODES.VALIDATION,
+      statusCode: 400,
+    });
+
+    // The refused registration must not have created a user row.
+    const user = await prisma.user.findFirst({
+      where: { email: email.toLowerCase(), tenantId: 'acme' },
+    });
+    expect(user).toBeNull();
   });
 
   it('rejects verify-email with an incorrect OTP', async () => {
@@ -228,7 +280,7 @@ describe('Register & Verify — register → OTP email → verify-email', () => 
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password: 'P@ssw0rd12345', name: 'Bad OTP User', tenantId: 'acme' });
+      .send({ email, password: 'Str0ngUniqu3Passw0rd!', name: 'Bad OTP User' });
 
     // Submit a deliberately wrong OTP (000000 is extremely unlikely to be correct).
     const verifyRes = await supertest
@@ -236,7 +288,7 @@ describe('Register & Verify — register → OTP email → verify-email', () => 
       .post('/api/auth/verify-email')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, otp: '000000', tenantId: 'acme' });
+      .send({ email, otp: '000000' });
 
     expect(verifyRes.status).toBeGreaterThanOrEqual(400);
     expect(verifyRes.status).toBeLessThan(500);

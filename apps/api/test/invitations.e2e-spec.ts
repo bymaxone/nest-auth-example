@@ -35,8 +35,12 @@ process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0
 
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import {
+  AUTH_ERROR_CODES,
+  AUTH_ERROR_STATUS,
+  createAuthValidationPipe,
+} from '@bymax-one/nest-auth';
+import { Test, type TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import * as supertest from 'supertest';
 import type { Agent } from 'supertest';
@@ -45,6 +49,7 @@ import { Role } from '@prisma/client';
 import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
+import { resetAuthRateLimits } from './helpers/throttle.js';
 import {
   clearMailpit,
   waitForEmail,
@@ -73,6 +78,12 @@ async function truncateTables(prisma: PrismaService): Promise<void> {
 
 // ─── Suite ───────────────────────────────────────────────────────────────────
 
+/**
+ * Testing module handle, kept at module scope so rate-limit counters can be
+ * reset between tests. Assigned in `beforeAll`.
+ */
+let moduleRef: TestingModule;
+
 describe('Invitations — admin creates invitation → invitee accepts → user row verified', () => {
   let app: INestApplication;
   let prisma: PrismaService;
@@ -87,7 +98,7 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
       stdio: 'pipe',
     });
 
-    const moduleRef = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
@@ -105,7 +116,7 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({
+      createAuthValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
@@ -122,13 +133,17 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
   });
 
   beforeEach(async () => {
+    // Clear both rate limiters (in-memory ThrottlerGuard + the library's
+    // Redis-backed per-IP counters) so auth-route limits never bleed across
+    // tests or spec files in a sequential run.
+    await resetAuthRateLimits(moduleRef);
     await clearMailpit();
     await truncateTables(prisma);
 
     // Create a fresh ADMIN user before each test. The register endpoint always
     // creates a MEMBER; Prisma is used to elevate the role after email verification.
     const adminEmail = uniqueEmail('admin');
-    const adminPassword = 'P@ssw0rd12345';
+    const adminPassword = 'Str0ngUniqu3Passw0rd!';
     const httpServer = app.getHttpServer();
 
     // Register — creates a PENDING user and sends a verification OTP.
@@ -137,7 +152,7 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email: adminEmail, password: adminPassword, name: 'Admin User', tenantId: 'acme' });
+      .send({ email: adminEmail, password: adminPassword, name: 'Admin User' });
 
     // Extract OTP from Mailpit and verify the admin's email.
     const verifyHtml = await waitForEmail(adminEmail);
@@ -147,7 +162,7 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
       .post('/api/auth/verify-email')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email: adminEmail, otp, tenantId: 'acme' });
+      .send({ email: adminEmail, otp });
 
     // Promote to ADMIN — registration enforces MEMBER as the default role.
     await prisma.user.updateMany({
@@ -161,7 +176,7 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email: adminEmail, password: adminPassword, tenantId: 'acme' });
+      .send({ email: adminEmail, password: adminPassword });
     expect(loginRes.status).toBe(200);
 
     // Clear Mailpit so the admin's OTP email does not interfere with the
@@ -203,7 +218,7 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
       .post('/api/auth/invitations/accept')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ token, name: 'Invited User', password: 'P@ssw0rd12345' });
+      .send({ token, name: 'Invited User', password: 'Str0ngUniqu3Passw0rd!' });
 
     expect(acceptRes.status).toBe(201);
 
@@ -220,9 +235,9 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
 
   // ─── Sad paths ────────────────────────────────────────────────────────────
 
-  it('rejects an invalid or unknown accept token with a 4xx response', async () => {
+  it('rejects an invalid or unknown accept token with 400 auth.invalid_invitation_token', async () => {
     // Scenario: a tampered or non-existent token must never produce a 5xx.
-    // The library must validate the token and return a client-error response.
+    // Since lib v1.4.1 `auth.invalid_invitation_token` answers 400 Bad Request.
     // Covers the error-envelope path (FCM #29) for the invitations flow.
     const fakeToken = 'a'.repeat(64); // syntactically valid but not in the DB
 
@@ -231,10 +246,13 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
       .post('/api/auth/invitations/accept')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ token: fakeToken, name: 'Hacker', password: 'P@ssw0rd12345' });
+      .send({ token: fakeToken, name: 'Hacker', password: 'Str0ngUniqu3Passw0rd!' });
 
-    expect(acceptRes.status).toBeGreaterThanOrEqual(400);
-    expect(acceptRes.status).toBeLessThan(500);
+    expect(acceptRes.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.INVALID_INVITATION_TOKEN]);
+    expect(acceptRes.body).toMatchObject({
+      code: AUTH_ERROR_CODES.INVALID_INVITATION_TOKEN,
+      statusCode: 400,
+    });
   });
 
   it('rejects invitation creation from a non-admin (MEMBER) user with 403', async () => {
@@ -242,7 +260,7 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
     // above their own. Attempting POST /api/auth/invitations with role='ADMIN' as a
     // MEMBER triggers the INSUFFICIENT_ROLE check and must return 403 (FCM #18).
     const memberEmail = uniqueEmail('member');
-    const memberPassword = 'P@ssw0rd12345';
+    const memberPassword = 'Str0ngUniqu3Passw0rd!';
     const httpServer = app.getHttpServer();
 
     // Register the MEMBER — role stays MEMBER (no Prisma promotion).
@@ -255,7 +273,6 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
         email: memberEmail,
         password: memberPassword,
         name: 'Member User',
-        tenantId: 'acme',
       });
 
     // Mailpit now holds both the admin's OTP (cleared by beforeEach) and this
@@ -267,7 +284,7 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
       .post('/api/auth/verify-email')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email: memberEmail, otp: memberOtp, tenantId: 'acme' });
+      .send({ email: memberEmail, otp: memberOtp });
 
     // Login as MEMBER and keep cookies.
     const memberAgent = supertest.agent(httpServer);
@@ -275,7 +292,7 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email: memberEmail, password: memberPassword, tenantId: 'acme' });
+      .send({ email: memberEmail, password: memberPassword });
     expect(memberLoginRes.status).toBe(200);
 
     // MEMBER tries to invite with role='ADMIN' — above their own level → 403.

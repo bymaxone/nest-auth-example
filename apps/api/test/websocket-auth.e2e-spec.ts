@@ -9,6 +9,9 @@
  *     immediate close with a non-1000 code (application code 4401).
  *  3. Status change — when an admin suspends a connected member, the member's
  *     WebSocket is closed within 2 s (code 4403).
+ *  4. Single-use tickets (lib v1.1.0+) — `POST /api/auth/ws-ticket` mints a
+ *     30 s single-use ticket; `?ticket=` connections authenticate without
+ *     headers, and replaying a redeemed ticket closes with 4401.
  *
  * # Manual reproduction with websocat
  * ```
@@ -49,10 +52,8 @@ process.env['JWT_SECRET'] =
 process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0=';
 
 import { execSync } from 'node:child_process';
-import { randomBytes, scrypt as nodeScrypt } from 'node:crypto';
-import { promisify } from 'node:util';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
+import { createAuthValidationPipe } from '@bymax-one/nest-auth';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { WsAdapter } from '@nestjs/platform-ws';
 import cookieParser from 'cookie-parser';
@@ -64,27 +65,8 @@ import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { createWsClient } from './helpers/ws.js';
-import { resetThrottleCounters } from './helpers/throttle.js';
-
-// scrypt matches the library's PasswordService format: scrypt:{salt_hex}:{derived_hex}
-// Parameters mirror the library defaults (costFactor=32768, blockSize=8, parallelization=1).
-const _scrypt = promisify(nodeScrypt) as (
-  password: string | Buffer,
-  salt: string | Buffer,
-  keylen: number,
-  options: { N: number; r: number; p: number; maxmem: number },
-) => Promise<Buffer>;
-
-async function hashPasswordForTest(plain: string): Promise<string> {
-  const salt = randomBytes(16);
-  const derived = await _scrypt(plain, salt, 64, {
-    N: 32768,
-    r: 8,
-    p: 1,
-    maxmem: 64 * 1024 * 1024,
-  });
-  return `scrypt:${salt.toString('hex')}:${derived.toString('hex')}`;
-}
+import { resetAuthRateLimits } from './helpers/throttle.js';
+import { hashPasswordForTest } from './helpers/password.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -153,6 +135,9 @@ describe('WebSocket auth — WsJwtGuard protection and push delivery (FCM #24)',
   /** Raw access_token JWT for the member user — used as Authorization: Bearer. */
   let memberToken: string;
 
+  /** Cookie-authenticated supertest agent for the member — mints WS tickets. */
+  let memberAgent: Agent;
+
   /** Scrypt hashes computed once in beforeAll and reused in every beforeEach. */
   let adminPasswordHash: string;
   let memberPasswordHash: string;
@@ -220,7 +205,7 @@ describe('WebSocket auth — WsJwtGuard protection and push delivery (FCM #24)',
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({
+      createAuthValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
@@ -233,13 +218,17 @@ describe('WebSocket auth — WsJwtGuard protection and push delivery (FCM #24)',
     // Use listen() (not init()) so the HTTP + WS server actually binds to the port.
     await app.listen(TEST_PORT);
 
+    // Clear both rate limiters before the first login — counters left behind
+    // by earlier spec files in a sequential run share this IP.
+    await resetAuthRateLimits(moduleRef);
+
     // Log in the admin once and reuse the agent across specs.
     adminAgent = supertest.agent(app.getHttpServer());
     const adminLogin = await adminAgent
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', TENANT_ID)
-      .send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD, tenantId: TENANT_ID });
+      .send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
 
     // If admin login fails the WS tests below are invalid — abort the suite.
     expect(adminLogin.status).toBe(200);
@@ -253,7 +242,7 @@ describe('WebSocket auth — WsJwtGuard protection and push delivery (FCM #24)',
     // Every request in this suite comes from 127.0.0.1, so the per-IP `login`
     // tier is shared by all of its cases. Clear it between them: what is under
     // test here is auth behaviour, and a leaked 429 would mask it.
-    resetThrottleCounters(moduleRef);
+    await resetAuthRateLimits(moduleRef);
     // Truncate test data so each spec starts clean.
     await truncateTables(prisma);
 
@@ -289,12 +278,12 @@ describe('WebSocket auth — WsJwtGuard protection and push delivery (FCM #24)',
     });
 
     // Log the member in to obtain a fresh access_token for each spec.
-    const memberLoginAgent = supertest.agent(app.getHttpServer());
-    const memberLogin = await memberLoginAgent
+    memberAgent = supertest.agent(app.getHttpServer());
+    const memberLogin = await memberAgent
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', TENANT_ID)
-      .send({ email: MEMBER_EMAIL, password: MEMBER_PASSWORD, tenantId: TENANT_ID });
+      .send({ email: MEMBER_EMAIL, password: MEMBER_PASSWORD });
 
     expect(memberLogin.status).toBe(200);
 
@@ -306,7 +295,7 @@ describe('WebSocket auth — WsJwtGuard protection and push delivery (FCM #24)',
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', TENANT_ID)
-      .send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD, tenantId: TENANT_ID });
+      .send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
 
     expect(adminLogin.status).toBe(200);
     // Rebuild the admin agent with fresh cookies.
@@ -400,5 +389,68 @@ describe('WebSocket auth — WsJwtGuard protection and push delivery (FCM #24)',
 
     // 4403 = access revoked / account suspended (set by NotificationsGateway.disconnectUser).
     expect(closeCode).toBe(4403);
+  });
+
+  // ─── Single-use WS upgrade tickets (lib v1.1.0+) ──────────────────────────
+
+  it('accepts a ?ticket= connection minted via POST /api/auth/ws-ticket and delivers pushes', async () => {
+    // Scenario: browsers cannot set custom headers on WS upgrades, so the
+    // canonical browser path mints a single-use ticket from the authenticated
+    // session (POST /api/auth/ws-ticket → `{ ticket, expiresIn }`, 30 s TTL)
+    // and connects with `?ticket=`. The gateway redeems it atomically, the
+    // connection survives, and a self-targeted debug push arrives on it.
+    const ticketRes = await memberAgent.post('/api/auth/ws-ticket').set('X-Tenant-Id', TENANT_ID);
+
+    expect([200, 201]).toContain(ticketRes.status);
+    const { ticket, expiresIn } = ticketRes.body as { ticket: string; expiresIn: number };
+    expect(typeof ticket).toBe('string');
+    expect(ticket.length).toBeGreaterThan(0);
+    expect(expiresIn).toBeGreaterThan(0);
+
+    const client = createWsClient({ url: `${WS_URL}?ticket=${encodeURIComponent(ticket)}` });
+    await client.opened;
+
+    // Register the message listener BEFORE issuing the push (race-safe).
+    const messagePromise = client.nextMessage(5000);
+
+    // The member pushes to themselves — the ticket connection was registered
+    // under the member's own user id, so delivered must be exactly 1.
+    const notifyRes = await memberAgent
+      .post('/api/debug/notify/self')
+      .set('Content-Type', 'application/json')
+      .set('X-Tenant-Id', TENANT_ID)
+      .send({ title: 'Ticket title', body: 'Ticket body' });
+
+    expect(notifyRes.status).toBe(200);
+    expect(notifyRes.body).toMatchObject({ delivered: 1 });
+
+    const message = await messagePromise;
+    expect(message).toMatchObject({
+      event: 'notification:new',
+      data: { title: 'Ticket title', body: 'Ticket body' },
+    });
+
+    client.close();
+  });
+
+  it('closes a connection replaying an already-redeemed ticket with code 4401', async () => {
+    // Scenario: tickets are single-use — `WsTicketService.redeem` consumes the
+    // ticket atomically on the first upgrade, so a second connection replaying
+    // the SAME ticket must be refused with close code 4401. A leaked ticket in
+    // an access log is worthless after its first (or any) use.
+    const ticketRes = await memberAgent.post('/api/auth/ws-ticket').set('X-Tenant-Id', TENANT_ID);
+    expect([200, 201]).toContain(ticketRes.status);
+    const { ticket } = ticketRes.body as { ticket: string };
+
+    // First connection redeems the ticket and stays open.
+    const first = createWsClient({ url: `${WS_URL}?ticket=${encodeURIComponent(ticket)}` });
+    await first.opened;
+
+    // Second connection replays the consumed ticket — refused at the door.
+    const second = createWsClient({ url: `${WS_URL}?ticket=${encodeURIComponent(ticket)}` });
+    const closeCode = await second.nextClose(2000);
+    expect(closeCode).toBe(4401);
+
+    first.close();
   });
 });

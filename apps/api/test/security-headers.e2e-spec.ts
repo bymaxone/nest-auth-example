@@ -18,6 +18,10 @@ import { WsAdapter } from '@nestjs/platform-ws';
  * the same error code as a known-email / wrong-password login, so the
  * response does not leak account existence.
  *
+ * Trusted-origin assertion: verifies the library's TrustedOriginGuard refuses
+ * browser writes whose Origin is outside `cookies.trustedOrigins`
+ * (403 `auth.untrusted_origin`) while the configured WEB_ORIGIN passes.
+ *
  *
  * @layer test
  * @see apps/api/src/main.ts (helmet registration)
@@ -43,8 +47,12 @@ process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0
 
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import {
+  AUTH_ERROR_CODES,
+  AUTH_ERROR_STATUS,
+  createAuthValidationPipe,
+} from '@bymax-one/nest-auth';
+import { Test, type TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import * as supertest from 'supertest';
@@ -53,12 +61,19 @@ import type { Agent } from 'supertest';
 import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
+import { resetAuthRateLimits } from './helpers/throttle.js';
 
 /** Whether prisma migrations have been applied in this process. */
 let migrated = false;
 
 let app: INestApplication;
 let agent: Agent;
+
+/**
+ * Testing module handle, kept at module scope so rate-limit counters can be
+ * reset between tests. Assigned in `beforeAll`.
+ */
+let moduleRef: TestingModule;
 
 beforeAll(async () => {
   if (!migrated) {
@@ -70,7 +85,7 @@ beforeAll(async () => {
     migrated = true;
   }
 
-  const moduleRef = await Test.createTestingModule({
+  moduleRef = await Test.createTestingModule({
     imports: [AppModule],
   }).compile();
 
@@ -89,7 +104,7 @@ beforeAll(async () => {
   app.use(cookieParser());
   app.setGlobalPrefix('api');
   app.useGlobalPipes(
-    new ValidationPipe({
+    createAuthValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
@@ -104,6 +119,13 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await app.close();
+});
+
+beforeEach(async () => {
+  // Clear both rate limiters (in-memory ThrottlerGuard + the library's
+  // Redis-backed per-IP counters) so login attempts made by earlier spec files
+  // in a sequential run cannot leak a 429 into these assertions.
+  await resetAuthRateLimits(moduleRef);
 });
 
 // ── Helmet security headers ───────────────────────────────────────────────────
@@ -181,5 +203,50 @@ describe('POST /api/auth/login — anti-enumeration', () => {
 
     expect(unknownEmailRes.status).toBe(wrongPasswordRes.status);
     expect(unknownEmailRes.body.code).toBe(wrongPasswordRes.body.code);
+  });
+});
+
+// ── Trusted-origin enforcement (lib TrustedOriginGuard) ──────────────────────
+
+describe('POST /api/auth/login — trusted-origin enforcement', () => {
+  it('refuses a browser write from an origin outside the trustedOrigins allowlist', async () => {
+    /**
+     * Scenario: `cookies.trustedOrigins` in auth.config.ts arms the library's
+     * TrustedOriginGuard — a state-changing auth request carrying an Origin
+     * header must come from the configured WEB_ORIGIN or it is refused with
+     * `auth.untrusted_origin` (CSRF defence in depth on top of SameSite=Lax).
+     * Rule: Origin outside the allowlist → 403 auth.untrusted_origin.
+     */
+    const res = await agent
+      .post('/api/auth/login')
+      .set('X-Tenant-Id', 'acme')
+      .set('Origin', 'https://evil.example')
+      .send({ email: 'nobody@nowhere.invalid', password: 'IrrelevantP@ssw0rd!x' });
+
+    expect(res.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.UNTRUSTED_ORIGIN]);
+    expect(res.body).toMatchObject({
+      code: AUTH_ERROR_CODES.UNTRUSTED_ORIGIN,
+      statusCode: 403,
+    });
+  });
+
+  it('lets a request from the configured WEB_ORIGIN through the guard', async () => {
+    /**
+     * Scenario: the same request with `Origin: http://localhost:3000` (the
+     * configured WEB_ORIGIN) must pass the TrustedOriginGuard and reach the
+     * credential check — the response is the ordinary invalid-credentials 401,
+     * never `auth.untrusted_origin`. Also covers the non-browser path contract:
+     * supertest requests without an Origin header are allowed by design, which
+     * every other spec in this suite exercises implicitly.
+     * Rule: allowlisted Origin → the guard is transparent.
+     */
+    const res = await agent
+      .post('/api/auth/login')
+      .set('X-Tenant-Id', 'acme')
+      .set('Origin', 'http://localhost:3000')
+      .send({ email: 'nobody@nowhere.invalid', password: 'IrrelevantP@ssw0rd!x' });
+
+    expect(res.status).toBe(401);
+    expect(res.body).toMatchObject({ code: AUTH_ERROR_CODES.INVALID_CREDENTIALS });
   });
 });

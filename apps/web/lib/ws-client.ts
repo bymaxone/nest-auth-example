@@ -6,10 +6,15 @@
  * the connection drops. The singleton survives React re-renders because it is
  * bound to module-level state, not to a hook or component.
  *
- * Authentication: the WS URL is same-origin via the Next.js `/ws/*` proxy, so
- * the HttpOnly `access_token` cookie is forwarded automatically on the HTTP
- * upgrade request. The `NotificationsGateway` reads the cookie as a fallback
- * when no `Authorization: Bearer` header is present.
+ * Authentication: before each upgrade the client requests a single-use ticket
+ * from the library's `POST /api/auth/ws-ticket` route (lib v1.1.0+, 30 s TTL,
+ * atomically consumed server-side) and appends it as `?ticket=` on the upgrade
+ * URL — the canonical browser WS auth path: browsers cannot set custom headers
+ * on upgrades, and a single-use ticket in the URL is worthless once redeemed.
+ * When the ticket mint fails (e.g. session mid-refresh), the client falls back
+ * to the same-origin cookie path: the WS URL goes through the Next.js `/ws/*`
+ * proxy, so the HttpOnly `access_token` cookie is forwarded automatically and
+ * the `NotificationsGateway` reads it when no ticket or Bearer header is present.
  *
  * Usage:
  * ```tsx
@@ -84,6 +89,8 @@ let socket: WebSocket | null = null;
 let attempt = 0;
 let stopped = false;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+/** Monotonic guard: each `connect()` invalidates older in-flight ticket mints. */
+let connectSeq = 0;
 
 /** Map from event name to the set of registered handlers. */
 const listeners = new Map<string, Set<NotificationHandler>>();
@@ -145,17 +152,73 @@ function dispatch(eventName: string, data: unknown): void {
   }
 }
 
+/** Response shape of the library's `POST /api/auth/ws-ticket` route. */
+interface WsTicketResponse {
+  /** Single-use upgrade ticket to append as `?ticket=` on the WS URL. */
+  ticket: string;
+  /** Ticket lifetime in seconds (30 — `WS_TICKET_TTL_SECONDS`). */
+  expiresIn: number;
+}
+
+/**
+ * Mints a single-use WebSocket upgrade ticket via the library route.
+ *
+ * Uses a plain same-origin `fetch` (not the auth client) to avoid a module
+ * cycle and to keep this file dependency-free. The HttpOnly auth cookies ride
+ * along via `credentials: 'include'`; the library authenticates the mint call
+ * exactly like any other dashboard request.
+ *
+ * @returns The ticket string, or null when the mint fails (not authenticated,
+ *   network error) — callers fall back to cookie-authenticated upgrades.
+ */
+async function fetchWsTicket(): Promise<string | null> {
+  try {
+    const response = await fetch('/api/auth/ws-ticket', {
+      method: 'POST',
+      credentials: 'include',
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as WsTicketResponse;
+    return typeof body.ticket === 'string' && body.ticket.length > 0 ? body.ticket : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Opens a new WebSocket connection and wires the lifecycle handlers.
  *
  * Called on first `getWsClient()` call and after each reconnect delay.
  * No-ops when running server-side (`typeof WebSocket === 'undefined'`) or
  * after `close()` has been called (`stopped === true`).
+ *
+ * Mints a fresh single-use ticket per attempt (tickets are consumed on redeem,
+ * so a reconnect can never reuse one); on mint failure the upgrade proceeds
+ * without a ticket and the gateway falls back to the `access_token` cookie.
  */
 function connect(): void {
   if (stopped || typeof WebSocket === 'undefined') return;
 
-  const wsUrl = `${process.env['NEXT_PUBLIC_WS_URL'] ?? ''}/ws/notifications`;
+  // The ticket mint is asynchronous, so a `reconnect()`/`close()`/second
+  // `connect()` can land while it is in flight. The sequence counter makes
+  // every newer call invalidate older pending mints — without it, two rapid
+  // calls would each open a socket and the user would receive every
+  // notification twice.
+  const seq = ++connectSeq;
+  void fetchWsTicket().then((ticket) => {
+    if (stopped || seq !== connectSeq || socket !== null) return;
+    const query = ticket !== null ? `?ticket=${encodeURIComponent(ticket)}` : '';
+    openSocket(query);
+  });
+}
+
+/**
+ * Creates the raw `WebSocket` and wires the lifecycle handlers.
+ *
+ * @param query - `?ticket=…` query string, or empty for cookie-auth upgrades.
+ */
+function openSocket(query: string): void {
+  const wsUrl = `${process.env['NEXT_PUBLIC_WS_URL'] ?? ''}/ws/notifications${query}`;
   socket = new WebSocket(wsUrl);
 
   socket.onopen = () => {
@@ -282,6 +345,9 @@ export function getWsClient(): WsClient {
 export function _resetForTest(): void {
   stopped = false;
   attempt = 0;
+  // Bump the sequence so any in-flight ticket mint from a previous test can
+  // never open a socket into the next test's clean state.
+  connectSeq++;
   if (reconnectTimer !== null) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;

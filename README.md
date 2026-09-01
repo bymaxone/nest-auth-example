@@ -446,7 +446,7 @@ nest-auth-example/
 
 | Layer             | Choice                        | Why                                                                   |
 | ----------------- | ----------------------------- | --------------------------------------------------------------------- |
-| Auth              | `@bymax-one/nest-auth@^1.0.2` | The library this repo demonstrates                                    |
+| Auth              | `@bymax-one/nest-auth@^1.4.5` | The library this repo demonstrates                                    |
 | Backend runtime   | Node.js ≥ 24                  | Library minimum; native `node:crypto` for scrypt/AES                  |
 | Backend framework | NestJS 11 on Express 5        | Library peer dep                                                      |
 | Database          | PostgreSQL 18                 | Most common SaaS choice; first-class tenant-isolation patterns        |

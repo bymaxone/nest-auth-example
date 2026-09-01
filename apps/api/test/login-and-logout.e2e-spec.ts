@@ -38,8 +38,8 @@ process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0
 
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { createAuthValidationPipe } from '@bymax-one/nest-auth';
+import { Test, type TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import * as supertest from 'supertest';
 import type { Agent } from 'supertest';
@@ -48,6 +48,7 @@ import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { clearMailpit, waitForEmail, extractOtpFromHtml } from './helpers/mailpit.js';
+import { resetAuthRateLimits } from './helpers/throttle.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -89,7 +90,7 @@ async function registerVerifyAndLogin(
     .post('/api/auth/register')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', 'acme')
-    .send({ email, password, name: 'Test User', tenantId: 'acme' });
+    .send({ email, password, name: 'Test User' });
 
   // Step 2: extract OTP and verify email.
   const html = await waitForEmail(email);
@@ -99,7 +100,7 @@ async function registerVerifyAndLogin(
     .post('/api/auth/verify-email')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', 'acme')
-    .send({ email, otp, tenantId: 'acme' });
+    .send({ email, otp });
 
   // Step 3: login and return the cookie-carrying agent.
   const sessionAgent = supertest.agent(httpServer);
@@ -107,13 +108,19 @@ async function registerVerifyAndLogin(
     .post('/api/auth/login')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', 'acme')
-    .send({ email, password, tenantId: 'acme' });
+    .send({ email, password });
 
   expect(loginRes.status).toBe(200);
   return sessionAgent;
 }
 
 // ─── Suite ───────────────────────────────────────────────────────────────────
+
+/**
+ * Testing module handle, kept at module scope so rate-limit counters can be
+ * reset between tests. Assigned in `beforeAll`.
+ */
+let moduleRef: TestingModule;
 
 describe('Login & Logout — login → /me → logout → error paths', () => {
   let app: INestApplication;
@@ -127,7 +134,7 @@ describe('Login & Logout — login → /me → logout → error paths', () => {
       stdio: 'pipe',
     });
 
-    const moduleRef = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
@@ -143,7 +150,7 @@ describe('Login & Logout — login → /me → logout → error paths', () => {
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({
+      createAuthValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
@@ -160,6 +167,10 @@ describe('Login & Logout — login → /me → logout → error paths', () => {
   });
 
   beforeEach(async () => {
+    // Clear both rate limiters (in-memory ThrottlerGuard + the library's
+    // Redis-backed per-IP counters) so auth-route limits never bleed across
+    // tests or spec files in a sequential run.
+    await resetAuthRateLimits(moduleRef);
     // Clear the Mailpit inbox and accumulated test data before each spec.
     await clearMailpit();
     await truncateTables(prisma);
@@ -173,14 +184,14 @@ describe('Login & Logout — login → /me → logout → error paths', () => {
     // include both the access_token (HttpOnly) and refresh_token (HttpOnly).
     // Covers FCM row #2 (login).
     const email = uniqueEmail('login');
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
 
     await supertest
       .agent(app.getHttpServer())
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password, name: 'Login User', tenantId: 'acme' });
+      .send({ email, password, name: 'Login User' });
 
     const html = await waitForEmail(email);
     const otp = extractOtpFromHtml(html);
@@ -189,14 +200,14 @@ describe('Login & Logout — login → /me → logout → error paths', () => {
       .post('/api/auth/verify-email')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, otp, tenantId: 'acme' });
+      .send({ email, otp });
 
     const loginRes = await supertest
       .agent(app.getHttpServer())
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password, tenantId: 'acme' });
+      .send({ email, password });
 
     expect(loginRes.status).toBe(200);
 
@@ -228,7 +239,7 @@ describe('Login & Logout — login → /me → logout → error paths', () => {
     // /api/auth/me to return the user's profile including the email field but
     // excluding sensitive fields such as passwordHash. Covers FCM row #2.
     const email = uniqueEmail('me');
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
 
     const sessionAgent = await registerVerifyAndLogin(app.getHttpServer(), email, password);
 
@@ -246,7 +257,7 @@ describe('Login & Logout — login → /me → logout → error paths', () => {
     // any follow-up GET /api/auth/me call is rejected with 401. This ensures the
     // server-side revocation takes effect immediately. Covers FCM row #4 (revocation).
     const email = uniqueEmail('logout');
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
 
     const sessionAgent = await registerVerifyAndLogin(app.getHttpServer(), email, password);
 
@@ -271,7 +282,7 @@ describe('Login & Logout — login → /me → logout → error paths', () => {
     // ({ code, message, statusCode }). The code must start with 'auth.' to allow
     // the frontend to map it via the auth-errors map. Covers FCM row #29.
     const email = uniqueEmail('wrongpw');
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
 
     // Register and verify so a real user exists, then attempt login with bad password.
     await supertest
@@ -279,7 +290,7 @@ describe('Login & Logout — login → /me → logout → error paths', () => {
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password, name: 'Wrong PW User', tenantId: 'acme' });
+      .send({ email, password, name: 'Wrong PW User' });
 
     const html = await waitForEmail(email);
     const otp = extractOtpFromHtml(html);
@@ -288,14 +299,14 @@ describe('Login & Logout — login → /me → logout → error paths', () => {
       .post('/api/auth/verify-email')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, otp, tenantId: 'acme' });
+      .send({ email, otp });
 
     const loginRes = await supertest
       .agent(app.getHttpServer())
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password: 'WrongP@ss999', tenantId: 'acme' });
+      .send({ email, password: 'WrongP@ss999' });
 
     expect(loginRes.status).toBe(401);
     expect(loginRes.body).toMatchObject({
@@ -316,7 +327,7 @@ describe('Login & Logout — login → /me → logout → error paths', () => {
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email: unknownEmail, password: 'IrrelevantP@ss1', tenantId: 'acme' });
+      .send({ email: unknownEmail, password: 'IrrelevantP@ss1' });
 
     expect(loginRes.status).toBe(401);
     expect(loginRes.body).toMatchObject({

@@ -37,8 +37,8 @@ process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0
 
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { createAuthValidationPipe } from '@bymax-one/nest-auth';
+import { Test, type TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import * as supertest from 'supertest';
 import type { Agent } from 'supertest';
@@ -48,6 +48,7 @@ import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { clearMailpit, waitForEmail, extractOtpFromHtml } from './helpers/mailpit.js';
+import { resetAuthRateLimits } from './helpers/throttle.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -95,7 +96,7 @@ async function registerVerifyLoginForTenant(
     .post('/api/auth/register')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', tenantId)
-    .send({ email, password, name, tenantId });
+    .send({ email, password, name });
   expect(regRes.status).toBe(201);
 
   const html = await waitForEmail(email);
@@ -106,7 +107,7 @@ async function registerVerifyLoginForTenant(
     .post('/api/auth/verify-email')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', tenantId)
-    .send({ email, otp, tenantId });
+    .send({ email, otp });
 
   if (role !== Role.MEMBER) {
     await prisma.user.updateMany({
@@ -120,12 +121,18 @@ async function registerVerifyLoginForTenant(
     .post('/api/auth/login')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', tenantId)
-    .send({ email, password, tenantId });
+    .send({ email, password });
   expect(loginRes.status).toBe(200);
   return loginAgent;
 }
 
 // ─── Suite ───────────────────────────────────────────────────────────────────
+
+/**
+ * Testing module handle, kept at module scope so rate-limit counters can be
+ * reset between tests. Assigned in `beforeAll`.
+ */
+let moduleRef: TestingModule;
 
 describe('Tenant isolation — cross-tenant data access is impossible', () => {
   let app: INestApplication;
@@ -139,7 +146,7 @@ describe('Tenant isolation — cross-tenant data access is impossible', () => {
       stdio: 'pipe',
     });
 
-    const moduleRef = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
@@ -161,7 +168,7 @@ describe('Tenant isolation — cross-tenant data access is impossible', () => {
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({
+      createAuthValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
@@ -180,6 +187,10 @@ describe('Tenant isolation — cross-tenant data access is impossible', () => {
   });
 
   beforeEach(async () => {
+    // Clear both rate limiters (in-memory ThrottlerGuard + the library's
+    // Redis-backed per-IP counters) so auth-route limits never bleed across
+    // tests or spec files in a sequential run.
+    await resetAuthRateLimits(moduleRef);
     await clearMailpit();
     await truncateTables(prisma);
   });
@@ -200,7 +211,7 @@ describe('Tenant isolation — cross-tenant data access is impossible', () => {
       prisma,
       'acme',
       acmeEmail,
-      'P@ssw0rd12345',
+      'Str0ngUniqu3Passw0rd!',
       'Acme Admin',
       Role.ADMIN,
     );
@@ -213,7 +224,7 @@ describe('Tenant isolation — cross-tenant data access is impossible', () => {
       prisma,
       'beta',
       betaEmail,
-      'P@ssw0rd12345',
+      'Str0ngUniqu3Passw0rd!',
       'Beta Member',
     );
     await clearMailpit();
@@ -254,7 +265,7 @@ describe('Tenant isolation — cross-tenant data access is impossible', () => {
       prisma,
       'acme',
       acmeEmail,
-      'P@ssw0rd12345',
+      'Str0ngUniqu3Passw0rd!',
       'Acme User',
     );
     await clearMailpit();
@@ -265,7 +276,7 @@ describe('Tenant isolation — cross-tenant data access is impossible', () => {
       prisma,
       'beta',
       betaEmail,
-      'P@ssw0rd12345',
+      'Str0ngUniqu3Passw0rd!',
       'Beta User',
     );
     await clearMailpit();

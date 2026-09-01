@@ -64,15 +64,15 @@ describe('PasswordChangeForm submission', () => {
     // Fill current password (index 0), new password (index 1), confirm (index 2).
     const inputs = document.querySelectorAll('input');
     fireEvent.change(inputs[0]!, { target: { value: 'OldPass1!' } });
-    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!Long' } });
-    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!Long' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!LongEnough' } });
 
     fireEvent.click(screen.getByRole('button', { name: /update password/i }));
 
     await waitFor(() => {
       expect(changePassword).toHaveBeenCalledWith({
         currentPassword: 'OldPass1!',
-        newPassword: 'NewPass1!Long',
+        newPassword: 'NewPass1!LongEnough',
       });
     });
   });
@@ -87,7 +87,7 @@ describe('PasswordChangeForm submission', () => {
 
     const inputs = document.querySelectorAll('input');
     fireEvent.change(inputs[0]!, { target: { value: 'OldPass1!' } });
-    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!Long' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
     fireEvent.change(inputs[2]!, { target: { value: 'DifferentPass!' } });
 
     fireEvent.click(screen.getByRole('button', { name: /update password/i }));
@@ -101,7 +101,7 @@ describe('PasswordChangeForm submission', () => {
   it('shows validation errors when all fields are empty on submit', async () => {
     /*
      * Scenario: clicking submit with no input must show at least one validation
-     * error paragraph (for currentPassword min(1) or newPassword min(8)).
+     * error paragraph (for currentPassword min(1) or newPassword min(15)).
      * Protects: Zod validation fires on empty submit.
      */
     render(<PasswordChangeForm />);
@@ -125,8 +125,8 @@ describe('PasswordChangeForm submission', () => {
 
     const inputs = document.querySelectorAll('input');
     fireEvent.change(inputs[0]!, { target: { value: 'OldPass1!' } });
-    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!Long' } });
-    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!Long' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!LongEnough' } });
 
     fireEvent.click(screen.getByRole('button', { name: /update password/i }));
 
@@ -147,8 +147,8 @@ describe('PasswordChangeForm submission', () => {
 
     const inputs = document.querySelectorAll('input');
     fireEvent.change(inputs[0]!, { target: { value: 'OldPass1!' } });
-    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!Long' } });
-    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!Long' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!LongEnough' } });
 
     fireEvent.click(screen.getByRole('button', { name: /update password/i }));
 
@@ -175,8 +175,8 @@ describe('PasswordChangeForm surfaces verbatim copy + isPending reset + field er
     render(<PasswordChangeForm />);
     const inputs = document.querySelectorAll('input');
     fireEvent.change(inputs[0]!, { target: { value: 'OldPass1!' } });
-    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!Long' } });
-    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!Long' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!LongEnough' } });
     fireEvent.click(screen.getByRole('button', { name: /update password/i }));
 
     await waitFor(() => {
@@ -195,8 +195,8 @@ describe('PasswordChangeForm surfaces verbatim copy + isPending reset + field er
     render(<PasswordChangeForm />);
     const inputs = document.querySelectorAll('input');
     fireEvent.change(inputs[0]!, { target: { value: 'OldPass1!' } });
-    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!Long' } });
-    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!Long' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!LongEnough' } });
     fireEvent.click(screen.getByRole('button', { name: /update password/i }));
 
     await waitFor(() => {
@@ -221,8 +221,8 @@ describe('PasswordChangeForm surfaces verbatim copy + isPending reset + field er
     render(<PasswordChangeForm />);
     const inputs = document.querySelectorAll<HTMLInputElement>('input');
     fireEvent.change(inputs[0]!, { target: { value: 'OldPass1!' } });
-    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!Long' } });
-    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!Long' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!LongEnough' } });
     fireEvent.click(screen.getByRole('button', { name: /update password/i }));
 
     await waitFor(() => {
@@ -246,8 +246,8 @@ describe('PasswordChangeForm surfaces verbatim copy + isPending reset + field er
     render(<PasswordChangeForm />);
     // New password long, but current empty → currentPassword validation fires.
     const inputs = document.querySelectorAll<HTMLInputElement>('input');
-    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!Long' } });
-    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!Long' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!LongEnough' } });
     fireEvent.click(screen.getByRole('button', { name: /update password/i }));
 
     await waitFor(() => {
@@ -271,7 +271,7 @@ describe('PasswordChangeForm surfaces verbatim copy + isPending reset + field er
 
   it('adds the red error-border class to the new-password input when its validation fails', async () => {
     /*
-     * Scenario: the new-password field requires min(8). Pin the truthy
+     * Scenario: the new-password field requires min(15). Pin the truthy
      * arm of `errors.newPassword ?` independently from the
      * currentPassword arm — a regression that conflated the two error
      * sources would silently mark the wrong field as invalid.
@@ -299,8 +299,8 @@ describe('PasswordChangeForm surfaces verbatim copy + isPending reset + field er
      */
     render(<PasswordChangeForm />);
     const inputs = document.querySelectorAll<HTMLInputElement>('input');
-    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!Long' } });
-    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!Long' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!LongEnough' } });
     fireEvent.click(screen.getByRole('button', { name: /update password/i }));
 
     // The "Required" message must render (defends currentPassword paragraph).
@@ -309,9 +309,9 @@ describe('PasswordChangeForm surfaces verbatim copy + isPending reset + field er
     });
   });
 
-  it('renders the verbatim "Must be at least 8 characters" error for the new-password field', async () => {
+  it('renders the verbatim "Must be at least 15 characters" error for the new-password field', async () => {
     /*
-     * Scenario: only the new-password field violates the min(8) rule.
+     * Scenario: only the new-password field violates the min(15) rule.
      * Pins the truthy arm of `{errors.newPassword && <p>…</p>}` AND
      * the Zod min-length message — a `{true}`/`{false}` mutant on
      * the newPassword arm would drop the paragraph.
@@ -324,7 +324,7 @@ describe('PasswordChangeForm surfaces verbatim copy + isPending reset + field er
     fireEvent.click(screen.getByRole('button', { name: /update password/i }));
 
     await waitFor(() => {
-      expect(screen.getByText('Must be at least 8 characters')).toBeDefined();
+      expect(screen.getByText('Must be at least 15 characters')).toBeDefined();
     });
   });
 
@@ -351,7 +351,7 @@ describe('PasswordChangeForm surfaces verbatim copy + isPending reset + field er
     render(<PasswordChangeForm />);
     const inputs = document.querySelectorAll<HTMLInputElement>('input');
     fireEvent.change(inputs[0]!, { target: { value: 'OldPass1!' } });
-    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!Long' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
     fireEvent.change(inputs[2]!, { target: { value: 'DifferentPass!' } });
     fireEvent.click(screen.getByRole('button', { name: /update password/i }));
 

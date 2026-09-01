@@ -260,7 +260,9 @@ describe('InvitationsService', () => {
 
       await service.create('user-admin', 'acme', dto);
 
+      // lib v1.3.1+: tenantId is the first argument on every IEmailProvider method.
       expect(sendInvitation).toHaveBeenCalledWith(
+        'acme',
         'bob@example.test',
         expect.objectContaining({ inviteToken: 'raw-token-abc' }),
       );

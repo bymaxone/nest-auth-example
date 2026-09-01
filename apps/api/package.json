@@ -42,7 +42,7 @@
     "prisma:studio": "prisma studio"
   },
   "dependencies": {
-    "@bymax-one/nest-auth": "^1.0.11",
+    "@bymax-one/nest-auth": "^1.4.5",
     "@nestjs/common": "^11.1.19",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.1.19",
@@ -61,16 +61,16 @@
     "dotenv-safe": "^9.1.0",
     "express": "^5.2.1",
     "helmet": "^8.0.0",
-    "ioredis": "^5.10.1",
+    "ioredis": "^6.0.0",
     "nestjs-pino": "^4.6.1",
-    "nodemailer": "^8.0.5",
+    "nodemailer": "^9.1.0",
     "pg": "^8.20.0",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
     "reflect-metadata": "^0.2.2",
     "resend": "^4.8.0",
     "rxjs": "^7.8.2",
-    "ws": "^8.20.0",
+    "ws": "^8.21.3",
     "zod": "^4.3.6"
   },
   "devDependencies": {

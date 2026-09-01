@@ -297,7 +297,7 @@ describe('UsersService', () => {
       expect('passwordHash' in result).toBe(false);
     });
 
-    it('invalidates the user-status cache by the exact `nest-auth-example:us:<userId>` Redis key', async () => {
+    it('invalidates the user-status cache by the tenant-scoped `nest-auth-example:us:<tenantId>:<userId>` Redis key', async () => {
       /*
        * Scenario: after a status change, the lib's
        * UserStatusGuard reads from Redis to enforce the new
@@ -322,7 +322,7 @@ describe('UsersService', () => {
 
       expect(redisDel).toHaveBeenCalledTimes(1);
       const calls = redisDel.mock.calls as unknown as Array<[string]>;
-      expect(calls[0]?.[0]).toBe('nest-auth-example:us:user-cache-key');
+      expect(calls[0]?.[0]).toBe('nest-auth-example:us:acme:user-cache-key');
     });
 
     it('swallows AuditLog write failures — does not throw, status update still returns', async () => {
@@ -418,7 +418,7 @@ describe('UsersService', () => {
 
       await service.findById('user-9', 'beta');
 
-      expect(findById).toHaveBeenCalledWith('user-9', 'beta');
+      expect(findById).toHaveBeenCalledWith({ id: 'user-9', tenantId: 'beta' });
     });
   });
 

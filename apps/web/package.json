@@ -36,7 +36,7 @@
     "mutation:dry-run": "stryker run --dryRunOnly"
   },
   "dependencies": {
-    "@bymax-one/nest-auth": "^1.0.11",
+    "@bymax-one/nest-auth": "^1.4.5",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-avatar": "^1.1.11",
     "@radix-ui/react-dialog": "^1.1.15",
@@ -50,7 +50,7 @@
     "date-fns": "^4.1.0",
     "geist": "^1.7.0",
     "lucide-react": "^1.8.0",
-    "next": "^16.2.4",
+    "next": "^16.3.4",
     "qrcode": "^1.5.4",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
@@ -73,7 +73,7 @@
     "@vitejs/plugin-react": "^6.0.1",
     "@vitest/coverage-v8": "^4.1.4",
     "autoprefixer": "^10.5.0",
-    "eslint-config-next": "^16.2.4",
+    "eslint-config-next": "^16.3.4",
     "jsdom": "^29.0.2",
     "otplib": "^12.0.1",
     "tailwindcss": "^4.2.2",

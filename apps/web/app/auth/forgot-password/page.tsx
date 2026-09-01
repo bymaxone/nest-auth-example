@@ -2,7 +2,10 @@
  * @fileoverview Forgot password page — email input with anti-enumeration success state.
  *
  * Visual shell is provided by `app/(auth)/layout.tsx`. This page:
- *   - Accepts a workspace + email address and calls `useAuth().forgotPassword(email, tenantId)`
+ *   - Accepts a workspace + email address and calls `authClient.forgotPassword(email)`
+ *     directly — the tenant travels via the `X-Tenant-Id` header (from the
+ *     `tenant_id` cookie), never in the body, because the API configures
+ *     `tenantIdResolver`
  *   - Renders the same workspace `<select>` as login + register (shared
  *     {@link TENANT_OPTIONS}); default value honors `?tenantId=` query param
  *     when it matches a known tenant, otherwise falls back to the seed's
@@ -28,12 +31,16 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
 import { MailOpen } from 'lucide-react';
-import { useAuth } from '@bymax-one/nest-auth/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { forgotPasswordSchema, type ForgotPasswordFormValues } from '@/lib/schemas/auth';
-import { mapAuthClientError, resolveTenantForLogin, TenantNotFoundError } from '@/lib/auth-client';
+import {
+  authClient,
+  mapAuthClientError,
+  resolveTenantForLogin,
+  TenantNotFoundError,
+} from '@/lib/auth-client';
 import { translateAuthError } from '@/lib/auth-errors';
 import { TENANT_OPTIONS, resolveDefaultTenantSlug } from '@/lib/tenants';
 
@@ -49,7 +56,6 @@ function ForgotPasswordForm() {
   const [tenantSlug, setTenantSlug] = useState<string>(() =>
     resolveDefaultTenantSlug(searchParams.get('tenantId')),
   );
-  const { forgotPassword } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
@@ -71,7 +77,13 @@ function ForgotPasswordForm() {
       const tenantId = await resolveTenantForLogin(tenantSlug);
       document.cookie = `tenant_id=${tenantId}; Path=/; SameSite=Lax; Max-Age=31536000`;
 
-      await forgotPassword(data.email, tenantId);
+      // Call the low-level client instead of `useAuth().forgotPassword`. The
+      // react AuthProvider's version always injects a BODY `tenantId` (falling
+      // back to 'default' — see the provider's DEFAULT_TENANT_ID), which the
+      // API now refuses with 400 auth.validation because it configures
+      // `tenantIdResolver`. The tenant travels exclusively via the
+      // X-Tenant-Id header injected from the `tenant_id` cookie set above.
+      await authClient.forgotPassword(data.email);
       // Always show the generic confirmation — the server never leaks user existence
       setSubmitted(true);
     } catch (err) {

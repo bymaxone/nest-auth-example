@@ -1,9 +1,12 @@
 /**
  * @fileoverview Password change form for the Account page.
  *
- * Validates `currentPassword` + `newPassword` + `confirmPassword` with Zod,
- * posts to `POST /api/account/change-password`, and shows a success or error
- * toast. On success the form resets to blank.
+ * Validates `currentPassword` + `newPassword` + `confirmPassword` with Zod
+ * (new password minimum 15 characters, matching the API's
+ * `password.minLength`), posts to the library's built-in
+ * `POST /api/auth/password/change` route (lib v1.1.0+ — revokes every other
+ * session while keeping the caller's cookie-mode session alive), and shows a
+ * success or error toast. On success the form resets to blank.
  *
  * @layer components/dashboard
  */
@@ -28,7 +31,7 @@ const ERROR_BORDER_CLASS = 'border-red-500/60';
 const changePasswordSchema = z
   .object({
     currentPassword: z.string().min(1, 'Required'),
-    newPassword: z.string().min(8, 'Must be at least 8 characters'),
+    newPassword: z.string().min(15, 'Must be at least 15 characters'),
     confirmPassword: z.string().min(1, 'Required'),
   })
   .refine((data) => data.newPassword === data.confirmPassword, {

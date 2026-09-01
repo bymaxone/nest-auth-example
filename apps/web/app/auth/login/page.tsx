@@ -36,13 +36,18 @@ import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
-import { useAuth } from '@bymax-one/nest-auth/react';
+import { useSession } from '@bymax-one/nest-auth/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/auth/password-input';
 import { loginSchema, type LoginFormValues } from '@/lib/schemas/auth';
-import { mapAuthClientError, resolveTenantForLogin, TenantNotFoundError } from '@/lib/auth-client';
+import {
+  authClient,
+  mapAuthClientError,
+  resolveTenantForLogin,
+  TenantNotFoundError,
+} from '@/lib/auth-client';
 import { translateAuthError } from '@/lib/auth-errors';
 import { TENANT_OPTIONS, resolveDefaultTenantSlug } from '@/lib/tenants';
 
@@ -62,7 +67,7 @@ function LoginForm() {
   const [tenantSlug, setTenantSlug] = useState<string>(() =>
     resolveDefaultTenantSlug(searchParams.get('tenantId')),
   );
-  const { login } = useAuth();
+  const { refresh } = useSession();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // NEXT_PUBLIC_ vars are statically inlined by Next.js at build time
@@ -86,7 +91,14 @@ function LoginForm() {
       const tenantId = await resolveTenantForLogin(tenantSlug);
       document.cookie = `tenant_id=${tenantId}; Path=/; SameSite=Lax; Max-Age=31536000`;
 
-      const result = await login(data.email, data.password, { tenantId });
+      // Call the low-level client instead of `useAuth().login`. The react
+      // AuthProvider's login always injects a BODY `tenantId` (falling back
+      // to 'default' when the option is omitted — see the provider's
+      // DEFAULT_TENANT_ID), but the API configures `tenantIdResolver`, which
+      // makes the server refuse any body tenantId with 400 auth.validation.
+      // The tenant travels exclusively via the X-Tenant-Id header injected by
+      // `tenantAwareFetch` from the `tenant_id` cookie set above.
+      const result = await authClient.login({ email: data.email, password: data.password });
 
       if ('mfaRequired' in result) {
         // Store the temp token in sessionStorage — never in a cookie or URL param
@@ -95,6 +107,10 @@ function LoginForm() {
         return;
       }
 
+      // Bypassing the provider's login means its context state was not
+      // updated — revalidate so the AuthProvider reflects the new session
+      // before the dashboard mounts and reads it.
+      await refresh();
       router.replace('/dashboard');
     } catch (err) {
       if (err instanceof TenantNotFoundError) {
@@ -263,24 +279,25 @@ function LoginForm() {
             <div className="h-px flex-1 bg-[rgba(255,255,255,0.08)]" />
           </div>
           {/* Full-page navigation required for OAuth 302 redirect — do not use fetch.
-              The lib mounts the initiate endpoint at `GET /api/auth/oauth/:provider`,
-              expecting `tenantId` as a query param.
+              The lib mounts the initiate endpoint at `GET /api/auth/oauth/:provider`.
 
-              The href carries the slug as a graceful-degradation fallback, but the
-              onClick intercepts the click and resolves the slug to the tenant's CUID
-              first. The lib uses `tenantId` verbatim as the FK on `User.tenantId`
-              (Tenant.id is a CUID, not the slug), so passing the slug would surface
-              as a 500 from the Prisma FK constraint at callback time. */}
+              Tenant delivery: since lib v1.4.2 a `?tenantId=` query param is
+              REFUSED when the API configures a `tenantIdResolver`, and a
+              top-level navigation cannot carry the `X-Tenant-Id` header — so
+              the onClick resolves the slug to the tenant's CUID and stores it
+              in the `tenant_id` cookie BEFORE navigating; the API resolver
+              falls back to that cookie for navigation flows. The lib uses the
+              resolved value verbatim as the FK on `User.tenantId` (Tenant.id
+              is a CUID, not the slug), so the slug must be resolved first. */}
           <a
-            href={`/api/auth/oauth/google?tenantId=${encodeURIComponent(tenantSlug)}`}
+            href="/api/auth/oauth/google"
             onClick={(e) => {
               e.preventDefault();
               void (async () => {
                 try {
                   const tenantId = await resolveTenantForLogin(tenantSlug);
-                  window.location.assign(
-                    `/api/auth/oauth/google?tenantId=${encodeURIComponent(tenantId)}`,
-                  );
+                  document.cookie = `tenant_id=${tenantId}; Path=/; SameSite=Lax; Max-Age=31536000`;
+                  window.location.assign('/api/auth/oauth/google');
                 } catch (err) {
                   if (err instanceof TenantNotFoundError) {
                     toast.error(

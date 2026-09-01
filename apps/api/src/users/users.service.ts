@@ -84,7 +84,10 @@ export class UsersService {
     ip: string,
     userAgent: string,
   ): Promise<SafeAuthUser> {
-    const user = await this.userRepository.findById(targetUserId, adminTenantId);
+    const user = await this.userRepository.findById({
+      id: targetUserId,
+      tenantId: adminTenantId,
+    });
 
     if (user === null) {
       throw new NotFoundException(`User '${targetUserId}' not found`);
@@ -108,9 +111,13 @@ export class UsersService {
     // Invalidate the UserStatusGuard cache so the new status is enforced on the
     // very next authenticated request rather than after the 60s TTL expires.
     // Without this, a suspended user could continue calling protected routes
-    // for up to 60s. The library's AuthRedisService prefixes all keys with
-    // the configured namespace (`nest-auth-example:`) — see auth.config.ts.
-    await this.authRedis.del(`nest-auth-example:us:${targetUserId}`);
+    // for up to 60s. Since lib v1.3.2 the cache key is TENANT-SCOPED:
+    // `us:{encodeURIComponent(tenantId)}:{encodeURIComponent(userId)}` — a
+    // bare-userId delete is a silent no-op. The library's AuthRedisService
+    // prefixes all keys with the configured namespace (`nest-auth-example:`).
+    await this.authRedis.del(
+      `nest-auth-example:us:${encodeURIComponent(adminTenantId)}:${encodeURIComponent(targetUserId)}`,
+    );
 
     // Write audit log — non-blocking: a write failure must not abort the status update.
     try {
@@ -171,7 +178,7 @@ export class UsersService {
    * @throws `NotFoundException` when the user is absent from the caller's tenant.
    */
   async findById(id: string, tenantId: string): Promise<TenantUserRecord> {
-    const user = await this.userRepository.findById(id, tenantId);
+    const user = await this.userRepository.findById({ id, tenantId });
 
     if (user === null) {
       throw new NotFoundException(`User '${id}' not found`);

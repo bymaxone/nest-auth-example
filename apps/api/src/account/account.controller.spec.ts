@@ -13,7 +13,7 @@
 
 import { jest } from '@jest/globals';
 import { Test } from '@nestjs/testing';
-import { AuthService, TokenDeliveryService } from '@bymax-one/nest-auth';
+import { AuthRateLimitGuard, AuthService, TokenDeliveryService } from '@bymax-one/nest-auth';
 import type { Request, Response } from 'express';
 
 import { AccountController } from './account.controller.js';
@@ -74,7 +74,14 @@ describe('AccountController', () => {
           useValue: { deliverAuthResponse },
         },
       ],
-    }).compile();
+    })
+      // The change-password route applies the library's AuthRateLimitGuard via
+      // @UseGuards; its real dependencies (options, AuthRedisService) live in
+      // BymaxAuthModule, which this unit module does not build — override with
+      // a pass-through so handler logic is what's under test.
+      .overrideGuard(AuthRateLimitGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = moduleRef.get(AccountController);
   });
@@ -206,8 +213,11 @@ describe('AccountController', () => {
         'cmcurrent000acme0000xx',
         'cmtarget0000globex0000xx',
       );
+      // lib v1.4.4+: the DESTINATION tenant travels with the user id — the
+      // tokens are minted for the workspace being switched into.
       expect(issueTokensForUserId).toHaveBeenCalledWith(
         targetUserId,
+        'cmtarget0000globex0000xx',
         '203.0.113.1',
         'TestBrowser/1.0',
       );
@@ -239,7 +249,12 @@ describe('AccountController', () => {
 
       await controller.switchWorkspace(dto, user as never, req, res);
 
-      expect(issueTokensForUserId).toHaveBeenCalledWith('t-user', '', '');
+      expect(issueTokensForUserId).toHaveBeenCalledWith(
+        't-user',
+        'cmtarget0000globex0000xx',
+        '',
+        '',
+      );
     });
 
     it('propagates errors from findSwitchTarget without minting a session', async () => {

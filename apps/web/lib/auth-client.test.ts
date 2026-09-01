@@ -28,6 +28,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AuthClientError } from '@bymax-one/nest-auth/client';
+import type { RefreshOutcome } from '@bymax-one/nest-auth/client';
 
 // ── Mock @bymax-one/nest-auth/client ──────────────────────────────────────────
 
@@ -56,12 +57,35 @@ const capturedTenantAwareFetch = vi.hoisted(() => ({
   fn: null as ((input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) | null,
 }));
 
+/**
+ * Captures the config object handed to `createAuthFetch` so tests can invoke
+ * the module's `onRefreshFailed` handler directly — it is otherwise only
+ * reachable through the library's internal silent-refresh machinery.
+ */
+const capturedAuthFetchConfig = vi.hoisted(() => ({
+  config: null as { onRefreshFailed?: (failure: unknown) => void } | null,
+}));
+
+/**
+ * Sonner toast spy — the module under test loads sonner lazily (dynamic
+ * `import('sonner')` inside `reportRefreshFailure`) so the same `vi.mock`
+ * factory intercepts both static and dynamic imports.
+ */
+const mockToastError = vi.hoisted(() => vi.fn());
+
+vi.mock('sonner', () => ({
+  toast: { error: mockToastError, success: vi.fn() },
+}));
+
 vi.mock('@bymax-one/nest-auth/client', async (importOriginal) => {
   // Preserve the real AuthClientError class and its exports from shared.
   const original = await importOriginal<typeof import('@bymax-one/nest-auth/client')>();
   return {
     ...original,
-    createAuthFetch: () => mockInnerFetch,
+    createAuthFetch: (config: { onRefreshFailed?: (failure: unknown) => void }) => {
+      capturedAuthFetchConfig.config = config;
+      return mockInnerFetch;
+    },
     createAuthClient: (opts: {
       authFetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
     }) => {
@@ -793,9 +817,11 @@ describe('revokeSession', () => {
 });
 
 describe('revokeAllSessions', () => {
-  it('sends DELETE /auth/sessions/all', async () => {
+  it('sends POST /auth/sessions/revoke-all', async () => {
     /*
-     * Scenario: revokeAllSessions must send a DELETE to the bulk-revocation path.
+     * Scenario: revokeAllSessions must POST to the bulk-revocation path —
+     * `POST /auth/sessions/revoke-all` replaced `DELETE /auth/sessions/all`
+     * in `@bymax-one/nest-auth` 1.4.3.
      * Protects: revokeAllSessions uses the correct path and method.
      */
     mockInnerFetch.mockResolvedValueOnce(make204Response());
@@ -803,8 +829,8 @@ describe('revokeAllSessions', () => {
     await revokeAllSessions();
 
     const [path, init] = mockInnerFetch.mock.calls[0] as [string, RequestInit];
-    expect(path).toBe('/auth/sessions/all');
-    expect(init.method).toBe('DELETE');
+    expect(path).toBe('/auth/sessions/revoke-all');
+    expect(init.method).toBe('POST');
   });
 });
 
@@ -1118,10 +1144,14 @@ describe('revokeInvitation', () => {
 // ── Account helpers ───────────────────────────────────────────────────────────
 
 describe('changePassword', () => {
-  it('sends POST /account/change-password with the password input in the body', async () => {
+  it('sends POST /auth/password/change with the password input in the body', async () => {
     /*
-     * Scenario: changePassword must POST to the account change-password endpoint
-     * with both currentPassword and newPassword serialised in the body.
+     * Scenario: changePassword must POST to the LIBRARY's built-in
+     * change-password route (`/auth/password/change`, lib v1.1.0+) — not the
+     * app's legacy `/account/change-password` endpoint — with both
+     * currentPassword and newPassword serialised in the body. On success the
+     * lib revokes every OTHER session while keeping the caller's cookie-mode
+     * session alive.
      * Protects: changePassword path, method, and body contract.
      */
     mockInnerFetch.mockResolvedValueOnce(make204Response());
@@ -1129,7 +1159,7 @@ describe('changePassword', () => {
     await changePassword({ currentPassword: 'old-pass', newPassword: 'new-pass' });
 
     const [path, init] = mockInnerFetch.mock.calls[0] as [string, RequestInit];
-    expect(path).toBe('/account/change-password');
+    expect(path).toBe('/auth/password/change');
     expect(init.method).toBe('POST');
     expect(init.body).toBe(
       JSON.stringify({ currentPassword: 'old-pass', newPassword: 'new-pass' }),
@@ -1271,13 +1301,15 @@ describe('platformGetMe', () => {
 });
 
 describe('platformMfaSetup / verify-enable / disable / regenerate', () => {
-  it('platformMfaSetup posts to /api/auth/platform/mfa/setup with bearer auth and returns MfaSetupInfo', async () => {
+  it('platformMfaSetup posts the re-auth password to /api/auth/platform/mfa/setup with bearer auth and returns MfaSetupInfo', async () => {
     /*
-     * Scenario: a platform admin clicks "Set up authenticator" on the
-     * platform security page. The helper must hit the platform-prefixed
-     * route (NOT /api/auth/mfa/setup), include the bearer token from
-     * sessionStorage, and return the parsed setup payload verbatim.
-     * Protects: platformMfaSetup path + bearer-auth wiring.
+     * Scenario: a platform admin confirms their password and clicks "Set up
+     * authenticator" on the platform security page. The helper must hit the
+     * platform-prefixed route (NOT /api/auth/mfa/setup), include the bearer
+     * token from sessionStorage, carry the `{ password }` re-authentication
+     * body required by the lib since 1.1.0, and return the parsed setup
+     * payload verbatim.
+     * Protects: platformMfaSetup path + bearer-auth + re-auth body wiring.
      */
     sessionStorage.setItem('platform_access_token', 'platform-access');
     const setupBody = {
@@ -1288,12 +1320,15 @@ describe('platformMfaSetup / verify-enable / disable / regenerate', () => {
     const mockFetch = vi.fn<typeof fetch>().mockResolvedValueOnce(makeJsonResponse(setupBody));
     vi.stubGlobal('fetch', mockFetch);
 
-    const result = await import('./auth-client.js').then((m) => m.platformMfaSetup());
+    const result = await import('./auth-client.js').then((m) =>
+      m.platformMfaSetup('AdminPassword123!'),
+    );
 
     expect(result).toEqual(setupBody);
     const [path, init] = mockFetch.mock.calls[0] as [string, RequestInit];
     expect(path).toBe('/api/auth/platform/mfa/setup');
     expect(init.method).toBe('POST');
+    expect(init.body).toBe(JSON.stringify({ password: 'AdminPassword123!' }));
     const headers = init.headers as Record<string, string>;
     expect(headers['Authorization']).toBe('Bearer platform-access');
   });
@@ -1608,11 +1643,12 @@ describe('platformUpdateUserStatus', () => {
 // ── MFA helpers ───────────────────────────────────────────────────────────────
 
 describe('mfaSetup', () => {
-  it('sends POST /auth/mfa/setup and returns MfaSetupInfo', async () => {
+  it('sends POST /auth/mfa/setup with the re-auth password in the body and returns MfaSetupInfo', async () => {
     /*
-     * Scenario: mfaSetup must POST to the MFA setup endpoint and return the
-     * secret, QR code URI, and recovery codes.
-     * Protects: line 507 — mfaSetup path and method contract.
+     * Scenario: mfaSetup must POST to the MFA setup endpoint with the
+     * `{ password }` re-authentication body (required by the lib since
+     * 1.1.0) and return the secret, QR code URI, and recovery codes.
+     * Protects: mfaSetup path, method, and re-auth body contract.
      */
     const setupInfo: MfaSetupInfo = {
       secret: 'JBSWY3DPEHPK3PXP',
@@ -1621,12 +1657,13 @@ describe('mfaSetup', () => {
     };
     mockInnerFetch.mockResolvedValueOnce(makeJsonResponse(setupInfo));
 
-    const result = await mfaSetup();
+    const result = await mfaSetup('CurrentPassword123!');
 
     expect(result).toEqual(setupInfo);
     const [path, init] = mockInnerFetch.mock.calls[0] as [string, RequestInit];
     expect(path).toBe('/auth/mfa/setup');
     expect(init.method).toBe('POST');
+    expect(init.body).toBe(JSON.stringify({ password: 'CurrentPassword123!' }));
   });
 });
 
@@ -2264,5 +2301,75 @@ describe('buildAuthClientError — Shape 2 envelope type-guard', () => {
 
     const thrown = (await listUsers().catch((err: unknown) => err)) as AuthClientError;
     expect(thrown.body?.message).toBe('numeric code falls through');
+  });
+});
+
+// ── onRefreshFailed breadcrumb ────────────────────────────────────────────────
+
+/**
+ * Fixtures typed against the library's `RefreshOutcome` discriminated union so
+ * they are compile-checked against the exact shape `createAuthFetch` produces —
+ * a library rename of a reason or field fails typecheck here rather than
+ * silently letting a stale fixture keep the breadcrumb tests green.
+ */
+const UNREACHABLE_REFRESH: RefreshOutcome = { ok: false, reason: 'unreachable', status: null };
+const REJECTED_REFRESH: RefreshOutcome = { ok: false, reason: 'rejected', status: 401 };
+const UNAVAILABLE_REFRESH: RefreshOutcome = { ok: false, reason: 'unavailable', status: 503 };
+
+describe('onRefreshFailed breadcrumb', () => {
+  it('registers an onRefreshFailed handler on the createAuthFetch config', () => {
+    /*
+     * Scenario: the module must wire `onRefreshFailed` (lib 1.4.4) into the
+     * fetch config so every silent-refresh failure is reported — without it
+     * network outages during refresh are indistinguishable from real
+     * session rejections.
+     * Protects: the `onRefreshFailed: reportRefreshFailure` config entry.
+     */
+    expect(typeof capturedAuthFetchConfig.config?.onRefreshFailed).toBe('function');
+  });
+
+  it('toasts the connection-lost message when a refresh fails as unreachable', async () => {
+    /*
+     * Scenario: `reason: 'unreachable'` means the refresh request got no
+     * answer at all (network down). The handler must surface a toast so the
+     * user knows their connection dropped and the app will retry.
+     * Protects: the 'unreachable' branch of reportRefreshFailure.
+     */
+    mockToastError.mockClear();
+    capturedAuthFetchConfig.config?.onRefreshFailed?.(UNREACHABLE_REFRESH);
+
+    await vi.waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledWith('Connection lost — we will retry automatically.');
+    });
+  });
+
+  it('stays silent when a refresh fails as rejected', async () => {
+    /*
+     * Scenario: `reason: 'rejected'` means the server refused the refresh
+     * token — the AuthProvider's `onSessionExpired` redirect owns that path,
+     * so the breadcrumb handler must NOT stack a second surface on top.
+     * Protects: the reason guard in reportRefreshFailure (rejected branch).
+     */
+    mockToastError.mockClear();
+    capturedAuthFetchConfig.config?.onRefreshFailed?.(REJECTED_REFRESH);
+
+    // Flush the dynamic-import microtask window before asserting silence.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockToastError).not.toHaveBeenCalled();
+  });
+
+  it('stays silent when a refresh fails as unavailable', async () => {
+    /*
+     * Scenario: `reason: 'unavailable'` means the server answered but could
+     * not refresh right now (e.g. 429/503) — the wrapper retries on the next
+     * call, so no user-facing noise is warranted.
+     * Protects: the reason guard in reportRefreshFailure (unavailable branch).
+     */
+    mockToastError.mockClear();
+    capturedAuthFetchConfig.config?.onRefreshFailed?.(UNAVAILABLE_REFRESH);
+
+    // Flush the dynamic-import microtask window before asserting silence.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockToastError).not.toHaveBeenCalled();
   });
 });

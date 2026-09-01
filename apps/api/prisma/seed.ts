@@ -10,10 +10,10 @@
  *     constraint. Existing rows have their `passwordHash` re-hashed so the
  *     stored hash always matches the canonical seed password and the current
  *     library `PasswordService` format.
- *   - Passwords are hashed with scrypt in the `scrypt:{salt_hex}:{derived_hex}`
- *     format the @bymax-one/nest-auth `PasswordService` expects. The previous
- *     bcrypt hashes are rejected by `PasswordService.compare`, which requires
- *     the scrypt prefix.
+ *   - Passwords are hashed with scrypt in the PHC format
+ *     (`$scrypt$ln=…,r=…,p=…$…$…`) the @bymax-one/nest-auth `PasswordService`
+ *     writes since v1.1.0. Both bcrypt hashes and the pre-1.1.0
+ *     `scrypt:{salt}:{hash}` form are rejected by `PasswordService.compare`.
  *   - This script is DEV-ONLY. Never run in production; seeds use known
  *     passwords that are publicly documented in GETTING_STARTED.md.
  */
@@ -62,9 +62,11 @@ const E2E_ADMIN_PASSWORD = 'AdminPassw0rd!';
 
 /**
  * scrypt parameters — must match the library's default `PasswordService` settings
- * (N=2^15, r=8, p=1, key length 64, salt length 16).
+ * (N=2^17, r=8, p=1, key length 64, salt length 16 — lib v1.1.0+ raised the
+ * default cost from 2^15 to 2^17, ~128 MiB / ~100 ms per hash).
  */
-const SCRYPT_COST = 32768;
+const SCRYPT_LOG2_COST = 17;
+const SCRYPT_COST = 2 ** SCRYPT_LOG2_COST;
 const SCRYPT_BLOCK_SIZE = 8;
 const SCRYPT_PARALLELIZATION = 1;
 const SCRYPT_KEY_LENGTH = 64;
@@ -72,8 +74,20 @@ const SCRYPT_SALT_BYTES = 16;
 const SCRYPT_MAXMEM = Math.max(SCRYPT_COST * SCRYPT_BLOCK_SIZE * 128 * 2, 64 * 1024 * 1024);
 
 /**
- * Hash a plaintext password using the same scrypt format the library's
- * `PasswordService` writes: `scrypt:{salt_hex}:{derived_hex}`.
+ * Encodes a buffer as PHC-style base64: standard alphabet, `=` padding stripped.
+ * Mirrors the library's `toPhcB64` so seeded hashes round-trip byte-for-byte.
+ */
+function toPhcB64(value: Buffer): string {
+  return value.toString('base64').replace(/=+$/, '');
+}
+
+/**
+ * Hash a plaintext password using the same PHC scrypt format the library's
+ * `PasswordService` writes since v1.1.0:
+ * `$scrypt$ln={log2N},r={r},p={p}${b64(salt)}${b64(derived)}`.
+ *
+ * The pre-1.1.0 `scrypt:{salt_hex}:{derived_hex}` form is no longer parsed by
+ * the library — a seed writing it would make every seeded login fail.
  */
 async function hashPassword(plain: string): Promise<string> {
   const salt = randomBytes(SCRYPT_SALT_BYTES);
@@ -83,7 +97,7 @@ async function hashPassword(plain: string): Promise<string> {
     p: SCRYPT_PARALLELIZATION,
     maxmem: SCRYPT_MAXMEM,
   });
-  return `scrypt:${salt.toString('hex')}:${derived.toString('hex')}`;
+  return `$scrypt$ln=${SCRYPT_LOG2_COST},r=${SCRYPT_BLOCK_SIZE},p=${SCRYPT_PARALLELIZATION}$${toPhcB64(salt)}$${toPhcB64(derived)}`;
 }
 
 const TENANT_DEFINITIONS = [

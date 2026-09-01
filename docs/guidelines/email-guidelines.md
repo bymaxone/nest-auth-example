@@ -3,7 +3,7 @@
 Implementations of `IEmailProvider` for `@bymax-one/nest-auth`. One dev provider (Mailpit) and one prod reference (Resend); both go through a single transport-agnostic interface.
 
 - **Packages**: `nodemailer` `^8.0.x`, Resend SDK (`resend`) when `EMAIL_PROVIDER=resend`
-- **Library contract**: `IEmailProvider` — `sendEmailVerification`, `sendPasswordReset`, `sendInvitation`, `sendNewSessionAlert`, `sendPasswordChangedNotification`
+- **Library contract**: `IEmailProvider` (lib v1.3.1+: every method takes `tenantId` as its FIRST parameter, before the recipient) — `sendPasswordResetToken`, `sendPasswordResetOtp`, `sendEmailVerificationOtp`, `sendMfaEnabledNotification`, `sendMfaDisabledNotification`, `sendInvitation`, plus optional `sendNewSessionAlert`, `sendPasswordChangedNotification`, `sendEmailChangeVerification`, `sendEmailChangedNotification`. Alternative: extend the library's `DefaultAuthEmailProvider` and implement only the narrow `AuthEmailSink` port.
 - **Dev sink**: Mailpit on `smtp://localhost:1025`, UI at http://localhost:8025
 - **Official docs**: https://nodemailer.com, https://resend.com/docs, https://mailpit.axllent.org
 
@@ -51,13 +51,14 @@ export class MailpitEmailProvider implements IEmailProvider {
     });
   }
 
-  async sendPasswordReset(to: string, payload: PasswordResetPayload) {
+  // tenantId arrives first on every method (lib v1.3.1+) — use it to scope
+  // template copy or per-tenant sender domains; underscore it when unused.
+  async sendPasswordResetToken(tenantId: string, to: string, token: string) {
     await this.transport.sendMail({
       from: this.config.getOrThrow('SMTP_FROM'),
       to,
       subject: 'Reset your password',
-      html: renderPasswordResetHtml(payload), // see "Templates" below
-      text: renderPasswordResetText(payload),
+      html: renderPasswordResetHtml({ tenantId, token }), // see "Templates" below
     });
   }
   // ...every other method on IEmailProvider

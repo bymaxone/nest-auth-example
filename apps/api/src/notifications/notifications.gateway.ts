@@ -8,14 +8,23 @@
  * Transport: plain WebSocket (via `@nestjs/platform-ws` `WsAdapter`).
  * Path: `/ws/notifications`
  *
- * Authentication flow:
- *  1. Client connects. The gateway first looks for `Authorization: Bearer <token>` in
- *     the upgrade request headers; if absent, it falls back to the `access_token`
- *     HttpOnly cookie forwarded by the Next.js WS proxy (same-origin requests).
- *  2. `handleConnection` verifies the JWT using `JwtService`, sets `client.data`
- *     and a `handshake` shim so `WsJwtGuard` can run on any future message handler.
- *  3. If no valid token is found, the connection is closed immediately with code 4401.
- *  4. On success, the userId → socket association is stored in an in-memory map.
+ * Authentication flow (first match wins):
+ *  1. Single-use WebSocket ticket (`?ticket=` query param, lib v1.1.0+): the
+ *     browser first calls `POST /api/auth/ws-ticket` (authenticated) and then
+ *     connects with the returned ticket. `WsTicketService.redeem` consumes it
+ *     atomically — a replayed ticket is refused. This is the canonical browser
+ *     path: browsers cannot set custom headers on WS upgrades, and putting a
+ *     long-lived JWT in a URL would leak it into logs.
+ *  2. `Authorization: Bearer <token>` header — for non-browser clients.
+ *  3. `Cookie: access_token=<token>` — same-origin fallback via the Next.js proxy.
+ *  For paths 2–3 the JWT is verified with `JwtService` and then checked against
+ *  the library's `AuthRevocationService` (JTI blacklist + token epoch) — the
+ *  check a logout, "sign out everywhere", or suspension relies on.
+ *  On failure the connection closes immediately with code 4401.
+ *
+ * `WsAuthExceptionFilter` (lib v1.4.3+) is registered at class level so any
+ * future `@SubscribeMessage` handler refused by `WsJwtGuard` answers with the
+ * library's `auth.*` error envelope instead of crashing the socket.
  *
  * Disconnect-on-suspension:
  *  When a tenant admin or platform admin suspends a user, `disconnectUser(userId)`
@@ -28,13 +37,17 @@
 
 import type { IncomingMessage } from 'node:http';
 
-import { Inject, Logger, UseGuards } from '@nestjs/common';
+import { Logger, UseFilters, UseGuards } from '@nestjs/common';
 import { WebSocketGateway } from '@nestjs/websockets';
 import type { OnGatewayConnection, OnGatewayDisconnect } from '@nestjs/websockets';
 import { JwtService } from '@nestjs/jwt';
-import { BYMAX_AUTH_REDIS_CLIENT, WsJwtGuard } from '@bymax-one/nest-auth';
-import type { DashboardJwtPayload } from '@bymax-one/nest-auth';
-import type { Redis } from 'ioredis';
+import {
+  AuthRevocationService,
+  WsAuthExceptionFilter,
+  WsJwtGuard,
+  WsTicketService,
+} from '@bymax-one/nest-auth';
+import type { DashboardJwtPayload, WsTicketSnapshot } from '@bymax-one/nest-auth';
 import type { WebSocket } from 'ws';
 
 import { isBlockedStatus } from '../auth/auth.constants.js';
@@ -68,6 +81,69 @@ interface AuthenticatedSocket extends WebSocket {
 }
 
 /**
+ * Extracts the `ticket` query parameter from a WebSocket upgrade request URL.
+ *
+ * The upgrade `req.url` is server-relative (e.g. `/ws/notifications?ticket=x`),
+ * so a fixed localhost base makes `URL` parse it; only the query is read.
+ *
+ * @param url - `IncomingMessage.url` from the upgrade request, if any.
+ * @returns The ticket string, or undefined when absent/empty.
+ */
+function extractTicket(url: string | undefined): string | undefined {
+  if (typeof url !== 'string' || url.length === 0) {
+    return undefined;
+  }
+  try {
+    const ticket = new URL(url, 'http://localhost').searchParams.get('ticket');
+    return ticket !== null && ticket.length > 0 ? ticket : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Reads the access token from an upgrade request, header first, cookie second.
+ *
+ * Browsers cannot set an `Authorization` header on a WebSocket upgrade, so the
+ * cookie fallback is what makes same-origin browser connections work at all.
+ *
+ * @param req - The HTTP upgrade request, if any.
+ * @param authHeader - Pre-read `Authorization` header value, if a string.
+ * @returns The raw JWT, or undefined when neither source carries one.
+ */
+function extractAccessToken(
+  req: IncomingMessage | undefined,
+  authHeader: string | undefined,
+): string | undefined {
+  // Stryker disable next-line StringLiteral: the `'Bearer '` literal in
+  // startsWith is paired with the slice(7) length on the next line. Both
+  // must drift together to change observable behaviour; mutating the
+  // startsWith prefix in isolation either accepts every header (rejected
+  // later by jwt.verify) or accepts none (degrades to the 4401 path).
+  if (authHeader?.startsWith('Bearer ')) {
+    // Stryker disable next-line StringLiteral: the 'Bearer ' prefix length (7)
+    // is paired with the `startsWith('Bearer ')` check above. Mutating either
+    // independently produces noise (e.g. slice(7) of any non-Bearer string
+    // still produces a "token" that the downstream `jwt.verify` rejects with
+    // the same 4401 close). Both must drift together to change observable
+    // behaviour, and the file-level guard test asserts the full Bearer flow.
+    return authHeader.slice(7);
+  }
+
+  // Stryker disable next-line StringLiteral: empty-string fallback when no
+  // cookie header is present yields the same final 4401 as the original —
+  // an empty cookie header runs the regex against "" with no match.
+  const cookieHeader = typeof req?.headers['cookie'] === 'string' ? req.headers['cookie'] : '';
+  // Stryker disable next-line Regex: the access_token regex is exercised
+  // by the dedicated cookie-fallback test. Stryker's regex mutators on
+  // anchors / character classes produce regexes that either match the
+  // same inputs or fail every input — the latter degrades to the no-token
+  // 4401 path which downstream JWT verification would also produce.
+  const match = /(?:^|;\s*)access_token=([^;]+)/.exec(cookieHeader);
+  return match?.[1];
+}
+
+/**
  * WebSocket gateway at `/ws/notifications`, protected by `WsJwtGuard`.
  *
  * All `@SubscribeMessage` handlers (if added in the future) are covered by the
@@ -78,6 +154,7 @@ interface AuthenticatedSocket extends WebSocket {
  * @public
  */
 @UseGuards(WsJwtGuard)
+@UseFilters(new WsAuthExceptionFilter())
 @WebSocketGateway({ path: '/ws/notifications' })
 export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(NotificationsGateway.name);
@@ -90,24 +167,30 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
 
   constructor(
     private readonly jwtService: JwtService,
-    @Inject(BYMAX_AUTH_REDIS_CLIENT) private readonly redis: Redis,
+    private readonly wsTickets: WsTicketService,
+    private readonly revocation: AuthRevocationService,
   ) {}
 
   /**
    * Called by the `WsAdapter` when a new WebSocket connection is established.
    *
-   * Verifies the JWT from the upgrade request using one of two sources (first match wins):
-   *   1. `Authorization: Bearer <token>` header — for non-browser clients or
-   *      direct connections where a custom header can be set.
-   *   2. `Cookie: access_token=<token>` — for browser WebSocket connections that
-   *      arrive via the Next.js same-origin proxy. Browsers cannot send custom
-   *      HTTP headers on WS upgrades, but they automatically forward HttpOnly
+   * Authentication is attempted in one of two mutually exclusive modes, in
+   * this order:
+   *
+   *   1. **Upgrade ticket** (`?ticket=` in the upgrade URL) — the browser path.
+   *      Single-use and short-lived, so a value leaked into an access log is
+   *      worthless moments later.
+   *   2. **JWT** from `Authorization: Bearer <token>`, falling back to the
+   *      `access_token` cookie — for non-browser clients, and for browser
+   *      connections arriving through the Next.js same-origin proxy. Browsers
+   *      cannot set custom headers on a WS upgrade but do forward HttpOnly
    *      cookies for same-origin URLs.
    *
-   * On failure, closes the socket immediately with code 4401 (unauthorized).
-   * On success, registers the socket in the `userSockets` map and sets
-   * `client.data.user` + `client.handshake` so that `WsJwtGuard` works
-   * correctly on any future `@SubscribeMessage` handler.
+   * Each mode owns its own rejection: on failure the socket is closed with
+   * 4401 (unauthorized) or 4403 (suspended) and nothing is registered. On
+   * success the socket joins the `userSockets` map with `client.data` and the
+   * `client.handshake` shim populated, so `WsJwtGuard` keeps working on any
+   * future `@SubscribeMessage` handler.
    *
    * @param client - The newly connected `ws.WebSocket` instance.
    * @param args - Additional connection arguments; index 0 is the `IncomingMessage`
@@ -115,85 +198,140 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
    */
   async handleConnection(client: AuthenticatedSocket, ...args: unknown[]): Promise<void> {
     const req = args[0] as IncomingMessage | undefined;
-    const authHeader =
-      typeof req?.headers['authorization'] === 'string' ? req.headers['authorization'] : undefined;
 
-    // Extract JWT: prefer Authorization header, fall back to access_token cookie.
-    let token: string | undefined;
-    // Stryker disable next-line StringLiteral: the `'Bearer '` literal in
-    // startsWith is paired with the slice(7) length on the next line. Both
-    // must drift together to change observable behaviour; mutating the
-    // startsWith prefix in isolation either accepts every header (rejected
-    // later by jwt.verify) or accepts none (degrades to the 4401 path).
-    if (authHeader?.startsWith('Bearer ')) {
-      // Stryker disable next-line StringLiteral: the 'Bearer ' prefix length (7)
-      // is paired with the `startsWith('Bearer ')` check above. Mutating either
-      // independently produces noise (e.g. slice(7) of any non-Bearer string
-      // still produces a "token" that the downstream `jwt.verify` rejects with
-      // the same 4401 close). Both must drift together to change observable
-      // behaviour, and the file-level guard test asserts the full Bearer flow.
-      token = authHeader.slice(7);
-    } else {
-      // Stryker disable next-line StringLiteral: empty-string fallback when no
-      // cookie header is present yields the same final 4401 as the original —
-      // an empty cookie header runs the regex against "" with no match.
-      const cookieHeader = typeof req?.headers['cookie'] === 'string' ? req.headers['cookie'] : '';
-      // Stryker disable next-line Regex: the access_token regex is exercised
-      // by the dedicated cookie-fallback test. Stryker's regex mutators on
-      // anchors / character classes produce regexes that either match the
-      // same inputs or fail every input — the latter degrades to the no-token
-      // 4401 path which downstream JWT verification would also produce.
-      const match = /(?:^|;\s*)access_token=([^;]+)/.exec(cookieHeader);
-      token = match?.[1];
-    }
-
-    if (!token) {
-      // Close with 4401 (application-level unauthorized) before the connection
-      // is fully established in the app's view.
-      client.close(4401, 'Unauthorized');
+    const ticket = extractTicket(req?.url);
+    if (ticket !== undefined) {
+      await this.authenticateWithTicket(client, ticket);
       return;
     }
 
-    let payload: DashboardJwtPayload;
+    await this.authenticateWithJwt(client, req);
+  }
+
+  /**
+   * Ticket path — redeems a single-use WS upgrade ticket (lib v1.1.0+).
+   *
+   * Redemption is atomic, so a second connection replaying the same ticket is
+   * refused. The redeemed snapshot carries the repository's CURRENT account
+   * state, unlike the access-token `status` claim which is point-in-time and
+   * never authoritative — blocked accounts are refused at the door.
+   *
+   * Ticket connections carry no JWT, so no `handshake` shim is set: any future
+   * `@SubscribeMessage` handler guarded by `WsJwtGuard` requires the
+   * Bearer/cookie path. This gateway is push-only today.
+   *
+   * @param client - The connecting socket, closed in place on refusal.
+   * @param ticket - The raw ticket value read from the upgrade URL.
+   */
+  private async authenticateWithTicket(client: AuthenticatedSocket, ticket: string): Promise<void> {
+    let snapshot: WsTicketSnapshot;
     try {
-      payload = this.jwtService.verify<DashboardJwtPayload>(token, {
-        algorithms: ['HS256'],
-      });
+      snapshot = await this.wsTickets.redeem(ticket);
     } catch {
       client.close(4401, 'Unauthorized');
       return;
     }
 
-    // Reject platform and MFA-challenge tokens — this gateway is for dashboard users only.
-    // Stryker disable next-line ConditionalExpression: the `typeof payload.type !== 'string'`
-    // disjunct is a belt-and-suspenders narrowing — when the type field is not a string,
-    // `payload.type !== 'dashboard'` would also be true (any non-string !== string literal).
-    // Mutating it alone produces equivalent observable behaviour at this gate.
-    if (typeof payload.type !== 'string' || payload.type !== 'dashboard') {
+    if (isBlockedStatus(snapshot.status)) {
+      client.close(4403, 'Account suspended');
+      return;
+    }
+
+    client.data = { userId: snapshot.sub };
+    client.handshake = { headers: {} };
+    this.registerSocket(snapshot.sub, client);
+  }
+
+  /**
+   * JWT path — verifies a Bearer/cookie access token and admits the socket.
+   *
+   * Every refusal closes with 4401: a missing token, a token that fails
+   * verification or is not a `dashboard` token, and a revoked one.
+   *
+   * @param client - The connecting socket, closed in place on refusal.
+   * @param req - The HTTP upgrade request carrying the header or cookie.
+   */
+  private async authenticateWithJwt(
+    client: AuthenticatedSocket,
+    req: IncomingMessage | undefined,
+  ): Promise<void> {
+    const authHeader =
+      typeof req?.headers['authorization'] === 'string' ? req.headers['authorization'] : undefined;
+    const token = extractAccessToken(req, authHeader);
+
+    // Close before the connection is fully established in the app's view.
+    if (!token) {
       client.close(4401, 'Unauthorized');
       return;
     }
 
-    // Reject tokens that have been explicitly revoked (e.g. after logout or
-    // account suspension). Mirrors the rv:{jti} check in JwtAuthGuard/WsJwtGuard
-    // which NestJS guards cannot perform at connection time.
-    const revoked = await this.redis.get(`rv:${payload.jti}`);
-    if (revoked !== null) {
+    const payload = this.verifyDashboardToken(token);
+    if (!payload) {
       client.close(4401, 'Unauthorized');
       return;
     }
 
-    // Populate `data` and `handshake` shim before any guard invocation.
+    // `AuthRevocationService` (lib v1.3.1+) is the library's supported
+    // revocation check for realtime bridges that authenticate outside the HTTP
+    // guard chain — it covers both the JTI blacklist and the per-user token
+    // epoch, and fails closed on a dashboard token that carries no tenant
+    // (lib v1.4.4+).
+    if (await this.revocation.isAccessTokenRevoked(payload)) {
+      client.close(4401, 'Unauthorized');
+      return;
+    }
+
     // The `handshake.headers.authorization` shim is required by `WsJwtGuard` on
-    // any future `@SubscribeMessage` handlers — synthesise it from the cookie
+    // any future `@SubscribeMessage` handler — synthesise it from the cookie
     // token when no explicit Authorization header was present.
     client.data = { user: payload, userId: payload.sub };
     client.handshake = {
       headers: { authorization: authHeader ?? `Bearer ${token}` },
     };
 
-    const userId = payload.sub;
+    this.registerSocket(payload.sub, client);
+  }
 
+  /**
+   * Verifies an access token and confirms it belongs on this gateway.
+   *
+   * Platform and MFA-challenge tokens are signed with the same secret, so the
+   * `type` claim is what keeps them off a dashboard socket; verification alone
+   * would accept them.
+   *
+   * @param token - The raw JWT from the header or cookie.
+   * @returns The payload when it verifies as a `dashboard` token, else undefined.
+   */
+  private verifyDashboardToken(token: string): DashboardJwtPayload | undefined {
+    let payload: DashboardJwtPayload;
+    try {
+      payload = this.jwtService.verify<DashboardJwtPayload>(token, {
+        algorithms: ['HS256'],
+      });
+    } catch {
+      return undefined;
+    }
+
+    // Stryker disable next-line ConditionalExpression: the `typeof payload.type !== 'string'`
+    // disjunct is a belt-and-suspenders narrowing — when the type field is not a string,
+    // `payload.type !== 'dashboard'` would also be true (any non-string !== string literal).
+    // Mutating it alone produces equivalent observable behaviour at this gate.
+    if (typeof payload.type !== 'string' || payload.type !== 'dashboard') {
+      return undefined;
+    }
+
+    return payload;
+  }
+
+  /**
+   * Adds an authenticated socket to the `userSockets` map and logs the connect.
+   *
+   * Shared tail of every successful authentication path (ticket, Bearer, cookie).
+   *
+   * @param userId - The authenticated user's internal ID.
+   * @param client - The connected socket.
+   */
+  private registerSocket(userId: string, client: AuthenticatedSocket): void {
     let sockets = this.userSockets.get(userId);
     if (!sockets) {
       sockets = new Set();

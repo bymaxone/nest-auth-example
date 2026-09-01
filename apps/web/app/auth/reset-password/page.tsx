@@ -11,7 +11,11 @@
  * `/auth/forgot-password` so the user can request a new reset.
  *
  * Both flows call `useAuth().resetPassword` with the payload shape required by
- * `ResetPasswordInput` (mutually exclusive `token` vs `otp` fields).
+ * `ResetPasswordInput` (mutually exclusive `token` vs `otp` fields). The tenant
+ * is NOT part of the body — the API configures `tenantIdResolver`, so the
+ * `?tenantId=` URL param is resolved to a CUID and stashed in the `tenant_id`
+ * cookie before the call, letting `tenantAwareFetch` inject the `X-Tenant-Id`
+ * header the resolver reads.
  *
  * On success: `router.replace('/auth/login?reset=1')`.
  *
@@ -37,7 +41,7 @@ import {
   type ResetPasswordTokenFormValues,
   type ResetPasswordOtpFormValues,
 } from '@/lib/schemas/auth';
-import { mapAuthClientError } from '@/lib/auth-client';
+import { mapAuthClientError, resolveTenantForLogin, TenantNotFoundError } from '@/lib/auth-client';
 import { translateAuthError } from '@/lib/auth-errors';
 
 /**
@@ -45,7 +49,7 @@ import { translateAuthError } from '@/lib/auth-errors';
  *
  * @param token    - Signed reset token from the URL.
  * @param email    - Email address of the account being reset.
- * @param tenantId - Tenant identifier scoping the reset.
+ * @param tenantId - Tenant slug or CUID from the URL — resolved and sent via the X-Tenant-Id header.
  */
 function TokenModeForm({
   token,
@@ -73,9 +77,19 @@ function TokenModeForm({
   const onSubmit = async (data: ResetPasswordTokenFormValues) => {
     setIsSubmitting(true);
     try {
-      await resetPassword({ email, tenantId, newPassword: data.newPassword, token });
+      // The URL may carry the tenant slug or the CUID — resolve to the CUID
+      // and stash it in the cookie so tenantAwareFetch injects X-Tenant-Id.
+      // The body carries no tenantId: the API's `tenantIdResolver` refuses it.
+      const resolvedTenantId = await resolveTenantForLogin(tenantId);
+      document.cookie = `tenant_id=${resolvedTenantId}; Path=/; SameSite=Lax; Max-Age=31536000`;
+
+      await resetPassword({ email, newPassword: data.newPassword, token });
       router.replace('/auth/login?reset=1');
     } catch (err) {
+      if (err instanceof TenantNotFoundError) {
+        toast.error(`Workspace "${err.slug}" was not found. Re-open the link from your email.`);
+        return;
+      }
       const { code } = mapAuthClientError(err);
       toast.error(translateAuthError(code === 'UNKNOWN' ? '' : code));
     } finally {
@@ -97,7 +111,7 @@ function TokenModeForm({
         <PasswordInput
           id="rp-password"
           autoComplete="new-password"
-          placeholder="At least 8 characters"
+          placeholder="At least 15 characters"
           aria-describedby={errors.newPassword ? 'rp-password-error' : undefined}
           aria-invalid={!!errors.newPassword}
           className="border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.05)] text-white placeholder:text-[rgba(255,255,255,0.3)] focus-visible:ring-[#ff6224]/50"
@@ -142,7 +156,7 @@ function TokenModeForm({
  * Reset password page — OTP mode form.
  *
  * @param email    - Email address of the account being reset.
- * @param tenantId - Tenant identifier scoping the reset.
+ * @param tenantId - Tenant slug or CUID from the URL — resolved and sent via the X-Tenant-Id header.
  */
 function OtpModeForm({ email, tenantId }: { email: string; tenantId: string }) {
   const router = useRouter();
@@ -164,9 +178,19 @@ function OtpModeForm({ email, tenantId }: { email: string; tenantId: string }) {
   const onSubmit = async (data: ResetPasswordOtpFormValues) => {
     setIsSubmitting(true);
     try {
-      await resetPassword({ email, tenantId, newPassword: data.newPassword, otp: data.otp });
+      // The URL may carry the tenant slug or the CUID — resolve to the CUID
+      // and stash it in the cookie so tenantAwareFetch injects X-Tenant-Id.
+      // The body carries no tenantId: the API's `tenantIdResolver` refuses it.
+      const resolvedTenantId = await resolveTenantForLogin(tenantId);
+      document.cookie = `tenant_id=${resolvedTenantId}; Path=/; SameSite=Lax; Max-Age=31536000`;
+
+      await resetPassword({ email, newPassword: data.newPassword, otp: data.otp });
       router.replace('/auth/login?reset=1');
     } catch (err) {
+      if (err instanceof TenantNotFoundError) {
+        toast.error(`Workspace "${err.slug}" was not found. Re-open the link from your email.`);
+        return;
+      }
       const { code } = mapAuthClientError(err);
       toast.error(translateAuthError(code === 'UNKNOWN' ? '' : code));
     } finally {
@@ -205,7 +229,7 @@ function OtpModeForm({ email, tenantId }: { email: string; tenantId: string }) {
         <PasswordInput
           id="rp-otp-password"
           autoComplete="new-password"
-          placeholder="At least 8 characters"
+          placeholder="At least 15 characters"
           aria-describedby={errors.newPassword ? 'rp-otp-password-error' : undefined}
           aria-invalid={!!errors.newPassword}
           className="border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.05)] text-white placeholder:text-[rgba(255,255,255,0.3)] focus-visible:ring-[#ff6224]/50"

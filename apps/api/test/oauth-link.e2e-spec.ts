@@ -1,11 +1,11 @@
 import { WsAdapter } from '@nestjs/platform-ws';
 /**
  * @file oauth-link.e2e-spec.ts
- * @description End-to-end spec verifying the OAuth account-linking guarantee:
- * a user who first registers with email+password, then signs in via Google OAuth
- * with the same email address, ends up on the **same** `users` row — with
- * `oauthProvider = 'google'` and `oauthProviderId` populated — rather than a
- * duplicate row being created.
+ * @description End-to-end spec verifying the OAuth pre-existing-account
+ * guarantee (lib v1.4.x): a first OAuth sign-in whose profile email already
+ * belongs to an email+password account in the tenant is REFUSED with
+ * `auth.oauth_email_mismatch` — never silently linked and never duplicated —
+ * while a brand-new email provisions a fresh OAuth-only user row.
  *
  *
  * Requires `docker-compose.test.yml` services to be running (Postgres at 55432,
@@ -45,8 +45,12 @@ process.env['OAUTH_GOOGLE_CALLBACK_URL'] = 'http://localhost:4002/api/auth/oauth
 
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import {
+  AUTH_ERROR_CODES,
+  AUTH_ERROR_STATUS,
+  createAuthValidationPipe,
+} from '@bymax-one/nest-auth';
+import { Test, type TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import * as supertest from 'supertest';
 import type { Agent } from 'supertest';
@@ -55,6 +59,7 @@ import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { clearMailpit, waitForEmail, extractOtpFromHtml } from './helpers/mailpit.js';
+import { resetAuthRateLimits } from './helpers/throttle.js';
 import { installFakeGoogle, uninstallFakeGoogle } from './helpers/fake-google.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -78,6 +83,12 @@ async function truncateTables(prisma: PrismaService): Promise<void> {
 
 // ─── Suite ───────────────────────────────────────────────────────────────────
 
+/**
+ * Testing module handle, kept at module scope so rate-limit counters can be
+ * reset between tests. Assigned in `beforeAll`.
+ */
+let moduleRef: TestingModule;
+
 describe('OAuth account linking — email/password user links to Google OAuth', () => {
   let app: INestApplication;
   let prisma: PrismaService;
@@ -94,7 +105,7 @@ describe('OAuth account linking — email/password user links to Google OAuth', 
       stdio: 'pipe',
     });
 
-    const moduleRef = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
@@ -112,7 +123,7 @@ describe('OAuth account linking — email/password user links to Google OAuth', 
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({
+      createAuthValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
@@ -131,17 +142,26 @@ describe('OAuth account linking — email/password user links to Google OAuth', 
   });
 
   beforeEach(async () => {
+    // Clear both rate limiters (in-memory ThrottlerGuard + the library's
+    // Redis-backed per-IP counters) so auth-route limits never bleed across
+    // tests or spec files in a sequential run.
+    await resetAuthRateLimits(moduleRef);
     await clearMailpit();
     await truncateTables(prisma);
   });
 
-  // ─── Core account-linking spec ─────────────────────────────────────────────
+  // ─── Core pre-existing-account spec ───────────────────────────────────────
 
-  it('links an existing email/password user to Google OAuth on first OAuth sign-in without creating a duplicate row', async () => {
-    // Scenario: user registers with email+password (FCM #1), verifies their email
-    // (FCM #5), then authenticates via Google OAuth with the same email. The spec
-    // asserts that (a) no duplicate user row is created and (b) the existing row
-    // gains oauthProvider='google' and a non-null oauthProviderId. Covers FCM #12.
+  it('refuses a first OAuth sign-in whose email already belongs to a password account (no silent linking)', async () => {
+    // Scenario: user registers with email+password (FCM #1), verifies their
+    // email (FCM #5), then attempts Google OAuth with the same address. Since
+    // lib v1.4.x the create path REFUSES an OAuth profile whose email already
+    // exists in the tenant (`auth.oauth_email_mismatch`) instead of silently
+    // linking — an attacker controlling the OAuth identity for a victim's
+    // address must not inherit the victim's account. With `errorRedirectUrl`
+    // configured the callback 302s to the login page carrying the error code;
+    // the spec asserts no duplicate row appears, the existing row stays
+    // unlinked, and no auth cookies are issued. Covers FCM #12.
 
     const email = uniqueEmail();
     const googleSubId = `google-sub-${Date.now().toString()}`;
@@ -151,7 +171,7 @@ describe('OAuth account linking — email/password user links to Google OAuth', 
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password: 'P@ssw0rd12345', name: 'OAuth Link Test', tenantId: 'acme' });
+      .send({ email, password: 'Str0ngUniqu3Passw0rd!', name: 'OAuth Link Test' });
 
     expect(registerRes.status).toBe(201);
 
@@ -165,7 +185,7 @@ describe('OAuth account linking — email/password user links to Google OAuth', 
       .post('/api/auth/verify-email')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, otp, tenantId: 'acme' });
+      .send({ email, otp });
 
     expect(verifyRes.status).toBe(204);
 
@@ -179,7 +199,13 @@ describe('OAuth account linking — email/password user links to Google OAuth', 
       // 5. Initiate OAuth — the library generates a state nonce, stores it in
       //    Redis, and 302-redirects to Google's consent page. Prevent supertest
       //    from following the redirect so the Location header can be inspected.
-      const initiateRes = await agent.get('/api/auth/oauth/google?tenantId=acme').redirects(0);
+      // The tenant travels in the X-Tenant-Id header — since lib v1.4.2 a
+      // `?tenantId=` query param is refused with 400 `auth.validation` when a
+      // tenantIdResolver is configured.
+      const initiateRes = await agent
+        .get('/api/auth/oauth/google')
+        .set('X-Tenant-Id', 'acme')
+        .redirects(0);
 
       expect(initiateRes.status).toBe(302);
       const location = initiateRes.headers['location'] as string;
@@ -195,14 +221,13 @@ describe('OAuth account linking — email/password user links to Google OAuth', 
       //    a. Validates the state nonce (consumes it from Redis).
       //    b. Exchanges the code for tokens via the fake Google endpoint.
       //    c. Fetches the profile from the fake UserInfo endpoint.
-      //    d. Calls onOAuthLogin → 'create' → PrismaUserRepository.createWithOAuth
-      //       (upsert) → updates the existing user's OAuth fields instead of
-      //       creating a duplicate row.
-      //    e. Sets access_token + refresh_token cookies AND issues a 302
-      //       redirect to `oauth.successRedirectUrl` ('/dashboard' in
-      //       auth.config.ts, lib v1.0.4+). The response body is empty on the
-      //       redirect leg by design — the cookies travel in the same
-      //       response so the destination page lands authenticated.
+      //    d. Calls onOAuthLogin — no user matches this provider id, so the
+      //       hook answers 'create'; the create path then finds the address
+      //       already registered in the tenant and throws
+      //       `auth.oauth_email_mismatch` (account-takeover defence).
+      //    e. With `errorRedirectUrl: '/auth/login'` configured, the callback
+      //       302s there with `?error=oauth_email_mismatch` appended and NO
+      //       auth cookies on the response.
       //    `.redirects(0)` prevents supertest from auto-following the 302 so
       //    the response is captured at the redirect boundary.
       const callbackRes = await agent
@@ -212,15 +237,14 @@ describe('OAuth account linking — email/password user links to Google OAuth', 
         .redirects(0);
 
       expect(callbackRes.status).toBe(302);
-      expect(callbackRes.headers['location']).toBe('/dashboard');
-      // Cookies must accompany the redirect — the destination page would
-      // otherwise see no session. Pin both the access and refresh cookies.
+      expect(callbackRes.headers['location']).toBe('/auth/login?error=oauth_email_mismatch');
+      // No session may be issued on the refusal leg.
       const setCookieHeader = callbackRes.headers['set-cookie'];
       const setCookies = Array.isArray(setCookieHeader)
         ? setCookieHeader.join('\n')
         : (setCookieHeader ?? '');
-      expect(setCookies).toMatch(/access_token=/);
-      expect(setCookies).toMatch(/refresh_token=/);
+      expect(setCookies).not.toMatch(/access_token=/);
+      expect(setCookies).not.toMatch(/refresh_token=/);
 
       // 8. Assert no duplicate row was created — exactly 1 user with this email.
       const userCount = await prisma.user.count({
@@ -228,14 +252,15 @@ describe('OAuth account linking — email/password user links to Google OAuth', 
       });
       expect(userCount).toBe(1);
 
-      // 9. Assert the existing row now carries the Google OAuth identity.
-      const linkedUser = await prisma.user.findFirst({
+      // 9. Assert the existing row stays a pure password account — untouched
+      //    by the refused OAuth attempt.
+      const untouchedUser = await prisma.user.findFirst({
         where: { email: email.toLowerCase(), tenantId: 'acme' },
       });
-      expect(linkedUser).not.toBeNull();
-      expect(linkedUser?.oauthProvider).toBe('google');
-      expect(linkedUser?.oauthProviderId).toBe(googleSubId);
-      expect(linkedUser?.emailVerified).toBe(true);
+      expect(untouchedUser).not.toBeNull();
+      expect(untouchedUser?.oauthProvider).toBeNull();
+      expect(untouchedUser?.oauthProviderId).toBeNull();
+      expect(untouchedUser?.emailVerified).toBe(true);
     } finally {
       // Always restore the original fetch regardless of test outcome.
       uninstallFakeGoogle();
@@ -256,7 +281,13 @@ describe('OAuth account linking — email/password user links to Google OAuth', 
 
     try {
       // Initiate and extract state.
-      const initiateRes = await agent.get('/api/auth/oauth/google?tenantId=acme').redirects(0);
+      // The tenant travels in the X-Tenant-Id header — since lib v1.4.2 a
+      // `?tenantId=` query param is refused with 400 `auth.validation` when a
+      // tenantIdResolver is configured.
+      const initiateRes = await agent
+        .get('/api/auth/oauth/google')
+        .set('X-Tenant-Id', 'acme')
+        .redirects(0);
 
       expect(initiateRes.status).toBe(302);
       const authUrl = new URL(initiateRes.headers['location'] as string);
@@ -291,5 +322,18 @@ describe('OAuth account linking — email/password user links to Google OAuth', 
     } finally {
       uninstallFakeGoogle();
     }
+  });
+
+  // ─── Tenant must come from the header, never the query string ─────────────
+
+  it('refuses a ?tenantId= query param on the OAuth initiate route with 400 auth.validation', async () => {
+    // Scenario: the API configures a tenantIdResolver (X-Tenant-Id header), so
+    // since lib v1.4.2 the initiate route refuses a `tenantId` query parameter
+    // with 400 `auth.validation` instead of silently preferring one source —
+    // the query string cannot override the deployment's tenant resolution.
+    const res = await agent.get('/api/auth/oauth/google?tenantId=acme').redirects(0);
+
+    expect(res.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.VALIDATION]);
+    expect(res.body).toMatchObject({ code: AUTH_ERROR_CODES.VALIDATION, statusCode: 400 });
   });
 });

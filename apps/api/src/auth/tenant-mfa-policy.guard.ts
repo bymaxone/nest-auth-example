@@ -33,7 +33,6 @@
  */
 
 import {
-  HttpStatus,
   Injectable,
   Logger,
   type CanActivate,
@@ -186,7 +185,9 @@ export class TenantMfaPolicyGuard implements CanActivate, OnModuleInit {
     }
 
     if (this.requiredTenantIds.has(user.tenantId) && user.mfaEnabled !== true) {
-      throw new AuthException(AUTH_ERROR_CODES.MFA_SETUP_REQUIRED, HttpStatus.FORBIDDEN);
+      // Since lib v1.4.1 the HTTP status is derived from AUTH_ERROR_STATUS
+      // (mfa_setup_required → 400) — AuthException no longer takes a status.
+      throw new AuthException(AUTH_ERROR_CODES.MFA_SETUP_REQUIRED);
     }
 
     return true;

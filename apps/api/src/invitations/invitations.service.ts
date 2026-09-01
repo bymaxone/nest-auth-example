@@ -159,7 +159,7 @@ export class InvitationsService {
 
     // Send the invitation email — non-blocking failure must not abort the flow.
     try {
-      await this.emailProvider.sendInvitation(normalizedEmail, {
+      await this.emailProvider.sendInvitation(tenantId, normalizedEmail, {
         inviterName: inviter.name,
         tenantName: tenant.name,
         inviteToken: rawToken,

@@ -7,115 +7,201 @@
  * (enforced in `AppModule`). It is unconditionally absent from production
  * builds — fail-closed design.
  *
- * Endpoints:
- * - `POST /api/debug/lockout` — forces brute-force lockout for a given
- *   `(tenantId, email)` pair so QA can demo the lockout flow without
- *   manually exhausting failed attempts.
+ * Endpoints (all read the tenant from the `X-Tenant-Id` header, matching the
+ * API-wide `tenantIdResolver` convention):
+ * - `POST /api/debug/lockout` — forces a brute-force lockout by replaying
+ *   wrong-password logins through the REAL library path, so the demo also
+ *   fires the `onLoginFailed` and `onLockout` audit hooks.
+ * - `GET /api/debug/lockout` — reads the lockout state via the library's
+ *   `AuthService.isAccountLockedOut` / `getAccountLockoutSeconds`.
+ * - `DELETE /api/debug/lockout` — clears the lockout early via
+ *   `AuthService.unlockAccount` (the admin "unlock account" surface).
  *
- * The lockout key format mirrors the library's internal Redis key:
- *   `<redisNamespace>:lf:<sha256(tenantId + ':' + email.toLowerCase())>`
+ * The library's brute-force keyspace is private (HMAC-derived identifiers) —
+ * this controller never touches Redis keys directly and stays valid across
+ * library keyspace migrations.
  *
  * @layer debug
  */
 
+import { randomUUID } from 'node:crypto';
 import {
   Body,
   Controller,
+  Delete,
   ForbiddenException,
+  Get,
   HttpCode,
   HttpStatus,
-  Inject,
   Post,
+  Query,
+  Req,
 } from '@nestjs/common';
-import { IsEmail, IsNotEmpty, IsString } from 'class-validator';
-import { Redis } from 'ioredis';
-import { Public, sha256, BYMAX_AUTH_REDIS_CLIENT } from '@bymax-one/nest-auth';
+import type { Request } from 'express';
+import { IsEmail } from 'class-validator';
+import { AuthException, AuthService, Public } from '@bymax-one/nest-auth';
 
 /**
- * DTO for the lockout demo endpoint.
+ * DTO for the lockout force/unlock endpoints. The tenant comes from the
+ * `X-Tenant-Id` header — never the body — mirroring the API-wide resolver rule.
  */
 class LockoutDto {
-  /** Target tenant identifier. */
-  @IsString()
-  @IsNotEmpty()
-  tenantId!: string;
-
-  /** Target user email address (lowercased before hashing). */
+  /** Target user email address. */
   @IsEmail()
   email!: string;
 }
 
 /**
- * Response shape returned by `POST /api/debug/lockout`.
+ * Response shape returned by `GET /api/debug/lockout`.
  */
-interface LockoutResponse {
-  /** Always `true` after the key is set. */
+interface LockoutStatusResponse {
+  /** Whether the account is currently locked out. */
   locked: boolean;
-  /** The Redis key that was set, for inspection by QA. */
-  key: string;
+  /** Seconds until the lockout window expires (0 when not locked). */
+  retryAfterSeconds: number;
+}
+
+/**
+ * Reads the tenant id from the `X-Tenant-Id` header or refuses the request.
+ *
+ * Debug endpoints are `@Public()` (no JWT), so the tenant cannot come from a
+ * token claim — the header is the single source, same as the library resolver.
+ *
+ * @param req - Incoming Express request.
+ * @returns The non-empty tenant id.
+ * @throws {ForbiddenException} When the header is absent or empty.
+ */
+function requireTenantHeader(req: Request): string {
+  const id = req.headers['x-tenant-id'];
+  if (typeof id !== 'string' || id.length === 0) {
+    throw new ForbiddenException('X-Tenant-Id header is required');
+  }
+  return id;
 }
 
 /**
  * Dev-only debug controller.
  *
  * Registered conditionally in `AppModule` based on `NODE_ENV`. The `@Public()`
- * decorator bypasses `JwtAuthGuard` so the endpoint is callable without a token,
- * making it easy to use in demo scripts and CI pipelines.
+ * decorator bypasses `JwtAuthGuard` so the endpoints are callable without a
+ * token, making them easy to use in demo scripts and CI pipelines.
  *
  * @public
  */
 @Controller('debug')
 export class DebugController {
-  // Maximum failed-attempt count — mirrors `bruteForce.maxAttempts` from auth.config.ts.
-  // Setting the counter to maxAttempts + 1 guarantees the next login is rejected.
+  // Mirrors `bruteForce.maxAttempts` from auth.config.ts — the number of failed
+  // logins needed to cross the lockout threshold.
   private static readonly MAX_ATTEMPTS = 5;
 
-  // TTL in seconds — mirrors `bruteForce.windowSeconds` from auth.config.ts.
-  private static readonly WINDOW_SECONDS = 900;
-
-  // Redis namespace prefix from auth.config.ts `redisNamespace` field.
-  private static readonly REDIS_NAMESPACE = 'nest-auth-example';
-
-  constructor(
-    @Inject(BYMAX_AUTH_REDIS_CLIENT)
-    private readonly redis: Redis,
-  ) {}
+  constructor(private readonly authService: AuthService) {}
 
   /**
-   * Forces a brute-force lockout for the given `(tenantId, email)` pair.
+   * Guards every endpoint against accidental production wiring.
    *
-   * Sets the library's internal login-failure counter to `maxAttempts + 1`
-   * so the very next login attempt returns `ACCOUNT_LOCKED`. The key expires
-   * after `windowSeconds` seconds (900 s / 15 minutes), matching the lockout
-   * window configured in `auth.config.ts`.
+   * Belt-and-suspenders: AppModule already excludes this module from
+   * production, but each handler re-checks in case the module is wired in.
+   *
+   * @throws {ForbiddenException} In production.
+   */
+  private static assertNotProduction(): void {
+    if (process.env['NODE_ENV'] === 'production') {
+      throw new ForbiddenException('Not available');
+    }
+  }
+
+  /**
+   * Forces a brute-force lockout for `(X-Tenant-Id, email)`.
+   *
+   * Replays `maxAttempts` wrong-password logins through the real
+   * `AuthService.login` path instead of poking Redis internals. This exercises
+   * the exact code production traffic hits — including the `onLoginFailed`
+   * hook per attempt and the `onLockout` hook on the attempt that crosses the
+   * threshold, both visible in the audit log after calling this endpoint.
    *
    * POST /api/debug/lockout
    *
-   * @param dto - Validated lockout payload.
-   * @returns Confirmation with the Redis key that was set.
+   * @param dto - Validated payload naming the target email.
+   * @param req - Incoming request; the library resolver reads `X-Tenant-Id` from it.
+   * @returns Confirmation with the resulting lockout window.
    */
   @Post('lockout')
   @Public()
   @HttpCode(HttpStatus.OK)
-  async lockout(@Body() dto: LockoutDto): Promise<LockoutResponse> {
-    // Belt-and-suspenders: AppModule already excludes this module from production,
-    // but guard here too in case the module is accidentally wired in.
-    if (process.env['NODE_ENV'] === 'production') {
-      throw new ForbiddenException('Not available');
+  async lockout(@Body() dto: LockoutDto, @Req() req: Request): Promise<LockoutStatusResponse> {
+    DebugController.assertNotProduction();
+    const tenantId = requireTenantHeader(req);
+
+    // A password no account stores — random per call so the attempt can never
+    // accidentally succeed. Each refused login increments the library counter.
+    const wrongPassword = `debug-lockout-${randomUUID()}`;
+    for (let attempt = 0; attempt < DebugController.MAX_ATTEMPTS; attempt += 1) {
+      try {
+        // `tenantId` stays out of the DTO — the configured tenantIdResolver
+        // (X-Tenant-Id header) decides the tenant, as everywhere else.
+        await this.authService.login({ email: dto.email, password: wrongPassword }, req);
+      } catch (err: unknown) {
+        // Expected: auth.invalid_credentials until the threshold, then
+        // auth.account_locked. Anything else is a real failure.
+        if (!(err instanceof AuthException)) {
+          throw err;
+        }
+      }
     }
 
-    const normalizedEmail = dto.email.toLowerCase();
-    // Key format mirrors the library's brute-force implementation in BruteForceService.
-    const hash = sha256(`${dto.tenantId}:${normalizedEmail}`);
-    const key = `${DebugController.REDIS_NAMESPACE}:lf:${hash}`;
+    const [locked, retryAfterSeconds] = await Promise.all([
+      this.authService.isAccountLockedOut(dto.email, tenantId),
+      this.authService.getAccountLockoutSeconds(dto.email, tenantId),
+    ]);
+    return { locked, retryAfterSeconds };
+  }
 
-    await this.redis.set(
-      key,
-      String(DebugController.MAX_ATTEMPTS + 1),
-      'EX',
-      DebugController.WINDOW_SECONDS,
-    );
+  /**
+   * Reads the lockout state for `(X-Tenant-Id, email)`.
+   *
+   * Demonstrates the read side of the lockout surface added in lib v1.4.4:
+   * `isAccountLockedOut` + `getAccountLockoutSeconds` are independent reads and
+   * safe to issue in parallel.
+   *
+   * GET /api/debug/lockout?email=…
+   *
+   * @param email - Target user email address (query parameter).
+   * @param req - Incoming request carrying the `X-Tenant-Id` header.
+   * @returns Current lockout state and remaining window.
+   */
+  @Get('lockout')
+  @Public()
+  async lockoutStatus(
+    @Query('email') email: string,
+    @Req() req: Request,
+  ): Promise<LockoutStatusResponse> {
+    DebugController.assertNotProduction();
+    const tenantId = requireTenantHeader(req);
+    const [locked, retryAfterSeconds] = await Promise.all([
+      this.authService.isAccountLockedOut(email, tenantId),
+      this.authService.getAccountLockoutSeconds(email, tenantId),
+    ]);
+    return { locked, retryAfterSeconds };
+  }
 
-    return { locked: true, key };
+  /**
+   * Clears an active lockout for `(X-Tenant-Id, email)` before the window expires.
+   *
+   * Demonstrates `AuthService.unlockAccount` — the method a host app calls from
+   * its own support tooling ("unlock account" button) after verifying the
+   * owner's identity out-of-band.
+   *
+   * DELETE /api/debug/lockout
+   *
+   * @param dto - Validated payload naming the target email.
+   * @param req - Incoming request carrying the `X-Tenant-Id` header.
+   */
+  @Delete('lockout')
+  @Public()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async unlock(@Body() dto: LockoutDto, @Req() req: Request): Promise<void> {
+    DebugController.assertNotProduction();
+    const tenantId = requireTenantHeader(req);
+    await this.authService.unlockAccount(dto.email, tenantId);
   }
 }

@@ -22,8 +22,16 @@ import type {
   AuthUser,
   CreateUserData,
   CreateWithOAuthData,
+  FindUserByEmailParams,
+  FindUserByOAuthIdParams,
   IUserRepository,
-  UpdateMfaData,
+  LinkOAuthParams,
+  TenantScopedUserRef,
+  UpdateEmailParams,
+  UpdateEmailVerifiedParams,
+  UpdateMfaParams,
+  UpdatePasswordParams,
+  UpdateStatusParams,
 } from '@bymax-one/nest-auth';
 import { AUTH_ERROR_CODES, AuthException } from '@bymax-one/nest-auth';
 import { Role, UserStatus, type User } from '@prisma/client';
@@ -91,18 +99,17 @@ export class PrismaUserRepository implements IUserRepository {
   }
 
   /**
-   * Finds a user by their internal unique identifier, optionally scoped to a tenant.
+   * Finds a user by their internal unique identifier, scoped to a tenant.
    *
-   * When `tenantId` is provided the WHERE clause includes it, preventing cross-tenant
-   * rows from being fetched and deserialized into heap memory at all.
+   * The tenant is part of the WHERE clause (not a post-filter), so cross-tenant
+   * rows are never fetched and deserialized into heap memory at all. The library
+   * requires the pair — ids may not be unique across tenants in a derived schema.
    *
-   * @param id - The user's unique identifier.
-   * @param tenantId - When provided, the query is scoped to this tenant at the DB level.
+   * @param params - `{ id, tenantId }` — the account reference on the dashboard plane.
    * @returns The matching `AuthUser`, or null if not found or tenant mismatch.
    */
-  async findById(id: string, tenantId?: string): Promise<AuthUser | null> {
-    const where = tenantId !== undefined ? { id, tenantId } : { id };
-    const row = await this.prisma.user.findFirst({ where });
+  async findById({ id, tenantId }: TenantScopedUserRef): Promise<AuthUser | null> {
+    const row = await this.prisma.user.findFirst({ where: { id, tenantId } });
     return row ? this.toAuthUser(row) : null;
   }
 
@@ -112,11 +119,10 @@ export class PrismaUserRepository implements IUserRepository {
    * Uses the compound unique index `(tenantId, email)` for an O(1) lookup.
    * The library normalises email to lower-case before calling this method.
    *
-   * @param email - The user's email address.
-   * @param tenantId - Tenant scope to enforce isolation.
+   * @param params - `{ email, tenantId }` — address plus tenant scope.
    * @returns The matching `AuthUser`, or null if not found.
    */
-  async findByEmail(email: string, tenantId: string): Promise<AuthUser | null> {
+  async findByEmail({ email, tenantId }: FindUserByEmailParams): Promise<AuthUser | null> {
     const row = await this.prisma.user.findUnique({
       where: { tenantId_email: { tenantId, email: email.toLowerCase() } },
     });
@@ -157,13 +163,14 @@ export class PrismaUserRepository implements IUserRepository {
    * Replaces the user's stored password hash.
    *
    * The `passwordHash` is already produced by the library's `PasswordService` —
-   * never call bcrypt/scrypt inside this method.
+   * never call bcrypt/scrypt inside this method. `updateMany` scopes the write
+   * by `(id, tenantId)` so it can never land on another tenant's row — the
+   * library's port contract for every tenant-scoped write.
    *
-   * @param id - The user's unique identifier.
-   * @param passwordHash - New hash from `PasswordService`. Never plaintext.
+   * @param params - `{ id, tenantId, passwordHash }`. Hash only — never plaintext.
    */
-  async updatePassword(id: string, passwordHash: string): Promise<void> {
-    await this.prisma.user.update({ where: { id }, data: { passwordHash } });
+  async updatePassword({ id, tenantId, passwordHash }: UpdatePasswordParams): Promise<void> {
+    await this.prisma.user.updateMany({ where: { id, tenantId }, data: { passwordHash } });
   }
 
   /**
@@ -173,12 +180,11 @@ export class PrismaUserRepository implements IUserRepository {
    * the library has already encrypted the secret and hashed the recovery codes.
    * Passing `null` clears the MFA fields (MFA disabled flow).
    *
-   * @param id - The user's unique identifier.
-   * @param data - New MFA state from the library.
+   * @param params - `{ id, tenantId, data }` — new MFA state from the library.
    */
-  async updateMfa(id: string, data: UpdateMfaData): Promise<void> {
-    await this.prisma.user.update({
-      where: { id },
+  async updateMfa({ id, tenantId, data }: UpdateMfaParams): Promise<void> {
+    await this.prisma.user.updateMany({
+      where: { id, tenantId },
       data: {
         mfaEnabled: data.mfaEnabled,
         mfaSecret: data.mfaSecret,
@@ -190,34 +196,57 @@ export class PrismaUserRepository implements IUserRepository {
   /**
    * Records the current time as the user's last successful login timestamp.
    *
-   * @param id - The user's unique identifier.
+   * @param params - `{ id, tenantId }` — the account reference.
    */
-  async updateLastLogin(id: string): Promise<void> {
-    await this.prisma.user.update({ where: { id }, data: { lastLoginAt: new Date() } });
+  async updateLastLogin({ id, tenantId }: TenantScopedUserRef): Promise<void> {
+    await this.prisma.user.updateMany({
+      where: { id, tenantId },
+      data: { lastLoginAt: new Date() },
+    });
   }
 
   /**
    * Updates the user's account lifecycle status.
    *
-   * @param id - The user's unique identifier.
-   * @param status - New status string (e.g. 'ACTIVE', 'SUSPENDED').
+   * @param params - `{ id, tenantId, status }` — new status string (e.g. 'ACTIVE').
    */
-  async updateStatus(id: string, status: string): Promise<void> {
+  async updateStatus({ id, tenantId, status }: UpdateStatusParams): Promise<void> {
     const resolvedStatus = Object.values(UserStatus).find((s) => s === status);
     if (resolvedStatus === undefined) {
       throw new Error(`Unknown UserStatus: '${status}' — library/schema mismatch`);
     }
-    await this.prisma.user.update({ where: { id }, data: { status: resolvedStatus } });
+    await this.prisma.user.updateMany({
+      where: { id, tenantId },
+      data: { status: resolvedStatus },
+    });
   }
 
   /**
    * Marks the user's email address as verified or unverified.
    *
-   * @param id - The user's unique identifier.
-   * @param verified - True to verify, false to revoke verification.
+   * @param params - `{ id, tenantId, verified }`.
    */
-  async updateEmailVerified(id: string, verified: boolean): Promise<void> {
-    await this.prisma.user.update({ where: { id }, data: { emailVerified: verified } });
+  async updateEmailVerified({ id, tenantId, verified }: UpdateEmailVerifiedParams): Promise<void> {
+    await this.prisma.user.updateMany({
+      where: { id, tenantId },
+      data: { emailVerified: verified },
+    });
+  }
+
+  /**
+   * Moves the user's account to a new (already normalised) email address.
+   *
+   * Called by the library's email-change flow after the new address has been
+   * verified. The compound unique index `(tenantId, email)` makes a duplicate
+   * address inside the tenant fail at the database level.
+   *
+   * @param params - `{ id, tenantId, email }` — the new address.
+   */
+  async updateEmail({ id, tenantId, email }: UpdateEmailParams): Promise<void> {
+    await this.prisma.user.updateMany({
+      where: { id, tenantId },
+      data: { email: email.toLowerCase() },
+    });
   }
 
   /**
@@ -228,16 +257,14 @@ export class PrismaUserRepository implements IUserRepository {
    * of `findUnique` because `tenantId` is not part of the unique index — the composite
    * named key does not include it, so Prisma cannot use `findUnique` here.
    *
-   * @param provider - OAuth provider identifier (e.g. 'google').
-   * @param providerId - User's unique ID within the provider.
-   * @param tenantId - Tenant scope.
+   * @param params - `{ provider, providerId, tenantId }`.
    * @returns The matching `AuthUser`, or null if not found.
    */
-  async findByOAuthId(
-    provider: string,
-    providerId: string,
-    tenantId: string,
-  ): Promise<AuthUser | null> {
+  async findByOAuthId({
+    provider,
+    providerId,
+    tenantId,
+  }: FindUserByOAuthIdParams): Promise<AuthUser | null> {
     const row = await this.prisma.user.findFirst({
       where: { oauthProvider: provider, oauthProviderId: providerId, tenantId },
     });
@@ -248,15 +275,14 @@ export class PrismaUserRepository implements IUserRepository {
    * Links an existing user account to an OAuth provider identity.
    *
    * Called during the account-linking flow when a user authenticates via OAuth
-   * for the first time on an existing email-password account.
+   * for the first time on an existing email-password account. Scoped by
+   * `(id, tenantId)` like every other write on this port.
    *
-   * @param userId - The user's unique identifier.
-   * @param provider - OAuth provider identifier (e.g. 'google').
-   * @param providerId - User's unique ID within the provider.
+   * @param params - `{ id, tenantId, provider, providerId }`.
    */
-  async linkOAuth(userId: string, provider: string, providerId: string): Promise<void> {
-    await this.prisma.user.update({
-      where: { id: userId },
+  async linkOAuth({ id, tenantId, provider, providerId }: LinkOAuthParams): Promise<void> {
+    await this.prisma.user.updateMany({
+      where: { id, tenantId },
       data: { oauthProvider: provider, oauthProviderId: providerId },
     });
   }

@@ -5,7 +5,8 @@
  * Wires the Express 5 adapter, structured Pino logging, security headers (Helmet),
  * CORS (single allowed origin via WEB_ORIGIN), cookie-parser (required for HttpOnly
  * cookie delivery by @bymax-one/nest-auth), the `/api` global prefix, a global
- * ValidationPipe, and graceful shutdown hooks.
+ * validation pipe built with the library's `createAuthValidationPipe`, and
+ * graceful shutdown hooks.
  *
  * @layer bootstrap
  */
@@ -13,10 +14,11 @@
 import 'reflect-metadata';
 
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, type LoggerService } from '@nestjs/common';
+import { type LoggerService } from '@nestjs/common';
 import { ExpressAdapter } from '@nestjs/platform-express';
 import { WsAdapter } from '@nestjs/platform-ws';
 import { ConfigService } from '@nestjs/config';
+import { createAuthValidationPipe } from '@bymax-one/nest-auth';
 import { Logger } from 'nestjs-pino';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
@@ -102,8 +104,14 @@ async function bootstrap(): Promise<void> {
   app.use(cookieParser());
   app.setGlobalPrefix('api');
 
+  // A plain global `new ValidationPipe(...)` would SHADOW the library's own
+  // pipe on /api/auth/* routes and answer DTO failures with Nest's default
+  // envelope instead of the `auth.validation` shape clients rely on
+  // (documented hazard since lib v1.4.3). `createAuthValidationPipe` is a
+  // drop-in factory that keeps the same class-validator options while
+  // emitting the library's error envelope everywhere.
   app.useGlobalPipes(
-    new ValidationPipe({
+    createAuthValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,

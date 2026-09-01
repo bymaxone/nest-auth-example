@@ -265,12 +265,19 @@ export const platformGetMe = (): Promise<PlatformMeInfo> =>
  * Hits `POST /api/auth/platform/mfa/setup` (shipped in
  * `@bymax-one/nest-auth` ≥ 1.0.6 — the dashboard endpoint exists at
  * `/api/auth/mfa/setup`, the platform variant is a separate controller).
- * Returns the same `MfaSetupInfo` shape as the dashboard flow.
+ * Returns the same `MfaSetupInfo` shape as the dashboard flow, and, like
+ * it, requires the admin's current password as re-authentication proof
+ * (≥ 1.1.0). A wrong password surfaces as `auth.invalid_credentials`; a
+ * missing one as `auth.reauthentication_required`.
  *
+ * @param password - Current platform admin password confirming the enrolment.
  * @returns Setup payload with `secret`, `qrCodeUri`, and one-time `recoveryCodes`.
  */
-export const platformMfaSetup = (): Promise<MfaSetupInfo> =>
-  platformApiFetch<MfaSetupInfo>('/api/auth/platform/mfa/setup', { method: 'POST' });
+export const platformMfaSetup = (password: string): Promise<MfaSetupInfo> =>
+  platformApiFetch<MfaSetupInfo>('/api/auth/platform/mfa/setup', {
+    method: 'POST',
+    body: JSON.stringify({ password }),
+  });
 
 /**
  * Verifies the first TOTP code from the platform admin's authenticator

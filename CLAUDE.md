@@ -19,7 +19,7 @@ Full context: [docs/OVERVIEW.md](docs/OVERVIEW.md). Build roadmap: [docs/DEVELOP
 - **Monorepo**: pnpm workspaces, Node ≥ 24, TypeScript 6 strict
 - **`apps/api`** — NestJS 11 on Express 5, Prisma 7 + PostgreSQL 18, `ioredis` + Redis 7, Pino, class-validator, Zod 4, Jest 30 + supertest
 - **`apps/web`** — Next.js 16 App Router, React 19, Tailwind CSS 4, shadcn/ui, React Hook Form + Zod, Vitest 4 + Playwright 1
-- **Library** — `@bymax-one/nest-auth@^1.0.2` from npm (use `pnpm link` ad hoc for sibling lib development)
+- **Library** — `@bymax-one/nest-auth@^1.4.5` from npm (use `pnpm link` ad hoc for sibling lib development)
 - **Infra** — Docker Compose v2: PostgreSQL, Redis, Mailpit (dev); Resend (prod reference)
 - **Tooling** — ESLint 10 flat, Prettier 3, Husky 9, lint-staged, commitlint (conventional commits)
 
@@ -45,7 +45,7 @@ Cookies HttpOnly, `secure` derived from `NODE_ENV`, `SameSite=Lax`. CORS allowli
 
 ### Multi-tenant by construction
 
-`tenantId` on every user-facing row; every query scopes by it. `tenantIdResolver` reads only from the `X-Tenant-Id` header. Cross-tenant data access is a bug. See [docs/guidelines/nest-auth-guidelines.md](docs/guidelines/nest-auth-guidelines.md).
+`tenantId` on every user-facing row; every query scopes by it. `tenantIdResolver` reads the `X-Tenant-Id` header first, falling back to the `tenant_id` cookie only for top-level navigations (OAuth initiate/callback) — never the request body (the library refuses a body `tenantId` outright). Cross-tenant data access is a bug. See [docs/guidelines/nest-auth-guidelines.md](docs/guidelines/nest-auth-guidelines.md).
 
 ### No direct `process.env.*`
 

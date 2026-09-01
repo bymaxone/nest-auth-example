@@ -47,7 +47,7 @@ See [docs/guidelines/nest-auth-guidelines.md](docs/guidelines/nest-auth-guidelin
 
 ### 2. Multi-tenant isolation
 
-Every user-facing row has `tenantId`. Every query scopes by it. `tenantIdResolver` reads **only** from the `X-Tenant-Id` header. User input never dictates `tenantId`.
+Every user-facing row has `tenantId`. Every query scopes by it. `tenantIdResolver` reads the `X-Tenant-Id` header first, with a `tenant_id` cookie fallback for top-level navigations (OAuth initiate/callback) — never the request body (the library refuses a body `tenantId` when a resolver is configured). Request bodies never dictate `tenantId`.
 
 ### 3. TypeScript strict
 
@@ -143,7 +143,7 @@ Versions pinned in `package.json` at root and in each app. Full inventory below;
 | Forms              | React Hook Form **7.72** + `@hookform/resolvers` **5.2**                                         |
 | Toasts             | sonner **2.0**                                                                                   |
 | Frontend testing   | Vitest **4.1**, `@testing-library/react` **16.3**, Playwright **1.59**                           |
-| Auth library       | `@bymax-one/nest-auth` `^1.0.2` — consumed from npm (use `pnpm link` ad hoc for sibling lib dev) |
+| Auth library       | `@bymax-one/nest-auth` `^1.4.5` — consumed from npm (use `pnpm link` ad hoc for sibling lib dev) |
 | Lint / format      | ESLint **10** flat + `typescript-eslint` **8.58**, Prettier **3.8**                              |
 | Hooks              | Husky **9.1** + lint-staged **16.4**                                                             |
 | Infra              | Docker Compose v2 (Postgres, Redis, Mailpit)                                                     |
@@ -470,7 +470,7 @@ Pulled from real anti-patterns in equivalent projects. Skim before finishing any
 2. **Re-hashing `passwordHash`** — locks every user out.
 3. **Logging request bodies** — often contain credentials. Log fields, not bodies.
 4. **Wrong guard order** — `MfaRequiredGuard` before `JwtAuthGuard` yields confusing 401/403 mixes.
-5. **User-controlled `tenantId`** — always via `X-Tenant-Id` header + resolver.
+5. **User-controlled `tenantId`** — always via the resolver (`X-Tenant-Id` header, `tenant_id` cookie fallback for navigations); never the body.
 6. **Missing `has_session` cookie** — edge proxy and `useAuthStatus()` misbehave.
 7. **Custom role check inside a controller** — bypasses audit and ordering. Use `@Roles`.
 

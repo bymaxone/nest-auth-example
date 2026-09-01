@@ -33,11 +33,13 @@ process.env['JWT_SECRET'] =
 process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0=';
 
 import { execSync } from 'child_process';
-import { randomBytes, scrypt as nodeScrypt } from 'node:crypto';
-import { promisify } from 'node:util';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import {
+  AUTH_ERROR_CODES,
+  AUTH_ERROR_STATUS,
+  createAuthValidationPipe,
+} from '@bymax-one/nest-auth';
+import { Test, type TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import * as supertest from 'supertest';
 import { PlatformRole, UserStatus } from '@prisma/client';
@@ -45,27 +47,17 @@ import { PlatformRole, UserStatus } from '@prisma/client';
 import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-
-const _scrypt = promisify(nodeScrypt) as (
-  password: string | Buffer,
-  salt: string | Buffer,
-  keylen: number,
-  options: { N: number; r: number; p: number; maxmem: number },
-) => Promise<Buffer>;
-
-async function hashPasswordForTest(plain: string): Promise<string> {
-  const salt = randomBytes(16);
-  const derived = await _scrypt(plain, salt, 64, {
-    N: 32768,
-    r: 8,
-    p: 1,
-    maxmem: 64 * 1024 * 1024,
-  });
-  return `scrypt:${salt.toString('hex')}:${derived.toString('hex')}`;
-}
+import { resetAuthRateLimits } from './helpers/throttle.js';
+import { hashPasswordForTest } from './helpers/password.js';
 
 const PLATFORM_EMAIL = 'platform-endpoints@example.dev';
 const PLATFORM_PASSWORD = 'PlatformPassw0rd!';
+
+/**
+ * Testing module handle, kept at module scope so rate-limit counters can be
+ * reset between tests. Assigned in `beforeAll`.
+ */
+let moduleRef: TestingModule;
 
 describe('Platform endpoints — refresh, logout, MFA challenge, revoke sessions', () => {
   let app: INestApplication;
@@ -78,7 +70,7 @@ describe('Platform endpoints — refresh, logout, MFA challenge, revoke sessions
       stdio: 'pipe',
     });
 
-    const moduleRef = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
@@ -101,7 +93,7 @@ describe('Platform endpoints — refresh, logout, MFA challenge, revoke sessions
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({
+      createAuthValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
@@ -115,6 +107,13 @@ describe('Platform endpoints — refresh, logout, MFA challenge, revoke sessions
 
   afterAll(async () => {
     await app.close();
+  });
+
+  beforeEach(async () => {
+    // Clear both rate limiters (in-memory ThrottlerGuard + the library's
+    // Redis-backed per-IP counters) — the platform login tier is shared by
+    // every test in this suite and by earlier spec files in a sequential run.
+    await resetAuthRateLimits(moduleRef);
   });
 
   /** Logs in the platform admin and returns the bearer access + raw refresh tokens. */
@@ -220,15 +219,15 @@ describe('Platform endpoints — refresh, logout, MFA challenge, revoke sessions
     expect(tryB.status).toBeLessThan(500);
   });
 
-  it('POST /platform/mfa/challenge rejects an invalid mfaTempToken with a 4xx or 5xx error', async () => {
+  it('POST /platform/mfa/challenge rejects an invalid mfaTempToken with 401 auth.mfa_temp_token_invalid', async () => {
     /*
-     * The endpoint is wired in the example app — verify it is reachable and
-     * rejects bogus input. The library throws 500 when the temp token is not
-     * a parseable JWT and 401 when it is parseable but invalid; both are
-     * acceptable failure modes for this assertion. Happy-path coverage (a
-     * real TOTP exchange) requires platform MFA enrollment infrastructure
-     * that the library does not expose via HTTP; see the lib's own unit
-     * tests for the full MfaService challenge coverage.
+     * Scenario: the endpoint is wired in the example app — verify it is
+     * reachable and rejects bogus input. Since lib v1.4.x a malformed or
+     * unparseable temp token answers 401 `auth.mfa_temp_token_invalid`
+     * (earlier versions leaked a 500 on unparseable JWTs). Happy-path
+     * coverage (a real TOTP exchange) requires platform MFA enrollment
+     * infrastructure that the library does not expose via HTTP; see the
+     * lib's own unit tests for the full MfaService challenge coverage.
      */
     const fakeJwt =
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ4IiwidHlwZSI6Im1mYV9jaGFsbGVuZ2UifQ.invalid';
@@ -237,6 +236,92 @@ describe('Platform endpoints — refresh, logout, MFA challenge, revoke sessions
       .post('/api/auth/platform/mfa/challenge')
       .set('Content-Type', 'application/json')
       .send({ mfaTempToken: fakeJwt, code: '000000' });
-    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.MFA_TEMP_TOKEN_INVALID]);
+    expect(res.body).toMatchObject({ code: AUTH_ERROR_CODES.MFA_TEMP_TOKEN_INVALID });
+  });
+
+  it('POST /platform/users/:id/reset-mfa clears a tenant user MFA and writes an audit row', async () => {
+    /*
+     * Scenario: the support path for "lost device AND lost recovery codes".
+     * A SUPER_ADMIN resets a tenant user's MFA after out-of-band identity
+     * verification; the library clears the MFA state and the app records who
+     * did it. Verified on the wire because the privileged cross-tenant write
+     * is exactly the kind of endpoint a unit test cannot prove is reachable
+     * only by SUPER_ADMIN.
+     * Protects: the route, its SUPER_ADMIN guard, the MFA clear, and the
+     * `platform.user.mfa_reset` audit row with the acting admin's id.
+     */
+    const { accessToken } = await platformLogin();
+
+    await prisma.$executeRaw`
+      INSERT INTO "Tenant" (id, name, slug, "createdAt", "updatedAt")
+      VALUES ('acme', 'Acme Corp', 'acme', NOW(), NOW())
+      ON CONFLICT (id) DO NOTHING
+    `;
+    const target = await prisma.user.create({
+      data: {
+        email: `mfa-reset-${Date.now().toString()}@example.test`,
+        name: 'MFA Reset Target',
+        passwordHash: await hashPasswordForTest(PLATFORM_PASSWORD),
+        tenantId: 'acme',
+        status: UserStatus.ACTIVE,
+        emailVerified: true,
+        mfaEnabled: true,
+        mfaSecret: 'encrypted-placeholder',
+      },
+    });
+
+    const res = await supertest
+      .agent(app.getHttpServer())
+      .post(`/api/platform/users/${target.id}/reset-mfa`)
+      .set('Authorization', `Bearer ${accessToken}`);
+
+    expect(res.status).toBeLessThan(300);
+    expect((res.body as { mfaEnabled: boolean }).mfaEnabled).toBe(false);
+
+    const stored = await prisma.user.findUnique({ where: { id: target.id } });
+    expect(stored?.mfaEnabled).toBe(false);
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { event: 'platform.user.mfa_reset' },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(audit).not.toBeNull();
+    expect(audit?.tenantId).toBeNull();
+    expect(audit?.actorPlatformUserId).not.toBeNull();
+
+    await prisma.auditLog.deleteMany({ where: { event: 'platform.user.mfa_reset' } });
+    await prisma.user.delete({ where: { id: target.id } });
+  });
+
+  it('POST /platform/users/:id/reset-mfa answers 404 for an unknown user', async () => {
+    /*
+     * Scenario: a reset aimed at an id that does not exist must not report
+     * success. Reporting success would leave the operator believing an account
+     * was recovered when nothing was touched.
+     * Protects: the NotFoundException path across the real HTTP boundary.
+     */
+    const { accessToken } = await platformLogin();
+
+    const res = await supertest
+      .agent(app.getHttpServer())
+      .post('/api/platform/users/ckzzzzzzzzzzzzzzzzzzzzzzz/reset-mfa')
+      .set('Authorization', `Bearer ${accessToken}`);
+
+    expect(res.status).toBe(404);
+  });
+
+  it('POST /platform/users/:id/reset-mfa refuses an unauthenticated caller', async () => {
+    /*
+     * Scenario: the endpoint weakens an account's protections, so it must be
+     * unreachable without a platform credential. A missing Authorization
+     * header is the cheapest proof the guard chain is actually mounted.
+     * Protects: JwtPlatformGuard on the reset-mfa route.
+     */
+    const res = await supertest
+      .agent(app.getHttpServer())
+      .post('/api/platform/users/ckzzzzzzzzzzzzzzzzzzzzzzz/reset-mfa');
+
+    expect(res.status).toBe(401);
   });
 });

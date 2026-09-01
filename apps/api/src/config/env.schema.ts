@@ -127,12 +127,16 @@ const base = z.object({
    * Email delivery backend.
    *
    * `mailpit` (default) is for local dev only — rejected in production.
+   * `mailpit-default` demonstrates the library's `DefaultAuthEmailProvider`
+   * over the same Mailpit SMTP endpoint (dev only, rejected in production).
    * `resend` requires `RESEND_API_KEY` to be set.
    */
   EMAIL_PROVIDER: z
-    .enum(['mailpit', 'resend'])
+    .enum(['mailpit', 'resend', 'mailpit-default'])
     .default('mailpit')
-    .describe('Email delivery backend: mailpit (dev) | resend (prod)'),
+    .describe(
+      'Email delivery backend: mailpit (dev) | resend (prod) | mailpit-default (dev, library DefaultAuthEmailProvider)',
+    ),
 
   /** SMTP server hostname for Mailpit. Defaults to `localhost`. */
   SMTP_HOST: z
@@ -200,6 +204,26 @@ const base = z.object({
     .describe('Password reset method: token (link via email) | otp (numeric code via email)'),
 
   // ---------------------------------------------------------------------------
+  // Password breach checking
+  // ---------------------------------------------------------------------------
+  /**
+   * Which `IPasswordBreachChecker` implementation the library uses on password
+   * set/change (never on login).
+   *
+   * `common` (default) — the library's offline `CommonPasswordChecker`
+   * (top-10k list + `password.blocklist` deployment words, zero network calls).
+   * `hibp` — the library's `HibpBreachChecker`: k-anonymity range queries
+   * against the Have I Been Pwned API (only the first 5 SHA-1 hex chars leave
+   * the process; fails open on network errors).
+   * `off` — the library's `AllowAllBreachChecker`: every password passes.
+   * Useful for e2e suites with fixed fixtures; never use in production.
+   */
+  PASSWORD_BREACH_CHECKER: z
+    .enum(['common', 'hibp', 'off'])
+    .default('common')
+    .describe('Password breach checker: common (offline list) | hibp (k-anonymity API) | off'),
+
+  // ---------------------------------------------------------------------------
   // Cookie domain (production only)
   // ---------------------------------------------------------------------------
   /**
@@ -244,6 +268,7 @@ const base = z.object({
  * - `RESEND_API_KEY` is required when `EMAIL_PROVIDER=resend`
  * - Google OAuth client ID and secret must be set together
  * - rate limiting cannot be disabled in `production`
+ * - breach checking cannot be turned off in `production`
  */
 export const envSchema = base.superRefine((env, ctx) => {
   if (env.NODE_ENV === 'production' && env.AUTH_THROTTLE_DISABLED) {
@@ -262,11 +287,25 @@ export const envSchema = base.superRefine((env, ctx) => {
     });
   }
 
-  if (env.NODE_ENV === 'production' && env.EMAIL_PROVIDER === 'mailpit') {
+  // Both Mailpit-backed providers deliver to a local capture server, so
+  // neither can ever be a production email backend.
+  if (env.NODE_ENV === 'production' && env.EMAIL_PROVIDER !== 'resend') {
     ctx.addIssue({
       code: 'custom',
       path: ['EMAIL_PROVIDER'],
-      message: 'EMAIL_PROVIDER=mailpit is not allowed in production — use resend',
+      message: `EMAIL_PROVIDER=${env.EMAIL_PROVIDER} is not allowed in production — use resend`,
+    });
+  }
+
+  // `off` binds AllowAllBreachChecker, which passes every password including
+  // the most-breached ones. It exists for e2e suites with fixed fixtures; in
+  // production it silently removes breach checking from register, password
+  // change, and reset alike, so refuse to boot rather than accept it.
+  if (env.NODE_ENV === 'production' && env.PASSWORD_BREACH_CHECKER === 'off') {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['PASSWORD_BREACH_CHECKER'],
+      message: 'PASSWORD_BREACH_CHECKER=off is not allowed in production',
     });
   }
 

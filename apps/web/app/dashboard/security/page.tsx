@@ -1,5 +1,6 @@
 /**
- * @fileoverview Security settings page — MFA enrollment / disablement.
+ * @fileoverview Security settings page — MFA enrollment / disablement plus
+ * the email-address change card.
  *
  * Uses `useSession()` from the auth library to read `mfaEnabled` and to
  * refresh the client-side session cache after every toggle. The page wires
@@ -24,6 +25,7 @@ import { ShieldAlert } from 'lucide-react';
 import { useSession } from '@bymax-one/nest-auth/react';
 import { MfaSetupCard } from '@/components/dashboard/mfa-setup-card';
 import { MfaDisableCard } from '@/components/dashboard/mfa-disable-card';
+import { EmailChangeCard } from '@/components/dashboard/email-change-card';
 import { getMfaStatus } from '@/lib/auth-client';
 import { Card } from '@/components/ui/card';
 
@@ -133,6 +135,17 @@ export default function SecurityPage() {
           <MfaSetupCard onEnabled={handleToggle} />
         )}
       </div>
+
+      {/* ── Email address card ──
+          Starts the library's two-step address change: password re-proof
+          here, then a confirmation link mailed to the new address which
+          lands on /auth/confirm-email-change. Rendered only once the
+          session has resolved so an anonymous flash never shows the form. */}
+      {user !== null && (
+        <div className="max-w-xl">
+          <EmailChangeCard />
+        </div>
+      )}
     </div>
   );
 }

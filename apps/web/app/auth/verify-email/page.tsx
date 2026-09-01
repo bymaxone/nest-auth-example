@@ -4,7 +4,9 @@
  * Visual shell is provided by `app/(auth)/layout.tsx`. This page:
  *   - Reads `?email=` and `?tenantId=` from the URL (provided in the verification email link)
  *   - Renders a 6-box OtpInput for the email verification code
- *   - On submit: POST to `/api/auth/verify-email` with `{ email, otp, tenantId }`
+ *   - On submit: POST to `/api/auth/verify-email` with `{ email, otp }` — the
+ *     tenant travels via the `X-Tenant-Id` header only, because the API's
+ *     `tenantIdResolver` refuses a body `tenantId` with 400 auth.validation
  *   - On success: redirects to `/auth/login?verified=1`
  *   - Resend button has a 60-second cooldown, persisted per-email in sessionStorage
  *   - Missing query params: shows an inline "re-open the link" error instead of crashing
@@ -71,7 +73,7 @@ function VerifyEmailForm() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json', 'X-Tenant-Id': resolvedTenantId },
-        body: JSON.stringify({ email, otp: data.otp, tenantId: resolvedTenantId }),
+        body: JSON.stringify({ email, otp: data.otp }),
       });
 
       if (!response.ok) {
@@ -101,7 +103,7 @@ function VerifyEmailForm() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json', 'X-Tenant-Id': resolvedTenantId },
-        body: JSON.stringify({ email, tenantId: resolvedTenantId }),
+        body: JSON.stringify({ email }),
       });
       startCooldown();
       toast.success('Verification email resent.');

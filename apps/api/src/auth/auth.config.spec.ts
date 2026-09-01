@@ -279,6 +279,72 @@ describe('envSchema — AUTH_THROTTLE_DISABLED', () => {
     }
   });
 
+  it('rejects turning the password breach checker off in a production environment', () => {
+    /*
+     * Scenario: PASSWORD_BREACH_CHECKER=off binds the library's
+     * AllowAllBreachChecker, so every password passes — including the most
+     * commonly breached ones — on register, password change, and reset alike.
+     * The setting exists for e2e suites with fixed fixtures, and its own doc
+     * says "never use in production"; boot must enforce that rather than
+     * merely document it.
+     * Protects: the production refinement on PASSWORD_BREACH_CHECKER — without
+     * it a stray deployment value silently removes breach checking.
+     */
+    const result = envSchema.safeParse({
+      ...VALID_ENV,
+      NODE_ENV: 'production',
+      WEB_ORIGIN: 'https://app.example.com',
+      EMAIL_PROVIDER: 'resend',
+      RESEND_API_KEY: 're_live_abc123',
+      PASSWORD_BREACH_CHECKER: 'off',
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issue = result.error.issues.find((i) => i.path.join('.') === 'PASSWORD_BREACH_CHECKER');
+      expect(issue?.message).toBe('PASSWORD_BREACH_CHECKER=off is not allowed in production');
+    }
+  });
+
+  it('allows the offline and hibp breach checkers in production', () => {
+    /*
+     * Scenario: the refinement must key on the value being exactly 'off', not
+     * on the variable being present. Both real checkers stay valid in
+     * production, and so does leaving the variable unset (default 'common').
+     * Protects: an over-broad refinement that rejected any explicit value
+     * would make the variable unusable in the environment it matters most.
+     */
+    for (const checker of ['common', 'hibp'] as const) {
+      const result = envSchema.safeParse({
+        ...VALID_ENV,
+        NODE_ENV: 'production',
+        WEB_ORIGIN: 'https://app.example.com',
+        EMAIL_PROVIDER: 'resend',
+        RESEND_API_KEY: 're_live_abc123',
+        PASSWORD_BREACH_CHECKER: checker,
+      });
+
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it('still allows the breach checker to be turned off outside production', () => {
+    /*
+     * Scenario: the e2e suite runs with NODE_ENV=test and fixed password
+     * fixtures, which is the whole reason 'off' exists. The refinement must
+     * not leak into non-production environments.
+     * Protects: a refinement that dropped its NODE_ENV condition would break
+     * every local and CI run.
+     */
+    const result = envSchema.safeParse({
+      ...VALID_ENV,
+      NODE_ENV: 'test',
+      PASSWORD_BREACH_CHECKER: 'off',
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it('still allows rate limiting to stay enabled in production', () => {
     // The refinement must key on the flag being true, not merely present —
     // an explicit `false` in production is the normal, valid case.
@@ -488,6 +554,43 @@ describe('envSchema — refinement error messages (verbatim)', () => {
         'EMAIL_PROVIDER=mailpit is not allowed in production — use resend',
       );
     }
+  });
+
+  it('rejects production EMAIL_PROVIDER=mailpit-default with the documented message', () => {
+    /*
+     * Scenario: the library-DefaultAuthEmailProvider demo delivers to the
+     * same local Mailpit capture server as the hand-rolled provider, so it
+     * is exactly as unfit for production and must be refused at boot too.
+     */
+    const result = envSchema.safeParse({
+      ...VALID_ENV,
+      NODE_ENV: 'production',
+      WEB_ORIGIN: 'https://app.example.com',
+      EMAIL_PROVIDER: 'mailpit-default',
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issue = result.error.issues.find((i) => i.path.join('.') === 'EMAIL_PROVIDER');
+      expect(issue?.message).toBe(
+        'EMAIL_PROVIDER=mailpit-default is not allowed in production — use resend',
+      );
+    }
+  });
+
+  it('accepts EMAIL_PROVIDER=mailpit-default in non-production environments', () => {
+    /*
+     * Scenario: `EMAIL_PROVIDER=mailpit-default` selects the library's
+     * DefaultAuthEmailProvider demo in dev — the enum extension must parse
+     * so the third provider choice is actually reachable.
+     */
+    const result = envSchema.safeParse({
+      ...VALID_ENV,
+      NODE_ENV: 'development',
+      EMAIL_PROVIDER: 'mailpit-default',
+    });
+
+    expect(result.success).toBe(true);
   });
 
   it('accepts EMAIL_PROVIDER=mailpit in non-production environments', () => {

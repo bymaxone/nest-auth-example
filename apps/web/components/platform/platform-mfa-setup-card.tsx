@@ -4,9 +4,10 @@
  *
  * Parallel to the dashboard `MfaSetupCard` but pointed at the platform-specific
  * routes the lib mounts under `/api/auth/platform/mfa/*` (shipped in
- * `@bymax-one/nest-auth` ≥ 1.0.6). The flow itself is identical — secret + QR +
- * recovery codes are returned by `setup`, the first TOTP is confirmed via
- * `verify-enable`, and the recovery codes show in a modal once.
+ * `@bymax-one/nest-auth` ≥ 1.0.6). The flow itself is identical — the admin
+ * confirms their current password (re-authentication required by the lib since
+ * 1.1.0), secret + QR + recovery codes are returned by `setup`, the first TOTP
+ * is confirmed via `verify-enable`, and the recovery codes show in a modal once.
  *
  * Visual style matches the platform area's red-tinted theme (so an admin
  * always knows they are inside the platform context, not the tenant dashboard).
@@ -63,6 +64,10 @@ export function PlatformMfaSetupCard({ onEnabled }: PlatformMfaSetupCardProps) {
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  // Current password collected on the idle step — the lib's setup endpoint
+  // requires re-authentication proof before returning the TOTP secret.
+  const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
 
   const {
     control: formControl,
@@ -78,13 +83,21 @@ export function PlatformMfaSetupCard({ onEnabled }: PlatformMfaSetupCardProps) {
   });
 
   const handleSetup = async () => {
+    // Non-empty check only — the server is the authority on whether the
+    // password matches (wrong password → auth.invalid_credentials toast).
+    if (password === '') {
+      setPasswordError('Enter your current password to continue.');
+      return;
+    }
+    setPasswordError(null);
     setIsLoading(true);
     try {
-      const result = await platformMfaSetup();
+      const result = await platformMfaSetup(password);
       const dataUrl = await toQrDataUrl(result.qrCodeUri);
       setQrDataUrl(dataUrl);
       setSecret(result.secret);
       setRecoveryCodes(result.recoveryCodes);
+      setPassword('');
       setStep('scanning');
     } catch (err) {
       handleAuthClientError(err, { toast });
@@ -152,8 +165,34 @@ export function PlatformMfaSetupCard({ onEnabled }: PlatformMfaSetupCardProps) {
             <p className="text-sm text-[rgba(255,200,200,0.6)]">
               Protect your platform admin account with a TOTP authenticator app (Google
               Authenticator, Authy, etc.). Strongly recommended for SUPER_ADMIN accounts — a
-              compromised platform session can suspend tenants and access every workspace.
+              compromised platform session can suspend tenants and access every workspace. Confirm
+              your password to begin.
             </p>
+            <div className="space-y-1.5">
+              <Label
+                htmlFor="platform-mfa-setup-password"
+                className="text-xs text-[rgba(255,200,200,0.7)]"
+              >
+                Current password
+              </Label>
+              <Input
+                id="platform-mfa-setup-password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                aria-describedby={
+                  passwordError !== null ? 'platform-mfa-setup-password-error' : undefined
+                }
+                aria-invalid={passwordError !== null}
+                data-testid="platform-mfa-setup-password"
+              />
+              {passwordError !== null && (
+                <p id="platform-mfa-setup-password-error" className="text-xs text-red-400">
+                  {passwordError}
+                </p>
+              )}
+            </div>
             <Button
               size="sm"
               onClick={() => void handleSetup()}

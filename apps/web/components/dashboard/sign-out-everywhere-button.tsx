@@ -1,10 +1,19 @@
 /**
- * @fileoverview "Sign out everywhere" button — revokes all sessions except the current one.
+ * @fileoverview "Sign out everywhere" button — ends every session, this one included.
  *
- * Calls `DELETE /auth/sessions/all` and then navigates to the login page,
- * because the current session cookie is also invalidated server-side by the
- * library's `revokeAllSessions` endpoint (all sessions including the current
- * one are revoked).
+ * Two calls are required, in this order:
+ *
+ *   1. `POST /auth/sessions/revoke-all` — the library's bulk revocation, which
+ *      by design preserves the session making the call
+ *      (`SessionService.revokeAllExceptCurrent`).
+ *   2. `POST /api/auth/logout` — terminates that surviving session, so the
+ *      device in front of the user is signed out too.
+ *
+ * Step 2 is not optional garnish: without it the caller's refresh cookie stays
+ * valid and a silent refresh re-authenticates the very browser the user just
+ * told to sign out — which is exactly what the confirmation dialog promises
+ * will not happen. `revokeAllSessions`' own JSDoc in `lib/auth-client.ts`
+ * prescribes this pairing.
  *
  * @layer components/dashboard
  */
@@ -30,9 +39,47 @@ import {
 import { revokeAllSessions, handleAuthClientError } from '@/lib/auth-client';
 
 /**
- * Destructive button that revokes every session, then redirects to login.
+ * Route handler that clears the auth cookies for the calling session.
  *
- * An `AlertDialog` confirmation step prevents accidental clicks.
+ * A Next.js route handler, not a backend path, so it is reached with a plain
+ * `fetch` rather than through `apiFetch`'s `/api`-relative pipeline.
+ */
+const LOGOUT_ROUTE = '/api/auth/logout';
+
+/**
+ * The confirmation dialog body.
+ *
+ * The copy states that the current session ends too, which `handleConfirm`
+ * makes true by pairing the bulk revoke with a logout.
+ *
+ * @param onConfirm - Fired when the user commits to signing out everywhere.
+ */
+function ConfirmDialogContent({ onConfirm }: { onConfirm: () => void }) {
+  return (
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>Sign out of all sessions?</AlertDialogTitle>
+        <AlertDialogDescription>
+          This will immediately revoke every active session, including the current one. You will
+          need to sign in again on all devices.
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel>Cancel</AlertDialogCancel>
+        <AlertDialogAction onClick={onConfirm}>Sign out everywhere</AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  );
+}
+
+/**
+ * Destructive button that ends every session — the current one included — and
+ * then redirects to login.
+ *
+ * An `AlertDialog` confirmation step prevents accidental clicks. A failure in
+ * either call leaves the user on the page with an error toast rather than
+ * redirecting, because a redirect to the login screen would otherwise look
+ * exactly like success while sessions were still live.
  */
 export function SignOutEverywhereButton() {
   const router = useRouter();
@@ -42,6 +89,11 @@ export function SignOutEverywhereButton() {
     setIsPending(true);
     try {
       await revokeAllSessions();
+      // Bulk revocation spares the caller's own session — end it explicitly.
+      const response = await fetch(LOGOUT_ROUTE, { method: 'POST', credentials: 'include' });
+      if (!response.ok) {
+        throw new Error(`Logout failed with status ${response.status}`);
+      }
       toast.success('All sessions revoked.');
       router.replace('/auth/login');
     } catch (err) {
@@ -63,21 +115,7 @@ export function SignOutEverywhereButton() {
           {isPending ? 'Signing out…' : 'Sign out everywhere'}
         </Button>
       </AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Sign out of all sessions?</AlertDialogTitle>
-          <AlertDialogDescription>
-            This will immediately revoke every active session, including the current one. You will
-            need to sign in again on all devices.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction onClick={() => void handleConfirm()}>
-            Sign out everywhere
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
+      <ConfirmDialogContent onConfirm={() => void handleConfirm()} />
     </AlertDialog>
   );
 }

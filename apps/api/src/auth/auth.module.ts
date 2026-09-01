@@ -23,12 +23,15 @@ import { Module } from '@nestjs/common';
 import type { Type } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import {
+  AllowAllBreachChecker,
   BymaxAuthModule,
+  BYMAX_AUTH_BREACH_CHECKER,
   BYMAX_AUTH_EMAIL_PROVIDER,
   BYMAX_AUTH_HOOKS,
   BYMAX_AUTH_PLATFORM_USER_REPOSITORY,
   BYMAX_AUTH_REDIS_CLIENT,
   BYMAX_AUTH_USER_REPOSITORY,
+  HibpBreachChecker,
 } from '@bymax-one/nest-auth';
 import type { BymaxAuthModuleOptions, IEmailProvider } from '@bymax-one/nest-auth';
 import { Redis } from 'ioredis';
@@ -38,6 +41,7 @@ import type { Env } from '../config/env.schema.js';
 import { buildAuthOptions } from './auth.config.js';
 import { AppAuthHooks } from './app-auth.hooks.js';
 import { MailpitEmailProvider } from './mailpit-email.provider.js';
+import { MailpitDefaultEmailProvider } from './default-email.provider.js';
 import { PrismaUserRepository } from './prisma-user.repository.js';
 import { PrismaPlatformUserRepository } from './prisma-platform-user.repository.js';
 import { ResendEmailProvider } from './resend-email.provider.js';
@@ -49,12 +53,16 @@ import { ResendEmailProvider } from './resend-email.provider.js';
  * `process.env` is the only source available at this stage — this is the accepted
  * exception documented in AGENTS.md §Critical Rules §7.
  *
- * @returns `ResendEmailProvider` when `EMAIL_PROVIDER=resend`; otherwise `MailpitEmailProvider`.
+ * @returns `ResendEmailProvider` when `EMAIL_PROVIDER=resend`;
+ *   `MailpitDefaultEmailProvider` (the library's `DefaultAuthEmailProvider`
+ *   over a Mailpit SMTP sink) when `EMAIL_PROVIDER=mailpit-default`;
+ *   otherwise `MailpitEmailProvider`.
  */
 function chooseEmailProviderClass(): Type<IEmailProvider> {
-  return (process.env['EMAIL_PROVIDER'] ?? 'mailpit').toLowerCase() === 'resend'
-    ? ResendEmailProvider
-    : MailpitEmailProvider;
+  const provider = (process.env['EMAIL_PROVIDER'] ?? 'mailpit').toLowerCase();
+  if (provider === 'resend') return ResendEmailProvider;
+  if (provider === 'mailpit-default') return MailpitDefaultEmailProvider;
+  return MailpitEmailProvider;
 }
 
 /**
@@ -75,6 +83,32 @@ function isGoogleOAuthConfigured(): boolean {
 }
 
 const EmailProviderClass = chooseEmailProviderClass();
+
+/**
+ * Builds the optional `BYMAX_AUTH_BREACH_CHECKER` binding from
+ * `PASSWORD_BREACH_CHECKER` at process startup.
+ *
+ * Evaluated synchronously at module decoration time (same accepted `process.env`
+ * exception as `chooseEmailProviderClass`):
+ * - `hibp` — the library's `HibpBreachChecker` (k-anonymity Have I Been Pwned
+ *   range queries, fails open) replaces the default offline checker.
+ * - `off` — the library's `AllowAllBreachChecker` (every password passes) for
+ *   e2e suites with fixed fixtures; never production.
+ * - `common` / unset — no binding: the library's default `CommonPasswordChecker`
+ *   (top-10k list + `password.blocklist`) applies.
+ *
+ * @returns Zero-or-one provider entries to spread into `extraProviders`.
+ */
+function breachCheckerProviders(): { provide: symbol; useValue: unknown }[] {
+  const mode = (process.env['PASSWORD_BREACH_CHECKER'] ?? 'common').toLowerCase();
+  if (mode === 'hibp') {
+    return [{ provide: BYMAX_AUTH_BREACH_CHECKER, useValue: new HibpBreachChecker() }];
+  }
+  if (mode === 'off') {
+    return [{ provide: BYMAX_AUTH_BREACH_CHECKER, useValue: new AllowAllBreachChecker() }];
+  }
+  return [];
+}
 
 /**
  * Application auth module that registers `BymaxAuthModule` with all four
@@ -107,6 +141,10 @@ const EmailProviderClass = chooseEmailProviderClass();
         platform: true,
         // FCM #21 — Invitation flow: mounts /api/auth/invitations routes.
         invitations: true,
+        // Two-step address change (lib v1.1.0+): mounts /api/auth/email/change
+        // and /api/auth/email/change/confirm. Requires the bound email provider
+        // to implement `sendEmailChangeVerification` — enforced at boot.
+        emailChange: true,
       },
       extraProviders: [
         {
@@ -125,6 +163,11 @@ const EmailProviderClass = chooseEmailProviderClass();
         { provide: BYMAX_AUTH_PLATFORM_USER_REPOSITORY, useClass: PrismaPlatformUserRepository },
         { provide: BYMAX_AUTH_EMAIL_PROVIDER, useClass: EmailProviderClass },
         { provide: BYMAX_AUTH_HOOKS, useClass: AppAuthHooks },
+        // Optional override of the library's default CommonPasswordChecker —
+        // PASSWORD_BREACH_CHECKER=hibp binds HibpBreachChecker (k-anonymity),
+        // =off binds AllowAllBreachChecker (e2e fixtures), unset keeps the
+        // offline default.
+        ...breachCheckerProviders(),
       ],
     }),
   ],

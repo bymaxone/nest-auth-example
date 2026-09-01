@@ -69,12 +69,13 @@ export default function RegisterPage() {
     setIsSubmitting(true);
     try {
       // Resolve the human-readable tenant slug to the real `Tenant.id` CUID
-      // before calling `register()`. The lib persists the value verbatim as
-      // the FK on `User.tenantId`, so passing the slug would surface as an
-      // HTTP 500 from the Prisma foreign-key constraint. This mirrors the
-      // login page's flow — see `app/auth/login/page.tsx`. The resolved CUID
-      // is also stashed in the `tenant_id` cookie so `tenantAwareFetch`
-      // injects `X-Tenant-Id` on subsequent calls.
+      // before calling `register()` and stash it in the `tenant_id` cookie —
+      // that cookie is what makes `tenantAwareFetch` inject the `X-Tenant-Id`
+      // header, which is the ONLY channel the API's `tenantIdResolver` reads.
+      // The register body itself carries no `tenantId`: since the API
+      // configures the resolver, a body tenantId is refused with 400
+      // auth.validation. This mirrors the login page's flow — see
+      // `app/auth/login/page.tsx`.
       const tenantId = await resolveTenantForLogin(data.tenantId);
       document.cookie = `tenant_id=${tenantId}; Path=/; SameSite=Lax; Max-Age=31536000`;
 
@@ -82,7 +83,6 @@ export default function RegisterPage() {
         email: data.email,
         name: data.name,
         password: data.password,
-        tenantId,
       });
       // Show the email confirmation screen — no redirect until verified.
       // Track the RESOLVED tenant id (CUID) so the resend-verification call
@@ -105,11 +105,13 @@ export default function RegisterPage() {
   const handleResend = async () => {
     if (!confirmedEmail || isCoolingDown) return;
     try {
+      // Tenant travels via the X-Tenant-Id header only — the API's
+      // `tenantIdResolver` refuses a body tenantId with 400 auth.validation.
       await fetch('/api/auth/resend-verification', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: confirmedEmail, tenantId: confirmedTenantId }),
+        headers: { 'Content-Type': 'application/json', 'X-Tenant-Id': confirmedTenantId },
+        body: JSON.stringify({ email: confirmedEmail }),
       });
       startCooldown();
       toast.success('Verification email resent.');
@@ -234,7 +236,7 @@ export default function RegisterPage() {
           <PasswordInput
             id="password"
             autoComplete="new-password"
-            placeholder="At least 8 characters"
+            placeholder="At least 15 characters"
             aria-describedby={errors.password ? 'reg-password-error' : undefined}
             aria-invalid={!!errors.password}
             className="border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.05)] text-white placeholder:text-[rgba(255,255,255,0.3)] focus-visible:ring-[#ff6224]/50"
@@ -287,24 +289,25 @@ export default function RegisterPage() {
             <div className="h-px flex-1 bg-[rgba(255,255,255,0.08)]" />
           </div>
           {/* Full-page navigation required for OAuth 302 redirect — do not use fetch.
-              The lib mounts the initiate endpoint at `GET /api/auth/oauth/:provider`,
-              expecting `tenantId` as a query param.
+              The lib mounts the initiate endpoint at `GET /api/auth/oauth/:provider`.
 
-              The href carries the slug as a graceful-degradation fallback, but the
-              onClick intercepts the click and resolves the slug to the tenant's CUID
-              first. The lib uses `tenantId` verbatim as the FK on `User.tenantId`
-              (Tenant.id is a CUID, not the slug), so passing the slug would surface
-              as a 500 from the Prisma FK constraint at callback time. */}
+              Tenant delivery: since lib v1.4.2 a `?tenantId=` query param is
+              REFUSED when the API configures a `tenantIdResolver`, and a
+              top-level navigation cannot carry the `X-Tenant-Id` header — so
+              the onClick resolves the slug to the tenant's CUID and stores it
+              in the `tenant_id` cookie BEFORE navigating; the API resolver
+              falls back to that cookie for navigation flows. The lib uses the
+              resolved value verbatim as the FK on `User.tenantId` (Tenant.id
+              is a CUID, not the slug), so the slug must be resolved first. */}
           <a
-            href={`/api/auth/oauth/google?tenantId=${encodeURIComponent(oauthTenantId)}`}
+            href="/api/auth/oauth/google"
             onClick={(e) => {
               e.preventDefault();
               void (async () => {
                 try {
                   const tenantId = await resolveTenantForLogin(oauthTenantId);
-                  window.location.assign(
-                    `/api/auth/oauth/google?tenantId=${encodeURIComponent(tenantId)}`,
-                  );
+                  document.cookie = `tenant_id=${tenantId}; Path=/; SameSite=Lax; Max-Age=31536000`;
+                  window.location.assign('/api/auth/oauth/google');
                 } catch (err) {
                   if (err instanceof TenantNotFoundError) {
                     toast.error(

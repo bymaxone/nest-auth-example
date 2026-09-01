@@ -11,9 +11,27 @@
  * @see docs/guidelines/nest-auth-guidelines.md
  */
 
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { AuthService, CurrentUser, SkipMfa, TokenDeliveryService } from '@bymax-one/nest-auth';
+import {
+  AUTH_THROTTLE_CONFIGS,
+  AuthRateLimit,
+  AuthRateLimitGuard,
+  AuthService,
+  CurrentUser,
+  SkipMfa,
+  TokenDeliveryService,
+} from '@bymax-one/nest-auth';
 import type {
   BearerAuthResponse,
   BothAuthResponse,
@@ -50,6 +68,12 @@ export class AccountController {
    * Verifies `currentPassword` against the stored scrypt hash before replacing
    * it with a hash of `newPassword`. Returns `204 No Content` on success.
    *
+   * Reference pattern only: since lib v1.1.0 the library ships its own
+   * `POST /api/auth/password/change` route (used by the web app), which also
+   * enforces the password policy/breach check and revokes other sessions.
+   * This endpoint stays as an example of composing an app-owned flow on
+   * `AuthService` when the deployment needs custom change-password UX.
+   *
    * POST /api/account/change-password
    *
    * @param dto  - Validated `currentPassword` + `newPassword`.
@@ -57,6 +81,12 @@ export class AccountController {
    */
   @Post('change-password')
   @HttpCode(HttpStatus.NO_CONTENT)
+  // App routes can reuse the library's per-IP limiter: `@AuthRateLimit` names
+  // the same window the library enforces on its own POST /auth/password/change,
+  // and `AuthRateLimitGuard` charges it (refusals answer `auth.too_many_requests`
+  // with a Retry-After header). Inert when `rateLimit.enabled` is false.
+  @UseGuards(AuthRateLimitGuard)
+  @AuthRateLimit(AUTH_THROTTLE_CONFIGS.changePassword)
   changePassword(
     @Body() dto: ChangePasswordDto,
     @CurrentUser() user: DashboardJwtPayload,
@@ -169,7 +199,14 @@ export class AccountController {
     // verbatim so the frontend can route the user through the MFA challenge.
     const ip = req.ip ?? '';
     const userAgent = String(req.headers['user-agent'] ?? '');
-    const result = await this.authService.issueTokensForUserId(targetUserId, ip, userAgent);
+    // Since lib v1.4.4 the tenant travels with the user id on every dashboard
+    // call — the tokens are minted for the DESTINATION workspace.
+    const result = await this.authService.issueTokensForUserId(
+      targetUserId,
+      dto.tenantId,
+      ip,
+      userAgent,
+    );
 
     // Step 3: deliver via the lib's canonical cookie writer. Sets the same
     // attribute set the password-login path uses (httpOnly, secure, sameSite,

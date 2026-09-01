@@ -21,9 +21,11 @@
  * @see docs/guidelines/observability-guidelines.md
  */
 
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BYMAX_AUTH_REDIS_CLIENT, MfaService } from '@bymax-one/nest-auth';
 import { Prisma } from '@prisma/client';
 import type { Tenant } from '@prisma/client';
+import type { Redis } from 'ioredis';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { UpdateUserStatusDto } from './dto/update-user-status.dto.js';
@@ -72,13 +74,89 @@ export type PlatformSafeUser = Prisma.UserGetPayload<{ select: typeof SAFE_USER_
 export class PlatformService {
   private readonly logger = new Logger(PlatformService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly mfaService: MfaService,
+    @Inject(BYMAX_AUTH_REDIS_CLIENT) private readonly authRedis: Redis,
+  ) {}
+
+  /**
+   * Administratively removes TOTP MFA from a tenant user's account.
+   *
+   * Wraps the library's `MfaService.resetMfa` (lib v1.2.0+): clears the MFA
+   * secret and recovery codes, revokes every active session, bumps the token
+   * epoch so outstanding access tokens die, and emails the account owner about
+   * the change. Used by support staff after verifying the owner's identity
+   * out-of-band (lost device + lost recovery codes).
+   *
+   * Cross-tenant by design: the target's `tenantId` is read from their own row,
+   * not from any caller context — platform admins operate above tenants.
+   *
+   * @param targetUserId - ID of the `User` row whose MFA is being reset.
+   * @param actorPlatformUserId - ID of the platform admin performing the reset.
+   * @param ip - Client IP address for the audit entry.
+   * @param userAgent - `User-Agent` header for the audit entry.
+   * @returns The updated user as a `PlatformSafeUser` (no credentials).
+   * @throws `NotFoundException` when the target user does not exist.
+   */
+  async resetUserMfa(
+    targetUserId: string,
+    actorPlatformUserId: string,
+    ip: string,
+    userAgent: string,
+  ): Promise<PlatformSafeUser> {
+    const existing = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, tenantId: true },
+    });
+    if (!existing) {
+      throw new NotFoundException(`User '${targetUserId}' not found`);
+    }
+
+    // The library performs the whole reset: repository write, session
+    // revocation, epoch bump, and the owner notification email.
+    await this.mfaService.resetMfa(targetUserId, 'dashboard', existing.tenantId);
+
+    // Write audit log AFTER the reset — non-blocking, same policy as the
+    // status mutation above.
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          // tenantId is null for platform-level events (design invariant).
+          tenantId: null,
+          actorUserId: null,
+          actorPlatformUserId,
+          event: 'platform.user.mfa_reset',
+          payload: { targetUserId, targetTenantId: existing.tenantId },
+          ip,
+          userAgent,
+        },
+      });
+    } catch (err: unknown) {
+      this.logger.error({
+        msg: 'AuditLog write failed for platform.user.mfa_reset',
+        targetUserId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    const updated = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: SAFE_USER_SELECT,
+    });
+    // The row existed moments ago; a vanished row here means a concurrent hard
+    // delete — surface it as not-found rather than returning a fabricated user.
+    if (!updated) {
+      throw new NotFoundException(`User '${targetUserId}' not found`);
+    }
+    return updated;
+  }
 
   /**
    * Returns up to 500 tenants ordered by creation date (oldest first).
    *
    * The hard `take` cap prevents unbounded result sets. Cursor-based pagination
-   * will be added in a follow-up phase once the front-end requires it.
+   * is planned for when the front-end requires it.
    *
    * @returns Array of `Tenant` rows (safe — no credential fields on Tenant).
    */
@@ -90,8 +168,8 @@ export class PlatformService {
    * Returns up to 500 users belonging to a specific tenant, with credentials stripped.
    *
    * A missing tenant yields an empty array (consistent with `findMany` semantics).
-   * The `take` cap prevents unbounded result sets; cursor-based pagination will be
-   * added in a follow-up phase.
+   * The `take` cap prevents unbounded result sets; cursor-based pagination is
+   * planned for when the front-end requires it.
    *
    * @param tenantId - ID of the tenant to query.
    * @returns Array of safe user objects (no `passwordHash`, `mfaSecret`, etc.).
@@ -154,6 +232,14 @@ export class PlatformService {
         return [result, prev] as const;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+
+    // Invalidate the UserStatusGuard cache (tenant-scoped key since lib
+    // v1.3.2) so the new status bites on the target's very next request
+    // instead of after the 60s TTL. The target's tenantId comes from the
+    // updated row — platform admins operate across tenants.
+    await this.authRedis.del(
+      `nest-auth-example:us:${encodeURIComponent(updated.tenantId)}:${encodeURIComponent(targetUserId)}`,
     );
 
     // Write audit log AFTER the transaction commits — non-blocking: a write
