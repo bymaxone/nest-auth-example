@@ -565,6 +565,51 @@ describe('MfaSetupCard password re-authentication step', () => {
     expect(mfaSetup).not.toHaveBeenCalled();
   });
 
+  it('lets an OAuth-only account start setup without a password', async () => {
+    /*
+     * Scenario: an account with no local password (`hasPassword: false`). The
+     * API skips password re-authentication for those and falls back to a
+     * recent-login marker, so the card must neither render the field nor block
+     * on it — otherwise MFA enrollment is unreachable for every OAuth user.
+     * Protects: the `hasPassword &&` guard, without which the empty-password
+     * check returns before any request is made.
+     */
+    vi.mocked(mfaSetup).mockResolvedValue({
+      secret: 'JBSWY3DPEHPK3PXP',
+      qrCodeUri: 'otpauth://totp/Example:alice?secret=JBSWY3DPEHPK3PXP',
+      recoveryCodes: ['R1'],
+    });
+
+    render(<MfaSetupCard onEnabled={vi.fn()} hasPassword={false} />);
+    fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
+
+    await waitFor(() => {
+      expect(screen.getByAltText('MFA QR code')).toBeDefined();
+    });
+    expect(screen.queryByText('Enter your current password to continue.')).toBeNull();
+  });
+
+  it('sends no password field at all for an OAuth-only account', async () => {
+    /*
+     * Scenario: sending an empty string instead of omitting the field would be
+     * verified as a wrong password server-side and counted toward the MFA
+     * lockout, so an OAuth user could lock themselves out by clicking a button
+     * that is supposed to just work.
+     * Protects: the `hasPassword ? password : undefined` argument.
+     */
+    vi.mocked(mfaSetup).mockResolvedValue({
+      secret: 'JBSWY3DPEHPK3PXP',
+      qrCodeUri: 'otpauth://totp/Example:alice?secret=JBSWY3DPEHPK3PXP',
+      recoveryCodes: ['R1'],
+    });
+
+    render(<MfaSetupCard onEnabled={vi.fn()} hasPassword={false} />);
+    fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
+
+    await waitFor(() => expect(mfaSetup).toHaveBeenCalled());
+    expect(mfaSetup).toHaveBeenCalledWith(undefined);
+  });
+
   it('clears the validation error once a password is provided and setup is retried', async () => {
     /*
      * Scenario: after the empty-password error, filling the field and

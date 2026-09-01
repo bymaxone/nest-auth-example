@@ -43,6 +43,15 @@ export interface MfaSetupInfo {
  * enrolment).
  */
 export interface MfaStatusInfo {
+  /**
+   * Whether the account has a local password.
+   *
+   * `false` for OAuth-only accounts. The MFA setup form uses this to decide
+   * whether to ask for the current password: the API skips that re-auth when
+   * there is no password to prove, so demanding one would make enrollment
+   * impossible for those accounts.
+   */
+  hasPassword: boolean;
   /** Whether the user has completed MFA enrollment. */
   enabled: boolean;
   /**
@@ -97,13 +106,16 @@ export interface MfaRegenerateRecoveryCodesResult {
  * Returns the TOTP secret, QR code URI, and plain-text recovery codes.
  * The recovery codes are shown once and must not be persisted in plain text.
  *
- * @param password - Current account password confirming the enrolment.
+ * @param password - Current account password confirming the enrolment. Omitted
+ *   for OAuth-only accounts, which have none: the API re-authenticates those
+ *   from a recent-login marker instead, and sending an empty string would be
+ *   verified as a wrong password and counted toward the MFA lockout.
  * @returns `MfaSetupInfo` with `secret`, `qrCodeUri`, and `recoveryCodes`.
  */
-export const mfaSetup = (password: string): Promise<MfaSetupInfo> =>
+export const mfaSetup = (password?: string): Promise<MfaSetupInfo> =>
   apiFetch<MfaSetupInfo>('/auth/mfa/setup', {
     method: 'POST',
-    body: JSON.stringify({ password }),
+    body: JSON.stringify(password === undefined ? {} : { password }),
   });
 
 /**

@@ -42,6 +42,15 @@ type VerifyValues = z.infer<typeof verifySchema>;
 interface MfaSetupCardProps {
   /** Called after MFA is successfully enabled so the parent can refresh state. */
   onEnabled: () => void;
+  /**
+   * Whether the account has a local password.
+   *
+   * OAuth-only accounts have none, and the API skips password re-authentication
+   * for them, so the field is hidden and no password is sent. Defaults to true
+   * so a caller that has not yet loaded the status asks for the password rather
+   * than silently skipping the re-auth.
+   */
+  hasPassword?: boolean;
 }
 
 /**
@@ -53,7 +62,7 @@ interface MfaSetupCardProps {
  *
  * @param onEnabled - Callback invoked once MFA is successfully enabled.
  */
-export function MfaSetupCard({ onEnabled }: MfaSetupCardProps) {
+export function MfaSetupCard({ onEnabled, hasPassword = true }: MfaSetupCardProps) {
   const [step, setStep] = useState<'idle' | 'scanning' | 'verifying'>('idle');
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [secret, setSecret] = useState<string | null>(null);
@@ -80,16 +89,19 @@ export function MfaSetupCard({ onEnabled }: MfaSetupCardProps) {
   });
 
   const handleSetup = async () => {
-    // Non-empty check only — the server is the authority on whether the
-    // password matches (wrong password → auth.invalid_credentials toast).
-    if (password === '') {
+    // Non-empty check only, and only for accounts that HAVE a password — the
+    // server is the authority on whether it matches (wrong password →
+    // auth.invalid_credentials toast). For OAuth-only accounts the API
+    // re-authenticates from a recent-login marker instead, so blocking here
+    // would make enrollment unreachable for them.
+    if (hasPassword && password === '') {
       setPasswordError('Enter your current password to continue.');
       return;
     }
     setPasswordError(null);
     setIsLoading(true);
     try {
-      const result = await mfaSetup(password);
+      const result = await mfaSetup(hasPassword ? password : undefined);
       const dataUrl = await toQrDataUrl(result.qrCodeUri);
       setQrDataUrl(dataUrl);
       setSecret(result.secret);

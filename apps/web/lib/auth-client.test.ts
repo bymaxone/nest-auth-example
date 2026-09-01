@@ -1665,6 +1665,27 @@ describe('mfaSetup', () => {
     expect(init.method).toBe('POST');
     expect(init.body).toBe(JSON.stringify({ password: 'CurrentPassword123!' }));
   });
+
+  it('omits the password field entirely when called without one', async () => {
+    /*
+     * Scenario: OAuth-only accounts have no local password, and the API skips
+     * password re-authentication for them. Sending `{ password: '' }` would be
+     * compared against the stored hash, fail, and count toward the MFA
+     * lockout — so the field has to be absent, not empty.
+     * Protects: the `password === undefined` arm of the body construction.
+     */
+    const setupInfo: MfaSetupInfo = {
+      secret: 'JBSWY3DPEHPK3PXP',
+      qrCodeUri: 'otpauth://totp/Example:alice?secret=JBSWY3DPEHPK3PXP',
+      recoveryCodes: ['REC-1'],
+    };
+    mockInnerFetch.mockResolvedValueOnce(makeJsonResponse(setupInfo));
+
+    await mfaSetup();
+
+    const [, init] = mockInnerFetch.mock.calls[0] as [string, RequestInit];
+    expect(init.body).toBe('{}');
+  });
 });
 
 describe('mfaVerifyEnable', () => {

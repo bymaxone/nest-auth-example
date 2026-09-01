@@ -55,6 +55,7 @@ beforeEach(() => {
   // counter-specific behaviour.
   vi.mocked(getMfaStatus).mockResolvedValue({
     enabled: true,
+    hasPassword: true,
     recoveryCodesRemaining: 8,
     recoveryCodesTotal: 8,
     required: false,
@@ -217,6 +218,7 @@ describe('MfaDisableCard recovery-code counter', () => {
      */
     vi.mocked(getMfaStatus).mockResolvedValueOnce({
       enabled: true,
+      hasPassword: true,
       recoveryCodesRemaining: 2,
       recoveryCodesTotal: 8,
       required: false,
@@ -237,6 +239,7 @@ describe('MfaDisableCard recovery-code counter', () => {
      */
     vi.mocked(getMfaStatus).mockResolvedValueOnce({
       enabled: true,
+      hasPassword: true,
       recoveryCodesRemaining: 0,
       recoveryCodesTotal: 8,
       required: false,
@@ -282,12 +285,14 @@ describe('MfaDisableCard recovery-code counter', () => {
      */
     let resolveFetch: (value: {
       enabled: boolean;
+      hasPassword: boolean;
       recoveryCodesRemaining: number;
       recoveryCodesTotal: number;
       required: boolean;
     }) => void = () => undefined;
     const pendingPromise = new Promise<{
       enabled: boolean;
+      hasPassword: boolean;
       recoveryCodesRemaining: number;
       recoveryCodesTotal: number;
       required: boolean;
@@ -303,6 +308,7 @@ describe('MfaDisableCard recovery-code counter', () => {
     unmount();
     resolveFetch({
       enabled: true,
+      hasPassword: true,
       recoveryCodesRemaining: 7,
       recoveryCodesTotal: 8,
       required: false,
@@ -695,6 +701,7 @@ describe('MfaDisableCard counter row visibility + tone', () => {
      */
     vi.mocked(getMfaStatus).mockResolvedValueOnce({
       enabled: true,
+      hasPassword: true,
       recoveryCodesRemaining: 0,
       recoveryCodesTotal: 8,
       required: false,
@@ -714,6 +721,7 @@ describe('MfaDisableCard counter row visibility + tone', () => {
      */
     vi.mocked(getMfaStatus).mockResolvedValueOnce({
       enabled: true,
+      hasPassword: true,
       recoveryCodesRemaining: 2,
       recoveryCodesTotal: 8,
       required: false,
@@ -757,6 +765,7 @@ describe('MfaDisableCard counter row visibility + tone', () => {
      */
     let resolveFetch: (value: {
       enabled: boolean;
+      hasPassword: boolean;
       recoveryCodesRemaining: number;
       recoveryCodesTotal: number;
       required: boolean;
@@ -775,6 +784,7 @@ describe('MfaDisableCard counter row visibility + tone', () => {
     await act(async () => {
       resolveFetch({
         enabled: true,
+        hasPassword: true,
         recoveryCodesRemaining: 8,
         recoveryCodesTotal: 8,
         required: false,
@@ -794,6 +804,7 @@ describe('MfaDisableCard counter row visibility + tone', () => {
      */
     vi.mocked(getMfaStatus).mockResolvedValueOnce({
       enabled: true,
+      hasPassword: true,
       recoveryCodesRemaining: undefined as unknown as number,
       recoveryCodesTotal: undefined as unknown as number,
       required: false,
@@ -818,6 +829,7 @@ describe('MfaDisableCard counter row visibility + tone', () => {
      */
     vi.mocked(getMfaStatus).mockResolvedValueOnce({
       enabled: true,
+      hasPassword: true,
       recoveryCodesRemaining: 5,
       recoveryCodesTotal: undefined as unknown as number,
       required: false,
@@ -977,6 +989,7 @@ describe('MfaDisableCard useEffect cleanup', () => {
      */
     let resolveFetch: (value: {
       enabled: boolean;
+      hasPassword: boolean;
       recoveryCodesRemaining: number;
       recoveryCodesTotal: number;
       required: boolean;
@@ -994,6 +1007,7 @@ describe('MfaDisableCard useEffect cleanup', () => {
       await act(async () => {
         resolveFetch({
           enabled: true,
+          hasPassword: true,
           recoveryCodesRemaining: 7,
           recoveryCodesTotal: 8,
           required: false,

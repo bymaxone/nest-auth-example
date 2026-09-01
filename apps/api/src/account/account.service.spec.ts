@@ -951,7 +951,7 @@ describe('AccountService', () => {
       ).rejects.toThrow('Your account in the target workspace is not active.');
     });
 
-    it('getMfaStatus requests exactly {mfaEnabled, mfaRecoveryCodes} from prisma.user', async () => {
+    it('getMfaStatus requests exactly {mfaEnabled, mfaRecoveryCodes, passwordHash} from prisma.user', async () => {
       /*
        * Scenario: the security page reads the MFA snapshot to render
        * the recovery-code counter. The select clause MUST stay narrow:
@@ -967,7 +967,52 @@ describe('AccountService', () => {
       const calls = userFindUnique.mock.calls as unknown as Array<
         [{ where: { id: string; tenantId: string }; select: Record<string, boolean> }]
       >;
-      expect(calls[0]?.[0].select).toEqual({ mfaEnabled: true, mfaRecoveryCodes: true });
+      expect(calls[0]?.[0].select).toEqual({
+        mfaEnabled: true,
+        mfaRecoveryCodes: true,
+        // Presence only — the hash itself never leaves the service.
+        passwordHash: true,
+      });
+    });
+
+    it('getMfaStatus reports hasPassword false for an OAuth-only account', async () => {
+      /*
+       * Scenario: an account created through OAuth has no `passwordHash`. The
+       * library skips password re-authentication for those on MFA setup, so
+       * the UI needs this flag to know not to demand a password the user does
+       * not have — without it, MFA enrollment is unreachable for every OAuth
+       * account.
+       * Protects: the null check, and that only presence is exposed — the hash
+       * itself must never appear in the response.
+       */
+      userFindUnique.mockResolvedValue({
+        mfaEnabled: false,
+        mfaRecoveryCodes: [],
+        passwordHash: null,
+      });
+
+      const status = await service.getMfaStatus('user-1', 'tenant-acme');
+
+      expect(status.hasPassword).toBe(false);
+      expect(JSON.stringify(status)).not.toContain('passwordHash');
+    });
+
+    it('getMfaStatus reports hasPassword true for a local-password account', async () => {
+      /*
+       * Scenario: the mirror case. A stored hash means the setup form must
+       * keep asking for the password, so the flag has to distinguish the two
+       * rather than defaulting one way.
+       * Protects: the true arm of the same check.
+       */
+      userFindUnique.mockResolvedValue({
+        mfaEnabled: false,
+        mfaRecoveryCodes: [],
+        passwordHash: '$scrypt$ln=17,r=8,p=1$c2FsdA$aGFzaA',
+      });
+
+      const status = await service.getMfaStatus('user-1', 'tenant-acme');
+
+      expect(status.hasPassword).toBe(true);
     });
 
     it('getMfaStatus surfaces the documented 401 message when the user row is missing', async () => {

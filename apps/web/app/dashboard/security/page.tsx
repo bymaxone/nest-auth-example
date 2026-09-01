@@ -43,6 +43,9 @@ export default function SecurityPage() {
   const { user, refresh } = useSession();
   const searchParams = useSearchParams();
   const [isMfaRequired, setIsMfaRequired] = useState(false);
+  // Defaults to true so the setup card asks for a password until the status
+  // says otherwise — the safe direction while the snapshot is still loading.
+  const [hasPassword, setHasPassword] = useState(true);
 
   // Fetch the workspace MFA policy on mount. We only need the `required`
   // flag here — the recovery-code counter inside MfaDisableCard has its
@@ -55,7 +58,10 @@ export default function SecurityPage() {
     void (async () => {
       try {
         const status = await getMfaStatus();
-        if (!cancelled) setIsMfaRequired(status.required);
+        if (!cancelled) {
+          setIsMfaRequired(status.required);
+          setHasPassword(status.hasPassword);
+        }
       } catch {
         if (!cancelled) setIsMfaRequired(false);
       }
@@ -132,7 +138,7 @@ export default function SecurityPage() {
         ) : user.mfaEnabled ? (
           <MfaDisableCard onDisabled={handleToggle} />
         ) : (
-          <MfaSetupCard onEnabled={handleToggle} />
+          <MfaSetupCard onEnabled={handleToggle} hasPassword={hasPassword} />
         )}
       </div>
 

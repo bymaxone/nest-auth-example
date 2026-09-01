@@ -124,6 +124,16 @@ export interface MfaStatusInfo {
   /** Whether the user has completed MFA enrollment (matches `user.mfaEnabled`). */
   readonly enabled: boolean;
   /**
+   * Whether the account has a local password.
+   *
+   * `false` for OAuth-only accounts, which have no `passwordHash`. The library
+   * skips password re-authentication for them on MFA setup and falls back to a
+   * recent-authentication marker, so the UI must not demand a password those
+   * users do not have — without this flag the setup form is unreachable for
+   * them.
+   */
+  readonly hasPassword: boolean;
+  /**
    * Count of unused recovery codes remaining on the account. Each successful
    * recovery-code login consumes one entry from `user.mfaRecoveryCodes`.
    * Always `0` when MFA is not enabled.
@@ -399,7 +409,7 @@ export class AccountService {
   async getMfaStatus(userId: string, tenantId: string): Promise<MfaStatusInfo> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId, tenantId },
-      select: { mfaEnabled: true, mfaRecoveryCodes: true },
+      select: { mfaEnabled: true, mfaRecoveryCodes: true, passwordHash: true },
     });
 
     if (user === null) {
@@ -410,6 +420,8 @@ export class AccountService {
 
     return {
       enabled: user.mfaEnabled,
+      // Only the presence of the hash is exposed — never the hash itself.
+      hasPassword: user.passwordHash !== null,
       recoveryCodesRemaining: user.mfaEnabled ? user.mfaRecoveryCodes.length : 0,
       recoveryCodesTotal: RECOVERY_CODES_TOTAL,
       required: requiredTenantIds.has(tenantId),
