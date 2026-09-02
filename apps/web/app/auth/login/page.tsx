@@ -30,7 +30,7 @@
 
 'use client';
 
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
@@ -84,6 +84,11 @@ function LoginForm() {
   });
   // Bumped by the retry control so the effect runs again after a failure.
   const [tenantRequestId, setTenantRequestId] = useState(0);
+  // Set when the user names the workspace themselves. A lookup already in
+  // flight has no cleanup to cancel it — nothing re-runs the effect — so it
+  // would otherwise land afterwards and overwrite their choice with the link's
+  // workspace, silently, right before they submit.
+  const userChoseTenant = useRef(false);
   const isTenantUnsettled = tenantState !== 'settled';
 
   // A `?tenantId=` the picker does not recognise is not a malformed link — it
@@ -99,7 +104,7 @@ function LoginForm() {
     let cancelled = false;
     void (async () => {
       const slug = await resolveTenantSlugById(param);
-      if (cancelled) return;
+      if (cancelled || userChoseTenant.current) return;
       if (slug === null) {
         // Unknown stays unknown. Reverting to the default here is what would
         // sign a Globex user into Acme, so the controls stay shut until either
@@ -117,6 +122,8 @@ function LoginForm() {
 
   /** Re-runs the lookup after a failure. */
   const handleTenantRetry = useCallback(() => {
+    // Asking for the lookup again withdraws the manual choice, if there was one.
+    userChoseTenant.current = false;
     setTenantState('resolving');
     setTenantRequestId((id) => id + 1);
   }, []);
@@ -128,6 +135,7 @@ function LoginForm() {
    * by default, because the control renders empty while unsettled.
    */
   const handleTenantChange = useCallback((slug: string) => {
+    userChoseTenant.current = true;
     setTenantSlug(slug);
     setTenantState('settled');
   }, []);

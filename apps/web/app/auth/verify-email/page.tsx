@@ -28,7 +28,6 @@ import { OtpInput } from '@/components/auth/otp-input';
 import { verifyEmailSchema, type VerifyEmailFormValues } from '@/lib/schemas/auth';
 import { translateAuthError } from '@/lib/auth-errors';
 import { useCooldown } from '@/hooks/use-cooldown';
-import { resolveTenantForLogin, TenantNotFoundError } from '@/lib/auth-client';
 
 /**
  * Inner form — extracted so the default export can wrap it in `<Suspense>`,
@@ -63,16 +62,18 @@ function VerifyEmailForm() {
     if (!hasRequiredParams) return;
     setIsSubmitting(true);
     try {
-      // The URL may carry the tenant slug (`acme`) or the CUID — resolve to CUID
-      // because the lib's `tenantIdResolver` only matches the OTP key that was
-      // hashed at registration with the resolved CUID. Passing the slug here
-      // surfaces as `OTP_EXPIRED` (key not found) even when the OTP is valid.
-      const resolvedTenantId = await resolveTenantForLogin(tenantId);
+      // The parameter is `Tenant.id` from both of its sources — the register
+      // page passes the id it resolved, and the emailed link is built from the
+      // id the library hands the provider — so it is sent as it stands. It must
+      // be the id and not the slug: the lib's OTP key was hashed at
+      // registration with the id, and a slug here surfaces as `OTP_EXPIRED`
+      // even when the OTP is valid. Resolving it as a slug would 404 for any
+      // deployment whose ids are not also slugs.
 
       const response = await fetch('/api/auth/verify-email', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-Tenant-Id': resolvedTenantId },
+        headers: { 'Content-Type': 'application/json', 'X-Tenant-Id': tenantId },
         body: JSON.stringify({ email, otp: data.otp }),
       });
 
@@ -84,11 +85,9 @@ function VerifyEmailForm() {
       }
 
       router.replace('/auth/login?verified=1');
-    } catch (err) {
-      if (err instanceof TenantNotFoundError) {
-        toast.error(`Workspace "${err.slug}" was not found. Re-open the link from your email.`);
-        return;
-      }
+    } catch {
+      // The verification response is handled above; anything reaching here is a
+      // transport failure, which carries nothing worth showing the user.
       toast.error('An unexpected error occurred. Please try again.');
     } finally {
       setIsSubmitting(false);
@@ -98,11 +97,10 @@ function VerifyEmailForm() {
   const handleResend = async () => {
     if (!hasRequiredParams || isCoolingDown) return;
     try {
-      const resolvedTenantId = await resolveTenantForLogin(tenantId);
       await fetch('/api/auth/resend-verification', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-Tenant-Id': resolvedTenantId },
+        headers: { 'Content-Type': 'application/json', 'X-Tenant-Id': tenantId },
         body: JSON.stringify({ email }),
       });
       startCooldown();

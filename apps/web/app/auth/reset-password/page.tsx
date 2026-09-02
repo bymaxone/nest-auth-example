@@ -41,7 +41,7 @@ import {
   type ResetPasswordTokenFormValues,
   type ResetPasswordOtpFormValues,
 } from '@/lib/schemas/auth';
-import { mapAuthClientError, resolveTenantForLogin, TenantNotFoundError } from '@/lib/auth-client';
+import { mapAuthClientError } from '@/lib/auth-client';
 import { translateAuthError } from '@/lib/auth-errors';
 
 /**
@@ -77,19 +77,17 @@ function TokenModeForm({
   const onSubmit = async (data: ResetPasswordTokenFormValues) => {
     setIsSubmitting(true);
     try {
-      // The URL may carry the tenant slug or the CUID — resolve to the CUID
-      // and stash it in the cookie so tenantAwareFetch injects X-Tenant-Id.
-      // The body carries no tenantId: the API's `tenantIdResolver` refuses it.
-      const resolvedTenantId = await resolveTenantForLogin(tenantId);
-      document.cookie = `tenant_id=${resolvedTenantId}; Path=/; SameSite=Lax; Max-Age=31536000`;
+      // The link is built by the email provider from the `tenantId` the library
+      // hands it — `Tenant.id`, never the slug — so it goes into the cookie as
+      // it stands, for `tenantAwareFetch` to send as X-Tenant-Id. Running it
+      // through the slug lookup would ask the server to translate an id, which
+      // answers 404 for any deployment whose ids are not also slugs. The body
+      // carries no tenantId: the API's `tenantIdResolver` refuses it.
+      document.cookie = `tenant_id=${tenantId}; Path=/; SameSite=Lax; Max-Age=31536000`;
 
       await resetPassword({ email, newPassword: data.newPassword, token });
       router.replace('/auth/login?reset=1');
     } catch (err) {
-      if (err instanceof TenantNotFoundError) {
-        toast.error(`Workspace "${err.slug}" was not found. Re-open the link from your email.`);
-        return;
-      }
       const { code } = mapAuthClientError(err);
       toast.error(translateAuthError(code === 'UNKNOWN' ? '' : code));
     } finally {
@@ -178,19 +176,17 @@ function OtpModeForm({ email, tenantId }: { email: string; tenantId: string }) {
   const onSubmit = async (data: ResetPasswordOtpFormValues) => {
     setIsSubmitting(true);
     try {
-      // The URL may carry the tenant slug or the CUID — resolve to the CUID
-      // and stash it in the cookie so tenantAwareFetch injects X-Tenant-Id.
-      // The body carries no tenantId: the API's `tenantIdResolver` refuses it.
-      const resolvedTenantId = await resolveTenantForLogin(tenantId);
-      document.cookie = `tenant_id=${resolvedTenantId}; Path=/; SameSite=Lax; Max-Age=31536000`;
+      // The link is built by the email provider from the `tenantId` the library
+      // hands it — `Tenant.id`, never the slug — so it goes into the cookie as
+      // it stands, for `tenantAwareFetch` to send as X-Tenant-Id. Running it
+      // through the slug lookup would ask the server to translate an id, which
+      // answers 404 for any deployment whose ids are not also slugs. The body
+      // carries no tenantId: the API's `tenantIdResolver` refuses it.
+      document.cookie = `tenant_id=${tenantId}; Path=/; SameSite=Lax; Max-Age=31536000`;
 
       await resetPassword({ email, newPassword: data.newPassword, otp: data.otp });
       router.replace('/auth/login?reset=1');
     } catch (err) {
-      if (err instanceof TenantNotFoundError) {
-        toast.error(`Workspace "${err.slug}" was not found. Re-open the link from your email.`);
-        return;
-      }
       const { code } = mapAuthClientError(err);
       toast.error(translateAuthError(code === 'UNKNOWN' ? '' : code));
     } finally {
