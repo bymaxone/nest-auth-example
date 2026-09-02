@@ -152,7 +152,7 @@ If the email of the Google account matches an existing user in the seeded tenant
 - **Initiate endpoint:** `GET /api/auth/oauth/:provider?tenantId=…` — mounted by the library when `oauth.google.*` are present in the config.
 - **Callback endpoint:** `GET /api/auth/oauth/:provider/callback` — same lib controller.
 - **Sign-in hook:** [`AppAuthHooks.onOAuthLogin`](../apps/api/src/auth/app-auth.hooks.ts) (`'link' | 'create'` strategy). `'link'` is reached only when `findByOAuthId` already matched the provider id — re-authentication of an established link. There is no email-based linking: since lib 1.4.x the create path refuses an address that already has an account with `auth.oauth_email_mismatch`, so nobody inherits an account by controlling its owner's Google identity.
-- **Repository write:** [`PrismaUserRepository.createWithOAuth`](../apps/api/src/auth/prisma-user.repository.ts) — uses Prisma `upsert` on `(tenantId, email)` so a parallel attempt cannot create a duplicate row.
+- **Repository write:** [`PrismaUserRepository.createWithOAuth`](../apps/api/src/auth/prisma-user.repository.ts) — a plain `create`. The unique constraint on `(tenantId, email)` is what settles a registration that commits between the library's own check and this insert: `P2002` becomes `auth.oauth_email_mismatch`, the same refusal the non-racing path gives. An upsert here would attach the OAuth identity to whichever row won the race, which is the silent linking 1.4.x removed.
 
 ---
 

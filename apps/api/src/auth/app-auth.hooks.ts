@@ -377,10 +377,11 @@ export class AppAuthHooks implements IAuthHooks {
    * - `existingUser` non-null (user found by OAuth ID) → `'link'`: re-authenticates
    *   an already-linked identity via `userRepo.linkOAuth` (effectively a no-op update).
    * - `existingUser` null (OAuth ID not yet in the database) → `'create'`: delegates
-   *   to `PrismaUserRepository.createWithOAuth`, which performs an upsert on
-   *   `(tenantId, email)`. If a user registered via email/password with the same
-   *   address, their OAuth fields are updated in-place rather than creating a
-   *   duplicate row — implementing the account-linking guarantee.
+   *   to `PrismaUserRepository.createWithOAuth`, which inserts. The library has
+   *   already refused the address if it belongs to an account, and the unique
+   *   constraint on `(tenantId, email)` refuses it again if a registration wins
+   *   the race — surfacing as `auth.oauth_email_mismatch` either way. Nothing
+   *   attaches an OAuth identity to an account this flow did not create.
    *
    * @param profile - Normalised OAuth profile from the provider.
    * @param existingUser - Existing user found by OAuth provider ID, or null.
