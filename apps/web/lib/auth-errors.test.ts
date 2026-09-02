@@ -97,6 +97,41 @@ describe('translateAuthError', () => {
     expect(result).toBe('Your account has been locked. Please contact support.');
   });
 
+  it('returns the correct message for REAUTHENTICATION_REQUIRED', () => {
+    /*
+     * Scenario: sensitive flows (MFA setup) now demand a fresh password
+     * confirmation — the code must map to copy telling the user to confirm
+     * their password rather than a generic failure.
+     * Protects: translateAuthError lookup for REAUTHENTICATION_REQUIRED
+     * (added to AUTH_ERROR_CODES in lib 1.1.0).
+     */
+    const result = translateAuthError(AUTH_ERROR_CODES.REAUTHENTICATION_REQUIRED);
+    expect(result).toBe('Please confirm your password to continue.');
+  });
+
+  it('returns the correct message for TOO_MANY_REQUESTS', () => {
+    /*
+     * Scenario: rate-limited requests must surface wait-and-retry copy so the
+     * user does not hammer the endpoint further.
+     * Protects: translateAuthError lookup for TOO_MANY_REQUESTS (new code set).
+     */
+    const result = translateAuthError(AUTH_ERROR_CODES.TOO_MANY_REQUESTS);
+    expect(result).toBe('Too many requests. Please wait a moment and try again.');
+  });
+
+  it('returns the correct message for PASSWORD_COMPROMISED', () => {
+    /*
+     * Scenario: a breached password must map to copy that tells the user to
+     * pick a different password — this code replaced the removed
+     * PASSWORD_TOO_WEAK as the weak-password surface.
+     * Protects: translateAuthError lookup for PASSWORD_COMPROMISED.
+     */
+    const result = translateAuthError(AUTH_ERROR_CODES.PASSWORD_COMPROMISED);
+    expect(result).toBe(
+      'This password has appeared in a known data breach. Please choose a different one.',
+    );
+  });
+
   // ── Unknown / future codes ────────────────────────────────────────────────
 
   it('returns a generic fallback message for an unknown code', () => {

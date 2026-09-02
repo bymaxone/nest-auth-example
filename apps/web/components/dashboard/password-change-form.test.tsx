@@ -6,6 +6,8 @@
  * - Submitting valid data calls changePassword.
  * - Submitting mismatched passwords shows a validation error.
  * - Submitting empty fields shows validation errors.
+ * - A failed realtime disconnect still reports the committed password change
+ *   and restores this tab's socket.
  *
  * @module components/dashboard/password-change-form.test
  */
@@ -19,7 +21,13 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 vi.mock('@/lib/auth-client', () => ({
   changePassword: vi.fn(),
+  disconnectRealtime: vi.fn(),
   handleAuthClientError: vi.fn(),
+}));
+
+const mockWsReconnect = vi.fn();
+vi.mock('@/lib/ws-client', () => ({
+  getWsClient: () => ({ reconnect: mockWsReconnect }),
 }));
 
 vi.mock('sonner', () => ({
@@ -28,11 +36,13 @@ vi.mock('sonner', () => ({
 
 // ── Typed imports after mocks ─────────────────────────────────────────────────
 
-import { changePassword, handleAuthClientError } from '@/lib/auth-client';
+import { changePassword, disconnectRealtime, handleAuthClientError } from '@/lib/auth-client';
+import { toast } from 'sonner';
 import { PasswordChangeForm } from './password-change-form.js';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(disconnectRealtime).mockResolvedValue(undefined);
 });
 
 describe('PasswordChangeForm rendering', () => {
@@ -64,15 +74,15 @@ describe('PasswordChangeForm submission', () => {
     // Fill current password (index 0), new password (index 1), confirm (index 2).
     const inputs = document.querySelectorAll('input');
     fireEvent.change(inputs[0]!, { target: { value: 'OldPass1!' } });
-    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!Long' } });
-    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!Long' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!LongEnough' } });
 
     fireEvent.click(screen.getByRole('button', { name: /update password/i }));
 
     await waitFor(() => {
       expect(changePassword).toHaveBeenCalledWith({
         currentPassword: 'OldPass1!',
-        newPassword: 'NewPass1!Long',
+        newPassword: 'NewPass1!LongEnough',
       });
     });
   });
@@ -87,7 +97,7 @@ describe('PasswordChangeForm submission', () => {
 
     const inputs = document.querySelectorAll('input');
     fireEvent.change(inputs[0]!, { target: { value: 'OldPass1!' } });
-    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!Long' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
     fireEvent.change(inputs[2]!, { target: { value: 'DifferentPass!' } });
 
     fireEvent.click(screen.getByRole('button', { name: /update password/i }));
@@ -101,7 +111,7 @@ describe('PasswordChangeForm submission', () => {
   it('shows validation errors when all fields are empty on submit', async () => {
     /*
      * Scenario: clicking submit with no input must show at least one validation
-     * error paragraph (for currentPassword min(1) or newPassword min(8)).
+     * error paragraph (for currentPassword min(1) or newPassword min(15)).
      * Protects: Zod validation fires on empty submit.
      */
     render(<PasswordChangeForm />);
@@ -125,8 +135,8 @@ describe('PasswordChangeForm submission', () => {
 
     const inputs = document.querySelectorAll('input');
     fireEvent.change(inputs[0]!, { target: { value: 'OldPass1!' } });
-    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!Long' } });
-    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!Long' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!LongEnough' } });
 
     fireEvent.click(screen.getByRole('button', { name: /update password/i }));
 
@@ -147,8 +157,8 @@ describe('PasswordChangeForm submission', () => {
 
     const inputs = document.querySelectorAll('input');
     fireEvent.change(inputs[0]!, { target: { value: 'OldPass1!' } });
-    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!Long' } });
-    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!Long' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!LongEnough' } });
 
     fireEvent.click(screen.getByRole('button', { name: /update password/i }));
 
@@ -175,8 +185,8 @@ describe('PasswordChangeForm surfaces verbatim copy + isPending reset + field er
     render(<PasswordChangeForm />);
     const inputs = document.querySelectorAll('input');
     fireEvent.change(inputs[0]!, { target: { value: 'OldPass1!' } });
-    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!Long' } });
-    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!Long' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!LongEnough' } });
     fireEvent.click(screen.getByRole('button', { name: /update password/i }));
 
     await waitFor(() => {
@@ -195,8 +205,8 @@ describe('PasswordChangeForm surfaces verbatim copy + isPending reset + field er
     render(<PasswordChangeForm />);
     const inputs = document.querySelectorAll('input');
     fireEvent.change(inputs[0]!, { target: { value: 'OldPass1!' } });
-    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!Long' } });
-    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!Long' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!LongEnough' } });
     fireEvent.click(screen.getByRole('button', { name: /update password/i }));
 
     await waitFor(() => {
@@ -221,8 +231,8 @@ describe('PasswordChangeForm surfaces verbatim copy + isPending reset + field er
     render(<PasswordChangeForm />);
     const inputs = document.querySelectorAll<HTMLInputElement>('input');
     fireEvent.change(inputs[0]!, { target: { value: 'OldPass1!' } });
-    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!Long' } });
-    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!Long' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!LongEnough' } });
     fireEvent.click(screen.getByRole('button', { name: /update password/i }));
 
     await waitFor(() => {
@@ -246,8 +256,8 @@ describe('PasswordChangeForm surfaces verbatim copy + isPending reset + field er
     render(<PasswordChangeForm />);
     // New password long, but current empty → currentPassword validation fires.
     const inputs = document.querySelectorAll<HTMLInputElement>('input');
-    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!Long' } });
-    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!Long' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!LongEnough' } });
     fireEvent.click(screen.getByRole('button', { name: /update password/i }));
 
     await waitFor(() => {
@@ -271,7 +281,7 @@ describe('PasswordChangeForm surfaces verbatim copy + isPending reset + field er
 
   it('adds the red error-border class to the new-password input when its validation fails', async () => {
     /*
-     * Scenario: the new-password field requires min(8). Pin the truthy
+     * Scenario: the new-password field requires min(15). Pin the truthy
      * arm of `errors.newPassword ?` independently from the
      * currentPassword arm — a regression that conflated the two error
      * sources would silently mark the wrong field as invalid.
@@ -299,8 +309,8 @@ describe('PasswordChangeForm surfaces verbatim copy + isPending reset + field er
      */
     render(<PasswordChangeForm />);
     const inputs = document.querySelectorAll<HTMLInputElement>('input');
-    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!Long' } });
-    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!Long' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!LongEnough' } });
     fireEvent.click(screen.getByRole('button', { name: /update password/i }));
 
     // The "Required" message must render (defends currentPassword paragraph).
@@ -309,9 +319,9 @@ describe('PasswordChangeForm surfaces verbatim copy + isPending reset + field er
     });
   });
 
-  it('renders the verbatim "Must be at least 8 characters" error for the new-password field', async () => {
+  it('renders the verbatim "Must be at least 15 characters" error for the new-password field', async () => {
     /*
-     * Scenario: only the new-password field violates the min(8) rule.
+     * Scenario: only the new-password field violates the min(15) rule.
      * Pins the truthy arm of `{errors.newPassword && <p>…</p>}` AND
      * the Zod min-length message — a `{true}`/`{false}` mutant on
      * the newPassword arm would drop the paragraph.
@@ -324,7 +334,7 @@ describe('PasswordChangeForm surfaces verbatim copy + isPending reset + field er
     fireEvent.click(screen.getByRole('button', { name: /update password/i }));
 
     await waitFor(() => {
-      expect(screen.getByText('Must be at least 8 characters')).toBeDefined();
+      expect(screen.getByText('Must be at least 15 characters')).toBeDefined();
     });
   });
 
@@ -351,12 +361,79 @@ describe('PasswordChangeForm surfaces verbatim copy + isPending reset + field er
     render(<PasswordChangeForm />);
     const inputs = document.querySelectorAll<HTMLInputElement>('input');
     fireEvent.change(inputs[0]!, { target: { value: 'OldPass1!' } });
-    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!Long' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
     fireEvent.change(inputs[2]!, { target: { value: 'DifferentPass!' } });
     fireEvent.click(screen.getByRole('button', { name: /update password/i }));
 
     await waitFor(() => {
       expect(inputs[2]!.className).toContain('border-red');
+    });
+  });
+
+  it('closes the revoked devices sockets and reconnects this one', async () => {
+    /*
+     * Scenario: the library revokes every other session and bumps the token
+     * epoch, but the gateway authenticates a socket at connect and never
+     * revalidates — so devices with a socket opened before the change keep
+     * receiving notifications on a session that no longer exists.
+     * The server-side close cannot single out this tab, so it drops ours too;
+     * reconnecting immediately is what keeps the initiating client working
+     * while the revoked ones stay refused.
+     * Protects: both calls, and their order.
+     */
+    vi.mocked(changePassword).mockResolvedValue(undefined);
+
+    render(<PasswordChangeForm />);
+    const inputs = document.querySelectorAll('input');
+    fireEvent.change(inputs[0]!, { target: { value: 'OldPass1!' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.click(screen.getByRole('button', { name: /update password/i }));
+
+    await waitFor(() => expect(disconnectRealtime).toHaveBeenCalledOnce());
+    expect(mockWsReconnect).toHaveBeenCalledOnce();
+    const disconnectOrder = vi.mocked(disconnectRealtime).mock.invocationCallOrder[0] ?? 0;
+    const reconnectOrder = mockWsReconnect.mock.invocationCallOrder[0] ?? 0;
+    expect(disconnectOrder).toBeLessThan(reconnectOrder);
+  });
+
+  it('still reports the change and restores the socket when the disconnect call fails', async () => {
+    /*
+     * Scenario: the password change committed — the library already revoked the
+     * other sessions — and only the realtime cleanup that follows it failed.
+     * Two things must not happen: reporting the change as failed, which would
+     * send the user back to retry with a password that is no longer current;
+     * and skipping `reconnect()`, because a lost response looks exactly like a
+     * request that never arrived, and in that case the gateway has already
+     * closed this tab's socket with the 4403 that `WsClient` never retries.
+     * Protects: the success toast and reset running before the cleanup, and the
+     * `finally` that reconnects on the failure path too.
+     */
+    vi.mocked(changePassword).mockResolvedValue(undefined);
+    const err = new Error('Disconnect failed');
+    vi.mocked(disconnectRealtime).mockRejectedValue(err);
+
+    render(<PasswordChangeForm />);
+    const inputs = document.querySelectorAll('input');
+    fireEvent.change(inputs[0]!, { target: { value: 'OldPass1!' } });
+    fireEvent.change(inputs[1]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.change(inputs[2]!, { target: { value: 'NewPass1!LongEnough' } });
+    fireEvent.click(screen.getByRole('button', { name: /update password/i }));
+
+    await waitFor(() => expect(mockWsReconnect).toHaveBeenCalledOnce());
+    // The change stands and is reported as such, and the form is cleared.
+    expect(toast.success).toHaveBeenCalledWith('Password updated successfully.');
+    expect((inputs[0] as HTMLInputElement).value).toBe('');
+    // The failed cleanup is still surfaced — the revoked devices keep their
+    // sockets — but as its own error, not as a failed password change.
+    expect(handleAuthClientError).toHaveBeenCalledWith(
+      err,
+      expect.objectContaining({ toast: expect.anything() }),
+    );
+    // The submit button comes back regardless of which path ran.
+    await waitFor(() => {
+      const submit = screen.getByRole('button', { name: /update password/i });
+      expect((submit as HTMLButtonElement).disabled).toBe(false);
     });
   });
 });

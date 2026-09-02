@@ -44,8 +44,8 @@ process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0
 
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { createAuthValidationPipe } from '@bymax-one/nest-auth';
+import { Test, type TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import { generateSync } from 'otplib';
 import * as supertest from 'supertest';
@@ -55,6 +55,7 @@ import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { clearMailpit, extractOtpFromHtml, waitForEmail } from './helpers/mailpit.js';
+import { resetAuthRateLimits } from './helpers/throttle.js';
 
 function uniqueEmail(prefix: string): string {
   return `${prefix}-${Date.now().toString()}-${Math.random().toString(36).slice(2)}@example.test`;
@@ -73,6 +74,12 @@ async function findEventRow(prisma: PrismaService, event: string) {
   });
 }
 
+/**
+ * Testing module handle, kept at module scope so rate-limit counters can be
+ * reset between tests. Assigned in `beforeAll`.
+ */
+let moduleRef: TestingModule;
+
 describe('AppAuthHooks audit trail — FCM #30 (every lifecycle slug is recorded)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
@@ -84,7 +91,7 @@ describe('AppAuthHooks audit trail — FCM #30 (every lifecycle slug is recorded
       stdio: 'pipe',
     });
 
-    const moduleRef = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
@@ -99,7 +106,7 @@ describe('AppAuthHooks audit trail — FCM #30 (every lifecycle slug is recorded
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({
+      createAuthValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
@@ -116,6 +123,10 @@ describe('AppAuthHooks audit trail — FCM #30 (every lifecycle slug is recorded
   });
 
   beforeEach(async () => {
+    // Clear both rate limiters (in-memory ThrottlerGuard + the library's
+    // Redis-backed per-IP counters) so auth-route limits never bleed across
+    // tests or spec files in a sequential run.
+    await resetAuthRateLimits(moduleRef);
     await clearMailpit();
     await truncateTables(prisma);
   });
@@ -127,7 +138,7 @@ describe('AppAuthHooks audit trail — FCM #30 (every lifecycle slug is recorded
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password, name: 'Audit Test', tenantId: 'acme' });
+      .send({ email, password, name: 'Audit Test' });
     expect(res.status).toBe(201);
   }
 
@@ -140,7 +151,7 @@ describe('AppAuthHooks audit trail — FCM #30 (every lifecycle slug is recorded
       .post('/api/auth/verify-email')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, otp, tenantId: 'acme' });
+      .send({ email, otp });
     expect(res.status).toBe(204);
   }
 
@@ -151,7 +162,7 @@ describe('AppAuthHooks audit trail — FCM #30 (every lifecycle slug is recorded
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password, tenantId: 'acme' });
+      .send({ email, password });
     expect(res.status).toBe(200);
     return agent;
   }
@@ -169,7 +180,7 @@ describe('AppAuthHooks audit trail — FCM #30 (every lifecycle slug is recorded
      * wires explicitly; dropping either is a regression.
      */
     const email = uniqueEmail('audit-register');
-    await register(email, 'P@ssw0rd12345');
+    await register(email, 'Str0ngUniqu3Passw0rd!');
     await flushAudits();
 
     const attempted = await findEventRow(prisma, 'user.register.attempted');
@@ -186,7 +197,7 @@ describe('AppAuthHooks audit trail — FCM #30 (every lifecycle slug is recorded
      * password reset and the dashboard.
      */
     const email = uniqueEmail('audit-verify');
-    await register(email, 'P@ssw0rd12345');
+    await register(email, 'Str0ngUniqu3Passw0rd!');
     await verify(email);
     await flushAudits();
 
@@ -204,7 +215,7 @@ describe('AppAuthHooks audit trail — FCM #30 (every lifecycle slug is recorded
      * dedicated to the authenticated session lifetime.
      */
     const email = uniqueEmail('audit-login');
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
     await register(email, password);
     await verify(email);
     const agent = await login(email, password);
@@ -225,15 +236,17 @@ describe('AppAuthHooks audit trail — FCM #30 (every lifecycle slug is recorded
      * account.
      */
     const email = uniqueEmail('audit-mfa-on');
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
     await register(email, password);
     await verify(email);
     const agent = await login(email, password);
 
+    // Setup re-authenticates with the account password (lib v1.4.x).
     const setupRes = await agent
       .post('/api/auth/mfa/setup')
       .set('Content-Type', 'application/json')
-      .set('X-Tenant-Id', 'acme');
+      .set('X-Tenant-Id', 'acme')
+      .send({ password });
     expect([200, 201]).toContain(setupRes.status);
     const { secret } = setupRes.body as { secret: string };
     const code = generateSync({ secret, strategy: 'totp' });

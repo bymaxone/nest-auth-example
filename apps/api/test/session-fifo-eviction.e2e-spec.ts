@@ -34,7 +34,7 @@ process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0
 
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
+import { createAuthValidationPipe } from '@bymax-one/nest-auth';
 import { Test, type TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import * as supertest from 'supertest';
@@ -44,7 +44,7 @@ import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { clearMailpit, waitForEmail, extractOtpFromHtml } from './helpers/mailpit.js';
-import { resetThrottleCounters } from './helpers/throttle.js';
+import { resetAuthRateLimits } from './helpers/throttle.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -96,7 +96,7 @@ describe('Session FIFO eviction — oldest session is removed when maxSessions i
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({
+      createAuthValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
@@ -113,6 +113,10 @@ describe('Session FIFO eviction — oldest session is removed when maxSessions i
   });
 
   beforeEach(async () => {
+    // Clear both rate limiters (in-memory ThrottlerGuard + the library's
+    // Redis-backed per-IP counters) so auth-route limits never bleed across
+    // tests or spec files in a sequential run.
+    await resetAuthRateLimits(moduleRef);
     await clearMailpit();
     await truncateTables(prisma);
   });
@@ -125,7 +129,7 @@ describe('Session FIFO eviction — oldest session is removed when maxSessions i
     // stays at 5. A `session.evicted` AuditLog entry must be written.
     // Protects FCM #13 (session-limit enforcement and eviction audit trail).
     const email = uniqueEmail('fifo-eviction');
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
     const httpServer = app.getHttpServer();
 
     // Register the user (sends verification OTP).
@@ -134,7 +138,7 @@ describe('Session FIFO eviction — oldest session is removed when maxSessions i
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password, name: 'FIFO User', tenantId: 'acme' });
+      .send({ email, password, name: 'FIFO User' });
     expect(regRes.status).toBe(201);
 
     // Verify the email via Mailpit.
@@ -145,7 +149,7 @@ describe('Session FIFO eviction — oldest session is removed when maxSessions i
       .post('/api/auth/verify-email')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, otp, tenantId: 'acme' });
+      .send({ email, otp });
     expect(verifyRes.status).toBe(204);
 
     // Create 5 sessions (maxSessions = 5). Each uses a distinct User-Agent so
@@ -158,7 +162,7 @@ describe('Session FIFO eviction — oldest session is removed when maxSessions i
         .set('Content-Type', 'application/json')
         .set('X-Tenant-Id', 'acme')
         .set('User-Agent', `TestBrowser-${i.toString()}`)
-        .send({ email, password, tenantId: 'acme' });
+        .send({ email, password });
       expect(loginRes.status).toBe(200);
       agents.push(loginAgent);
     }
@@ -175,7 +179,7 @@ describe('Session FIFO eviction — oldest session is removed when maxSessions i
     // this IP. Clear the counters so the sixth reaches the session logic: what
     // is under test is FIFO eviction, and a 429 here would only re-assert the
     // rate limit that throttle-demo already covers.
-    resetThrottleCounters(moduleRef);
+    await resetAuthRateLimits(moduleRef);
 
     // Create the 6th session — this must trigger FIFO eviction of the oldest.
     const agent6 = supertest.agent(httpServer);
@@ -184,7 +188,7 @@ describe('Session FIFO eviction — oldest session is removed when maxSessions i
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
       .set('User-Agent', 'TestBrowser-6')
-      .send({ email, password, tenantId: 'acme' });
+      .send({ email, password });
     expect(login6.status).toBe(200);
 
     // List sessions after the 6th login — must be at most 5 (oldest was evicted).

@@ -40,7 +40,11 @@ process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0
 
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
+import {
+  AUTH_ERROR_CODES,
+  AUTH_ERROR_STATUS,
+  createAuthValidationPipe,
+} from '@bymax-one/nest-auth';
 import { Test, type TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import { Redis } from 'ioredis';
@@ -52,7 +56,7 @@ import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { clearMailpit, waitForEmail, extractOtpFromHtml } from './helpers/mailpit.js';
-import { resetThrottleCounters } from './helpers/throttle.js';
+import { resetAuthRateLimits } from './helpers/throttle.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -115,7 +119,7 @@ async function registerVerifyLogin(
     .post('/api/auth/register')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', 'acme')
-    .send({ email, password, name: 'MFA Test User', tenantId: 'acme' });
+    .send({ email, password, name: 'MFA Test User' });
 
   expect(registerRes.status).toBe(201);
 
@@ -127,7 +131,7 @@ async function registerVerifyLogin(
     .post('/api/auth/verify-email')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', 'acme')
-    .send({ email, otp, tenantId: 'acme' });
+    .send({ email, otp });
 
   expect(verifyRes.status).toBe(204);
 
@@ -136,7 +140,7 @@ async function registerVerifyLogin(
     .post('/api/auth/login')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', 'acme')
-    .send({ email, password, tenantId: 'acme' });
+    .send({ email, password });
 
   expect(loginRes.status).toBe(200);
 
@@ -151,14 +155,18 @@ async function registerVerifyLogin(
  * (otherwise SETNX would reject the next call as a replay).
  *
  * @param agent - An authenticated supertest agent.
+ * @param password - The account's current password — `POST /mfa/setup` requires
+ *   re-authentication (lib v1.4.x) before it hands out a fresh TOTP secret.
  * @returns The TOTP secret so the caller can generate subsequent codes.
  */
-async function setupAndEnableMfa(agent: Agent): Promise<string> {
-  // POST /api/auth/mfa/setup — returns secret and qrCodeUri.
+async function setupAndEnableMfa(agent: Agent, password: string): Promise<string> {
+  // POST /api/auth/mfa/setup — re-authenticates with the account password and
+  // returns secret and qrCodeUri.
   const setupRes = await agent
     .post('/api/auth/mfa/setup')
     .set('Content-Type', 'application/json')
-    .set('X-Tenant-Id', 'acme');
+    .set('X-Tenant-Id', 'acme')
+    .send({ password });
 
   expect([200, 201]).toContain(setupRes.status);
   const { secret } = setupRes.body as { secret: string; qrCodeUri: string };
@@ -219,7 +227,7 @@ describe('MFA lifecycle — setup → verify-enable → challenge → disable', 
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({
+      createAuthValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
@@ -239,7 +247,7 @@ describe('MFA lifecycle — setup → verify-enable → challenge → disable', 
     // Every request in this suite comes from 127.0.0.1, so the per-IP `login`
     // tier is shared by all of its cases. Clear it between them: what is under
     // test here is auth behaviour, and a leaked 429 would mask it.
-    resetThrottleCounters(moduleRef);
+    await resetAuthRateLimits(moduleRef);
     // Clear accumulated email and user data before every individual test.
     await clearMailpit();
     await truncateTables(prisma);
@@ -248,17 +256,21 @@ describe('MFA lifecycle — setup → verify-enable → challenge → disable', 
   // ─── Test 1 — Setup response ──────────────────────────────────────────────
 
   it('POST /api/auth/mfa/setup returns secret and qrCodeUri', async () => {
-    // Scenario: a logged-in user initiates MFA setup. The library must return
-    // a TOTP secret (base32-encoded) and a QR code URI so the user can register
-    // their authenticator app. FCM row #8 (MFA setup).
+    // Scenario: a logged-in user initiates MFA setup. Since lib v1.4.x the
+    // setup endpoint requires the account's current password in the body
+    // (re-authentication). The library must return a TOTP secret
+    // (base32-encoded) and a QR code URI so the user can register their
+    // authenticator app. FCM row #8 (MFA setup).
     const email = uniqueEmail('mfa-setup');
-    const agent = await registerVerifyLogin(app.getHttpServer(), email, 'P@ssw0rd12345');
+    const password = 'Str0ngUniqu3Passw0rd!';
+    const agent = await registerVerifyLogin(app.getHttpServer(), email, password);
     await clearMailpit();
 
     const setupRes = await agent
       .post('/api/auth/mfa/setup')
       .set('Content-Type', 'application/json')
-      .set('X-Tenant-Id', 'acme');
+      .set('X-Tenant-Id', 'acme')
+      .send({ password });
 
     expect([200, 201]).toContain(setupRes.status);
 
@@ -270,6 +282,35 @@ describe('MFA lifecycle — setup → verify-enable → challenge → disable', 
     expect((body['qrCodeUri'] as string).length).toBeGreaterThan(0);
   });
 
+  it('POST /api/auth/mfa/setup refuses a wrong or missing password with 401 auth.invalid_credentials', async () => {
+    // Scenario: the setup endpoint re-authenticates the caller before handing
+    // out a fresh TOTP secret — a wrong password (and equally an absent one)
+    // is refused with 401 `auth.invalid_credentials`, so a hijacked session
+    // cannot silently enrol an attacker's authenticator.
+    const email = uniqueEmail('mfa-setup-reauth');
+    const password = 'Str0ngUniqu3Passw0rd!';
+    const agent = await registerVerifyLogin(app.getHttpServer(), email, password);
+    await clearMailpit();
+
+    const wrongRes = await agent
+      .post('/api/auth/mfa/setup')
+      .set('Content-Type', 'application/json')
+      .set('X-Tenant-Id', 'acme')
+      .send({ password: 'Wr0ngPassword!Wr0ng' });
+
+    expect(wrongRes.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.INVALID_CREDENTIALS]);
+    expect(wrongRes.body).toMatchObject({ code: AUTH_ERROR_CODES.INVALID_CREDENTIALS });
+
+    const missingRes = await agent
+      .post('/api/auth/mfa/setup')
+      .set('Content-Type', 'application/json')
+      .set('X-Tenant-Id', 'acme')
+      .send({});
+
+    expect(missingRes.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.INVALID_CREDENTIALS]);
+    expect(missingRes.body).toMatchObject({ code: AUTH_ERROR_CODES.INVALID_CREDENTIALS });
+  });
+
   // ─── Test 2 — verify-enable ───────────────────────────────────────────────
 
   it('POST /api/auth/mfa/verify-enable confirms TOTP and enables MFA', async () => {
@@ -277,14 +318,16 @@ describe('MFA lifecycle — setup → verify-enable → challenge → disable', 
     // TOTP code and calls verify-enable. A 204 response confirms MFA is active.
     // This proves the TOTP validation logic is wired correctly. FCM row #8.
     const email = uniqueEmail('mfa-enable');
-    const agent = await registerVerifyLogin(app.getHttpServer(), email, 'P@ssw0rd12345');
+    const password = 'Str0ngUniqu3Passw0rd!';
+    const agent = await registerVerifyLogin(app.getHttpServer(), email, password);
     await clearMailpit();
 
-    // Initiate setup and capture the secret.
+    // Initiate setup (re-authenticating with the password) and capture the secret.
     const setupRes = await agent
       .post('/api/auth/mfa/setup')
       .set('Content-Type', 'application/json')
-      .set('X-Tenant-Id', 'acme');
+      .set('X-Tenant-Id', 'acme')
+      .send({ password });
 
     expect([200, 201]).toContain(setupRes.status);
     const { secret } = setupRes.body as { secret: string };
@@ -310,12 +353,12 @@ describe('MFA lifecycle — setup → verify-enable → challenge → disable', 
     // { mfaRequired: true, tempToken } so the client can proceed to the challenge
     // endpoint. FCM row #9 (MFA challenge required).
     const email = uniqueEmail('mfa-login-challenge');
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
     const agent = await registerVerifyLogin(app.getHttpServer(), email, password);
     await clearMailpit();
 
     // Enable MFA via the shared helper.
-    await setupAndEnableMfa(agent);
+    await setupAndEnableMfa(agent, password);
 
     // Logout so the next login uses a fresh session (no cached cookies).
     await agent.post('/api/auth/logout').set('X-Tenant-Id', 'acme');
@@ -326,7 +369,7 @@ describe('MFA lifecycle — setup → verify-enable → challenge → disable', 
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password, tenantId: 'acme' });
+      .send({ email, password });
 
     // The library signals MFA is required via this shape; auth cookies must NOT
     // be set at this stage.
@@ -341,12 +384,12 @@ describe('MFA lifecycle — setup → verify-enable → challenge → disable', 
     // generates a TOTP code and calls /mfa/challenge, which must return 200 and
     // set the auth cookies (access_token, refresh_token). FCM row #9.
     const email = uniqueEmail('mfa-challenge');
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
     const agent = await registerVerifyLogin(app.getHttpServer(), email, password);
     await clearMailpit();
 
     // Enable MFA and keep the secret for code generation.
-    const secret = await setupAndEnableMfa(agent);
+    const secret = await setupAndEnableMfa(agent, password);
 
     // Logout to reset the session state.
     await agent.post('/api/auth/logout').set('X-Tenant-Id', 'acme');
@@ -357,7 +400,7 @@ describe('MFA lifecycle — setup → verify-enable → challenge → disable', 
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password, tenantId: 'acme' });
+      .send({ email, password });
 
     const { mfaTempToken: tempToken } = loginRes.body as { mfaTempToken: string };
     expect(tempToken).toBeTruthy();
@@ -385,20 +428,47 @@ describe('MFA lifecycle — setup → verify-enable → challenge → disable', 
   // ─── Test 5 — Disable MFA ─────────────────────────────────────────────────
 
   it('POST /api/auth/mfa/disable disables MFA after valid TOTP', async () => {
-    // Scenario: a user with MFA enabled calls /mfa/disable with a valid TOTP code.
-    // The library responds with 204, and a subsequent login must succeed directly
-    // without triggering a challenge. FCM row #10 (MFA disable).
+    // Scenario: a user with MFA enabled disables it again. Since lib v1.4.x
+    // enabling MFA signs EVERY session out (session sweep + token-epoch bump),
+    // so the pre-enable cookies are dead and the user must re-authenticate
+    // through the MFA challenge first — the fresh session carries
+    // mfaVerified=true, which is what /mfa/disable requires. The library then
+    // responds 204, and a subsequent login succeeds directly without a
+    // challenge. FCM row #10 (MFA disable).
     const email = uniqueEmail('mfa-disable');
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
     const agent = await registerVerifyLogin(app.getHttpServer(), email, password);
     await clearMailpit();
 
     // Enable MFA and keep the secret. The helper flushes anti-replay keys
     // after verify-enable, so a current-window code is safe to submit here.
-    const secret = await setupAndEnableMfa(agent);
+    const secret = await setupAndEnableMfa(agent, password);
+
+    // Re-authenticate: login answers the MFA challenge shape, the TOTP
+    // exchange completes it and hands out mfaVerified cookies.
+    const mfaLoginRes = await supertest
+      .agent(app.getHttpServer())
+      .post('/api/auth/login')
+      .set('Content-Type', 'application/json')
+      .set('X-Tenant-Id', 'acme')
+      .send({ email, password });
+    const { mfaTempToken } = mfaLoginRes.body as { mfaTempToken: string };
+    expect(mfaTempToken).toBeTruthy();
+
+    const challengeAgent = supertest.agent(app.getHttpServer());
+    const challengeRes = await challengeAgent
+      .post('/api/auth/mfa/challenge')
+      .set('Content-Type', 'application/json')
+      .set('X-Tenant-Id', 'acme')
+      .send({ mfaTempToken, code: generateSync({ secret, strategy: 'totp' }) });
+    expect(challengeRes.status).toBe(200);
+
+    // The challenge just consumed the current-window code — clear the
+    // anti-replay namespace so disable can submit another current-window code.
+    await clearMfaAntiReplay();
     const code = generateSync({ secret, strategy: 'totp' });
 
-    const disableRes = await agent
+    const disableRes = await challengeAgent
       .post('/api/auth/mfa/disable')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
@@ -407,14 +477,14 @@ describe('MFA lifecycle — setup → verify-enable → challenge → disable', 
     expect(disableRes.status).toBe(204);
 
     // Logout and re-login — must succeed without an MFA challenge.
-    await agent.post('/api/auth/logout').set('X-Tenant-Id', 'acme');
+    await challengeAgent.post('/api/auth/logout').set('X-Tenant-Id', 'acme');
 
     const loginRes = await supertest
       .agent(app.getHttpServer())
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password, tenantId: 'acme' });
+      .send({ email, password });
 
     // After disabling MFA, login must return auth cookies directly (no tempToken).
     expect(loginRes.status).toBe(200);

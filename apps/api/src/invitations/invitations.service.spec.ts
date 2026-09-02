@@ -141,6 +141,13 @@ describe('InvitationsService', () => {
       mockPrisma as unknown as import('../prisma/prisma.service.js').PrismaService,
       mockRedis as unknown as import('ioredis').Redis,
       mockEmailProvider as unknown as import('@bymax-one/nest-auth').IEmailProvider,
+      // Invitation keys share the library's configured namespace.
+      {
+        getOrThrow: () => 'nest-auth-example',
+      } as unknown as import('@nestjs/config').ConfigService<
+        import('../config/env.schema.js').Env,
+        true
+      >,
     );
   });
 
@@ -260,7 +267,9 @@ describe('InvitationsService', () => {
 
       await service.create('user-admin', 'acme', dto);
 
+      // lib v1.3.1+: tenantId is the first argument on every IEmailProvider method.
       expect(sendInvitation).toHaveBeenCalledWith(
+        'acme',
         'bob@example.test',
         expect.objectContaining({ inviteToken: 'raw-token-abc' }),
       );

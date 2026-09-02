@@ -43,6 +43,15 @@ export interface MfaSetupInfo {
  * enrolment).
  */
 export interface MfaStatusInfo {
+  /**
+   * Whether the account has a local password.
+   *
+   * `false` for OAuth-only accounts. The MFA setup form uses this to decide
+   * whether to ask for the current password: the API skips that re-auth when
+   * there is no password to prove, so demanding one would make enrollment
+   * impossible for those accounts.
+   */
+  hasPassword: boolean;
   /** Whether the user has completed MFA enrollment. */
   enabled: boolean;
   /**
@@ -88,13 +97,26 @@ export interface MfaRegenerateRecoveryCodesResult {
 /**
  * Initiates the MFA setup flow for the authenticated user.
  *
+ * Requires the account's current password as re-authentication proof
+ * (`@bymax-one/nest-auth` ≥ 1.1.0) — a hijacked cookie session must not be
+ * able to enrol its own authenticator. OAuth-only accounts without a local
+ * password are exempted server-side. A wrong password surfaces as
+ * `auth.invalid_credentials`; a missing one as `auth.reauthentication_required`.
+ *
  * Returns the TOTP secret, QR code URI, and plain-text recovery codes.
  * The recovery codes are shown once and must not be persisted in plain text.
  *
+ * @param password - Current account password confirming the enrolment. Omitted
+ *   for OAuth-only accounts, which have none: the API re-authenticates those
+ *   from a recent-login marker instead, and sending an empty string would be
+ *   verified as a wrong password and counted toward the MFA lockout.
  * @returns `MfaSetupInfo` with `secret`, `qrCodeUri`, and `recoveryCodes`.
  */
-export const mfaSetup = (): Promise<MfaSetupInfo> =>
-  apiFetch<MfaSetupInfo>('/auth/mfa/setup', { method: 'POST' });
+export const mfaSetup = (password?: string): Promise<MfaSetupInfo> =>
+  apiFetch<MfaSetupInfo>('/auth/mfa/setup', {
+    method: 'POST',
+    body: JSON.stringify(password === undefined ? {} : { password }),
+  });
 
 /**
  * Verifies the first TOTP code and permanently enables MFA on the account.

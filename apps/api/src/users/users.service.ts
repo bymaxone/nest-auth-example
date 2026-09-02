@@ -19,8 +19,11 @@ import type { SafeAuthUser } from '@bymax-one/nest-auth';
 import type { Redis } from 'ioredis';
 
 import { PrismaUserRepository } from '../auth/prisma-user.repository.js';
+import { ConfigService } from '@nestjs/config';
+import type { Env } from '../config/env.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { NotificationsGateway } from '../notifications/notifications.gateway.js';
+import { userStatusCacheKey } from '../redis/user-status-cache-key.js';
+import { USER_CONNECTION_PORT, type UserConnectionPort } from '../realtime/user-connection.port.js';
 import type { UpdateStatusDto } from './dto/update-status.dto.js';
 
 /**
@@ -55,8 +58,10 @@ export class UsersService {
   constructor(
     private readonly userRepository: PrismaUserRepository,
     private readonly prisma: PrismaService,
-    private readonly notificationsGateway: NotificationsGateway,
+    @Inject(USER_CONNECTION_PORT)
+    private readonly userConnections: UserConnectionPort,
     @Inject(BYMAX_AUTH_REDIS_CLIENT) private readonly authRedis: Redis,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   /**
@@ -84,7 +89,10 @@ export class UsersService {
     ip: string,
     userAgent: string,
   ): Promise<SafeAuthUser> {
-    const user = await this.userRepository.findById(targetUserId, adminTenantId);
+    const user = await this.userRepository.findById({
+      id: targetUserId,
+      tenantId: adminTenantId,
+    });
 
     if (user === null) {
       throw new NotFoundException(`User '${targetUserId}' not found`);
@@ -108,9 +116,17 @@ export class UsersService {
     // Invalidate the UserStatusGuard cache so the new status is enforced on the
     // very next authenticated request rather than after the 60s TTL expires.
     // Without this, a suspended user could continue calling protected routes
-    // for up to 60s. The library's AuthRedisService prefixes all keys with
-    // the configured namespace (`nest-auth-example:`) — see auth.config.ts.
-    await this.authRedis.del(`nest-auth-example:us:${targetUserId}`);
+    // for up to 60s. Since lib v1.3.2 the cache key is TENANT-SCOPED:
+    // `us:{encodeURIComponent(tenantId)}:{encodeURIComponent(userId)}` — a
+    // bare-userId delete is a silent no-op. The library's AuthRedisService
+    // prefixes all keys with the configured namespace.
+    await this.authRedis.del(
+      userStatusCacheKey(
+        this.config.getOrThrow<string>('REDIS_NAMESPACE'),
+        adminTenantId,
+        targetUserId,
+      ),
+    );
 
     // Write audit log — non-blocking: a write failure must not abort the status update.
     try {
@@ -141,7 +157,7 @@ export class UsersService {
     // for this user so they cannot continue to receive push notifications.
     // This is non-blocking and fire-and-forget — a disconnect failure must not
     // abort the status update.
-    this.notificationsGateway.maybeDisconnectBlockedUser(targetUserId, dto.status);
+    this.userConnections.maybeDisconnectBlockedUser(targetUserId, dto.status);
 
     const safe: SafeAuthUser = {
       id: updated.id,
@@ -171,7 +187,7 @@ export class UsersService {
    * @throws `NotFoundException` when the user is absent from the caller's tenant.
    */
   async findById(id: string, tenantId: string): Promise<TenantUserRecord> {
-    const user = await this.userRepository.findById(id, tenantId);
+    const user = await this.userRepository.findById({ id, tenantId });
 
     if (user === null) {
       throw new NotFoundException(`User '${id}' not found`);

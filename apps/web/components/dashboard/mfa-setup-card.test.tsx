@@ -41,6 +41,20 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+/** Password used across tests for the setup re-authentication step. */
+const SETUP_PASSWORD = 'CurrentPassword123!';
+
+/**
+ * Fills the idle-step current-password input — the lib's setup endpoint
+ * requires re-authentication, so every flow that clicks "Set up
+ * authenticator" must provide a non-empty password first.
+ */
+function fillSetupPassword(): void {
+  fireEvent.change(screen.getByTestId('mfa-setup-password'), {
+    target: { value: SETUP_PASSWORD },
+  });
+}
+
 describe('MfaSetupCard idle state', () => {
   it('renders the "Set up authenticator" button in the idle state', () => {
     /*
@@ -67,12 +81,15 @@ describe('MfaSetupCard setup flow', () => {
     });
 
     render(<MfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
 
     await waitFor(() => {
       expect(screen.getByAltText('MFA QR code')).toBeDefined();
     });
+    // The collected password must travel to the client as the re-auth proof.
     expect(mfaSetup).toHaveBeenCalledOnce();
+    expect(mfaSetup).toHaveBeenCalledWith(SETUP_PASSWORD);
   });
 
   it('shows the manual secret input after clicking setup', async () => {
@@ -88,6 +105,7 @@ describe('MfaSetupCard setup flow', () => {
     });
 
     render(<MfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
 
     await waitFor(() => {
@@ -110,6 +128,7 @@ describe('MfaSetupCard setup flow', () => {
     });
 
     render(<MfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
 
     await waitFor(() => {
@@ -136,6 +155,7 @@ describe('MfaSetupCard setup flow', () => {
     vi.mocked(mfaVerifyEnable).mockResolvedValue(undefined);
 
     render(<MfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
 
     await waitFor(() => {
@@ -176,6 +196,7 @@ describe('MfaSetupCard setup flow', () => {
     vi.mocked(mfaVerifyEnable).mockReturnValue(new Promise(() => undefined));
 
     render(<MfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
 
     await waitFor(() => expect(screen.getByAltText('MFA QR code')).toBeDefined());
@@ -205,6 +226,7 @@ describe('MfaSetupCard setup flow', () => {
     });
 
     render(<MfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
 
     await waitFor(() => expect(screen.getByAltText('MFA QR code')).toBeDefined());
@@ -228,6 +250,8 @@ describe('MfaSetupCard setup flow', () => {
     const err = new Error('Setup failed');
     vi.mocked(mfaSetup).mockRejectedValue(err);
     render(<MfaSetupCard onEnabled={vi.fn()} />);
+
+    fillSetupPassword();
 
     fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
 
@@ -254,6 +278,7 @@ describe('MfaSetupCard setup flow', () => {
     vi.mocked(mfaVerifyEnable).mockRejectedValue(err);
 
     render(<MfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
 
     await waitFor(() => expect(screen.getByAltText('MFA QR code')).toBeDefined());
@@ -286,6 +311,7 @@ describe('MfaSetupCard setup flow', () => {
     });
 
     render(<MfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
 
     await waitFor(() => expect(screen.getByAltText('MFA QR code')).toBeDefined());
@@ -317,6 +343,8 @@ describe('MfaSetupCard setup flow', () => {
 
     const onEnabled = vi.fn();
     render(<MfaSetupCard onEnabled={onEnabled} />);
+
+    fillSetupPassword();
 
     fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
     await waitFor(() => expect(screen.getByAltText('MFA QR code')).toBeDefined());
@@ -353,6 +381,7 @@ describe('MfaSetupCard verbatim copy + disabled state', () => {
     vi.mocked(mfaSetup).mockReturnValue(new Promise(() => undefined));
     render(<MfaSetupCard onEnabled={vi.fn()} />);
     const setupBtn = screen.getByRole('button', { name: /set up authenticator/i });
+    fillSetupPassword();
     fireEvent.click(setupBtn);
 
     await waitFor(() => {
@@ -385,6 +414,7 @@ describe('MfaSetupCard verbatim copy + disabled state', () => {
       recoveryCodes: ['AAAA'],
     });
     render(<MfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
     await screen.findByTestId('mfa-secret');
 
@@ -410,6 +440,7 @@ describe('MfaSetupCard verbatim copy + disabled state', () => {
     vi.mocked(mfaVerifyEnable).mockResolvedValue(undefined);
 
     render(<MfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
     await screen.findByTestId('mfa-secret');
     const otpInputs = screen
@@ -445,6 +476,7 @@ describe('MfaSetupCard verbatim copy + disabled state', () => {
     vi.mocked(mfaVerifyEnable).mockResolvedValue(undefined);
 
     render(<MfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
     await screen.findByTestId('mfa-secret');
     const otpInputs = screen
@@ -478,6 +510,7 @@ describe('MfaSetupCard verbatim copy + disabled state', () => {
     vi.mocked(mfaVerifyEnable).mockRejectedValue(new Error('Invalid TOTP'));
 
     render(<MfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
     await screen.findByTestId('mfa-secret');
     const otpInputs = screen
@@ -496,5 +529,159 @@ describe('MfaSetupCard verbatim copy + disabled state', () => {
     });
     const retryBtn = screen.getByRole<HTMLButtonElement>('button', { name: /verify.*enable/i });
     expect(retryBtn.disabled).toBe(false);
+  });
+});
+
+// ── Re-authentication password step ──────────────────────────────────────────
+
+describe('MfaSetupCard password re-authentication step', () => {
+  it('renders the current-password input with its label in the idle state', () => {
+    /*
+     * Scenario: the lib's setup endpoint requires re-authentication, so the
+     * idle step must collect the current password before enrolment begins.
+     * Pins the password input (type="password", autoComplete) and its label.
+     */
+    render(<MfaSetupCard onEnabled={vi.fn()} />);
+    const input = screen.getByTestId<HTMLInputElement>('mfa-setup-password');
+    expect(input.type).toBe('password');
+    expect(input.autocomplete).toBe('current-password');
+    expect(screen.getByText('Current password')).toBeDefined();
+  });
+
+  it('shows a validation error and does NOT call mfaSetup when the password is empty', async () => {
+    /*
+     * Scenario: clicking "Set up authenticator" without confirming the
+     * password must short-circuit client-side — the server would reject the
+     * call anyway (auth.reauthentication_required), so no request goes out
+     * and the inline error tells the user what is missing.
+     * Protects: the empty-password guard in handleSetup.
+     */
+    render(<MfaSetupCard onEnabled={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Enter your current password to continue.')).toBeDefined();
+    });
+    expect(mfaSetup).not.toHaveBeenCalled();
+  });
+
+  it('lets an OAuth-only account start setup without a password', async () => {
+    /*
+     * Scenario: an account with no local password (`hasPassword: false`). The
+     * API skips password re-authentication for those and falls back to a
+     * recent-login marker, so the card must neither render the field nor block
+     * on it — otherwise MFA enrollment is unreachable for every OAuth user.
+     * Protects: the `hasPassword &&` guard, without which the empty-password
+     * check returns before any request is made.
+     */
+    vi.mocked(mfaSetup).mockResolvedValue({
+      secret: 'JBSWY3DPEHPK3PXP',
+      qrCodeUri: 'otpauth://totp/Example:alice?secret=JBSWY3DPEHPK3PXP',
+      recoveryCodes: ['R1'],
+    });
+
+    render(<MfaSetupCard onEnabled={vi.fn()} hasPassword={false} />);
+    fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
+
+    await waitFor(() => {
+      expect(screen.getByAltText('MFA QR code')).toBeDefined();
+    });
+    expect(screen.queryByText('Enter your current password to continue.')).toBeNull();
+  });
+
+  it('renders no password field or password copy for an OAuth-only account', () => {
+    /*
+     * Scenario: the request already succeeds without a password, but a form
+     * still asking for one tells the user the opposite — they have no value to
+     * type and would reasonably conclude enrollment is unavailable.
+     * Protects: the `hasPassword` gate on the input and on the copy, which the
+     * prop's own documentation promises.
+     */
+    render(<MfaSetupCard onEnabled={vi.fn()} hasPassword={false} />);
+
+    expect(screen.queryByTestId('mfa-setup-password')).toBeNull();
+    expect(screen.queryByText(/confirm your password/i)).toBeNull();
+  });
+
+  it('still renders the password field for an account that has one', () => {
+    /*
+     * Scenario: the mirror case. Gating the field must not hide it from the
+     * accounts that genuinely need to re-prove their password.
+     * Protects: the true arm of the same gate.
+     */
+    render(<MfaSetupCard onEnabled={vi.fn()} />);
+
+    expect(screen.getByTestId('mfa-setup-password')).toBeDefined();
+  });
+
+  it('sends no password field at all for an OAuth-only account', async () => {
+    /*
+     * Scenario: sending an empty string instead of omitting the field would be
+     * verified as a wrong password server-side and counted toward the MFA
+     * lockout, so an OAuth user could lock themselves out by clicking a button
+     * that is supposed to just work.
+     * Protects: the `hasPassword ? password : undefined` argument.
+     */
+    vi.mocked(mfaSetup).mockResolvedValue({
+      secret: 'JBSWY3DPEHPK3PXP',
+      qrCodeUri: 'otpauth://totp/Example:alice?secret=JBSWY3DPEHPK3PXP',
+      recoveryCodes: ['R1'],
+    });
+
+    render(<MfaSetupCard onEnabled={vi.fn()} hasPassword={false} />);
+    fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
+
+    await waitFor(() => expect(mfaSetup).toHaveBeenCalled());
+    expect(mfaSetup).toHaveBeenCalledWith(undefined);
+  });
+
+  it('clears the validation error once a password is provided and setup is retried', async () => {
+    /*
+     * Scenario: after the empty-password error, filling the field and
+     * retrying must clear the inline error and proceed to the scanning step.
+     * Protects: setPasswordError(null) on the happy path of handleSetup.
+     */
+    vi.mocked(mfaSetup).mockResolvedValue({
+      secret: 'JBSWY3DPEHPK3PXP',
+      qrCodeUri: 'otpauth://totp/Example:alice?secret=JBSWY3DPEHPK3PXP',
+      recoveryCodes: ['R1'],
+    });
+
+    render(<MfaSetupCard onEnabled={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
+    await waitFor(() => {
+      expect(screen.getByText('Enter your current password to continue.')).toBeDefined();
+    });
+
+    fillSetupPassword();
+    fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
+
+    await waitFor(() => {
+      expect(screen.getByAltText('MFA QR code')).toBeDefined();
+    });
+    expect(screen.queryByText('Enter your current password to continue.')).toBeNull();
+  });
+
+  it('forwards a wrong-password rejection from mfaSetup to handleAuthClientError', async () => {
+    /*
+     * Scenario: a wrong password makes the server answer with
+     * auth.invalid_credentials (or auth.reauthentication_required when the
+     * body is missing). The card must funnel that into the shared error
+     * handler exactly like every other setup failure.
+     * Protects: the catch arm of handleSetup for the re-auth error path.
+     */
+    const err = new Error('auth.invalid_credentials');
+    vi.mocked(mfaSetup).mockRejectedValue(err);
+
+    render(<MfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
+    fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
+
+    await waitFor(() => {
+      expect(handleAuthClientError).toHaveBeenCalledWith(
+        err,
+        expect.objectContaining({ toast: expect.anything() }),
+      );
+    });
   });
 });

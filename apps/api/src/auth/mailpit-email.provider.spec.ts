@@ -32,6 +32,8 @@ interface MailOptions {
   to?: string;
   subject?: string;
   html?: string;
+  /** Plain-text alternative — every kind ships one alongside the HTML. */
+  text?: string;
 }
 
 /**
@@ -74,17 +76,6 @@ const { MailpitEmailProvider } = await import('./mailpit-email.provider.js');
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Minimal `PrismaService` stub returning a fixed tenantId for reset-token tests. */
-function makePrismaService() {
-  return {
-    user: {
-      findFirst: jest.fn<() => Promise<{ tenantId: string } | null>>().mockResolvedValue({
-        tenantId: 'tenant-cuid-1',
-      }),
-    },
-  };
-}
-
 /**
  * Minimal `ConfigService` stub that satisfies the `getOrThrow` calls made
  * during `MailpitEmailProvider` construction.
@@ -117,6 +108,11 @@ function lastMailOptions(): MailOptions {
   return lastCall[0];
 }
 
+/** Every plain-text body handed to the transport, in call order. */
+function sentTexts(): string[] {
+  return mockSendMail.mock.calls.map((call) => call[0].text ?? '');
+}
+
 /** Returns the HTML body string passed to the last `sendMail` call. */
 function lastSentHtml(): string {
   return lastMailOptions().html ?? '';
@@ -132,7 +128,7 @@ describe('MailpitEmailProvider', () => {
     mockSendMail.mockClear();
     mockCreateTransport.mockClear();
     mockSendMail.mockResolvedValue(undefined);
-    provider = new MailpitEmailProvider(makeConfigService() as never, makePrismaService() as never);
+    provider = new MailpitEmailProvider(makeConfigService() as never);
   });
 
   // ─── sendPasswordResetToken ───────────────────────────────────────────────
@@ -140,7 +136,7 @@ describe('MailpitEmailProvider', () => {
   it('sendPasswordResetToken — calls sendMail with correct to, from and subject; HTML contains the encoded token in a URL', async () => {
     // FCM #6 — the reset-token email must embed the signed token in a URL so the
     // browser can submit it to /auth/reset-password?mode=token.
-    await provider.sendPasswordResetToken('alice@example.test', 'my-reset-token');
+    await provider.sendPasswordResetToken('tenant-cuid-1', 'alice@example.test', 'my-reset-token');
 
     const opts = lastMailOptions();
     expect(opts.to).toBe('alice@example.test');
@@ -155,20 +151,14 @@ describe('MailpitEmailProvider', () => {
     expect(html).toContain(encodeURIComponent('tenant-cuid-1'));
   });
 
-  it('sendPasswordResetToken — falls back to tenantId="default" when the user row is not found', async () => {
-    // Anti-enumeration: forgotPassword on a non-existent email still calls into
-    // the provider so timing/side-effects look identical to the happy path.
-    // The provider must not crash on a null user — it composes the URL with a
-    // "default" tenant placeholder that the reset page rejects safely.
-    const prisma = makePrismaService();
-    (
-      prisma.user.findFirst as jest.Mock<() => Promise<{ tenantId: string } | null>>
-    ).mockResolvedValueOnce(null);
-    provider = new MailpitEmailProvider(makeConfigService() as never, prisma as never);
+  it('sendPasswordResetToken — URI-encodes the tenantId argument verbatim in the reset URL', async () => {
+    // The tenantId in the URL comes straight from the tenantId argument the
+    // library resolves (lib v1.3.1+ passes it first) — no database lookup is
+    // involved. Reserved characters must survive the trip URI-encoded so the
+    // reset page can pass the exact tenant back to the API.
+    await provider.sendPasswordResetToken('tenant/with+chars', 'ghost@example.test', 'tk');
 
-    await provider.sendPasswordResetToken('ghost@example.test', 'tk');
-
-    expect(lastSentHtml()).toContain(`tenantId=${encodeURIComponent('default')}`);
+    expect(lastSentHtml()).toContain(`tenantId=${encodeURIComponent('tenant/with+chars')}`);
   });
 
   // ─── sendPasswordResetOtp ────────────────────────────────────────────────
@@ -176,7 +166,7 @@ describe('MailpitEmailProvider', () => {
   it('sendPasswordResetOtp — calls sendMail with the correct subject and embeds the OTP in the HTML body', async () => {
     // FCM #7 — the OTP must appear verbatim in the rendered template so the user
     // can copy-paste it into the reset-password screen.
-    await provider.sendPasswordResetOtp('bob@example.test', '123456');
+    await provider.sendPasswordResetOtp('acme', 'bob@example.test', '123456');
 
     const opts = lastMailOptions();
     expect(opts.to).toBe('bob@example.test');
@@ -189,7 +179,7 @@ describe('MailpitEmailProvider', () => {
   it('sendEmailVerificationOtp — calls sendMail with the verify-email subject and embeds the OTP', async () => {
     // FCM #5 — the verification OTP must appear in the HTML so the user can enter
     // it on the verification screen; the correct subject signals the purpose.
-    await provider.sendEmailVerificationOtp('carol@example.test', '654321');
+    await provider.sendEmailVerificationOtp('acme', 'carol@example.test', '654321');
 
     const opts = lastMailOptions();
     expect(opts.to).toBe('carol@example.test');
@@ -202,7 +192,7 @@ describe('MailpitEmailProvider', () => {
   it('sendMfaEnabledNotification — calls sendMail once with the MFA-enabled subject', async () => {
     // Security notification: confirms the correct subject reaches the recipient
     // so they know MFA was activated on their account.
-    await provider.sendMfaEnabledNotification('dave@example.test');
+    await provider.sendMfaEnabledNotification('acme', 'dave@example.test');
 
     const opts = lastMailOptions();
     expect(opts.to).toBe('dave@example.test');
@@ -215,7 +205,7 @@ describe('MailpitEmailProvider', () => {
   it('sendMfaDisabledNotification — calls sendMail once with the MFA-disabled subject', async () => {
     // Security alert: the correct subject warns the recipient that MFA has been
     // removed — they must act if the change was not authorised.
-    await provider.sendMfaDisabledNotification('eve@example.test');
+    await provider.sendMfaDisabledNotification('acme', 'eve@example.test');
 
     const opts = lastMailOptions();
     expect(opts.to).toBe('eve@example.test');
@@ -228,7 +218,7 @@ describe('MailpitEmailProvider', () => {
   it('sendNewSessionAlert — calls sendMail and includes device, ip and sessionHash in the HTML body', async () => {
     // FCM #15 — the session-alert email body must show device, IP, and session ID
     // so the user can recognise or dispute the sign-in.
-    await provider.sendNewSessionAlert('frank@example.test', {
+    await provider.sendNewSessionAlert('acme', 'frank@example.test', {
       device: 'Chrome on macOS',
       ip: '203.0.113.5',
       sessionHash: 'abc123',
@@ -249,7 +239,7 @@ describe('MailpitEmailProvider', () => {
   it('sendInvitation — calls sendMail; subject contains tenantName; HTML contains inviterName', async () => {
     // FCM #21 — the invitation email must name the inviting organisation in the
     // subject line and the inviter's name in the body so the recipient has context.
-    await provider.sendInvitation('grace@example.test', {
+    await provider.sendInvitation('acme', 'grace@example.test', {
       inviterName: 'Alice Admin',
       tenantName: 'Acme Corp',
       inviteToken: 'tok-xyz',
@@ -276,7 +266,7 @@ describe('MailpitEmailProvider', () => {
      * the canonical "You've been invited to join <name>" template that
      * the invitation email recipients expect.
      */
-    await provider.sendInvitation('target@example.test', {
+    await provider.sendInvitation('acme', 'target@example.test', {
       inviterName: 'Attacker',
       tenantName: 'Evil\r\nBcc: victim@example.test',
       inviteToken: 'tok-evil',
@@ -297,7 +287,7 @@ describe('MailpitEmailProvider', () => {
   it('sendInvitation — HTML-escapes inviterName to prevent script injection in the email body', async () => {
     // Security: user-controlled display names must be HTML-escaped before embedding
     // in the template to prevent the recipient's email client from executing scripts.
-    await provider.sendInvitation('victim@example.test', {
+    await provider.sendInvitation('acme', 'victim@example.test', {
       inviterName: '<script>alert(1)</script>',
       tenantName: 'Safe Corp',
       inviteToken: 'tok-safe',
@@ -318,9 +308,9 @@ describe('MailpitEmailProvider', () => {
     const transportError = new Error('SMTP connection refused');
     mockSendMail.mockRejectedValueOnce(transportError);
 
-    await expect(provider.sendPasswordResetOtp('err@example.test', '000000')).rejects.toThrow(
-      'SMTP connection refused',
-    );
+    await expect(
+      provider.sendPasswordResetOtp('acme', 'err@example.test', '000000'),
+    ).rejects.toThrow('SMTP connection refused');
   });
 
   it('re-throws non-Error transport failures using String(err) in the log (non-Error throw path)', async () => {
@@ -328,7 +318,7 @@ describe('MailpitEmailProvider', () => {
     // Some SMTP libraries throw plain strings rather than Error instances.
     mockSendMail.mockRejectedValueOnce('SMTP timeout string');
 
-    await expect(provider.sendPasswordResetOtp('err@example.test', '000000')).rejects.toBe(
+    await expect(provider.sendPasswordResetOtp('acme', 'err@example.test', '000000')).rejects.toBe(
       'SMTP timeout string',
     );
   });
@@ -397,7 +387,7 @@ describe('MailpitEmailProvider', () => {
         .spyOn((provider as unknown as { logger: { log: (m: unknown) => void } }).logger, 'log')
         .mockImplementation(() => undefined);
 
-      await provider.sendPasswordResetOtp('alice@example.test', '123456');
+      await provider.sendPasswordResetOtp('acme', 'alice@example.test', '123456');
 
       expect(logSpy).toHaveBeenCalledTimes(1);
       const arg = logSpy.mock.calls[0]?.[0] as { msg?: string; subject?: string; to?: string };
@@ -420,9 +410,9 @@ describe('MailpitEmailProvider', () => {
         .mockImplementation(() => undefined);
       mockSendMail.mockRejectedValueOnce(new Error('SMTP down'));
 
-      await expect(provider.sendPasswordResetOtp('bob@example.test', '999999')).rejects.toThrow(
-        'SMTP down',
-      );
+      await expect(
+        provider.sendPasswordResetOtp('acme', 'bob@example.test', '999999'),
+      ).rejects.toThrow('SMTP down');
 
       expect(errorSpy).toHaveBeenCalledTimes(1);
       const arg = errorSpy.mock.calls[0]?.[0] as {
@@ -467,30 +457,6 @@ describe('MailpitEmailProvider', () => {
       expect(out).not.toContain("'");
     });
 
-    it('looks up the reset-token tenant by lowercased email with a narrow {tenantId} projection', async () => {
-      /*
-       * Scenario: an admin types a user's email with inconsistent
-       * casing into the password-reset trigger. The lookup MUST
-       * normalise to lower case so the email's canonical row is
-       * found — Postgres collation is case-sensitive by default.
-       * The select MUST stay narrow to {tenantId} so the lookup
-       * never reads the password hash or MFA secret as a side
-       * effect of resolving the workspace.
-       */
-      const prisma = makePrismaService();
-      provider = new MailpitEmailProvider(makeConfigService() as never, prisma as never);
-
-      await provider.sendPasswordResetToken('Mixed@Example.TEST', 'tok');
-
-      expect(prisma.user.findFirst).toHaveBeenCalledTimes(1);
-      const call = (prisma.user.findFirst as unknown as jest.Mock).mock.calls[0]?.[0] as {
-        where: { email: string };
-        select: { tenantId: boolean };
-      };
-      expect(call.where.email).toBe('mixed@example.test');
-      expect(call.select).toEqual({ tenantId: true });
-    });
-
     it('embeds the URI-encoded inviteToken in the accept URL on the invitation email', async () => {
       /*
        * Scenario: the invitation accept URL carries the raw token
@@ -499,7 +465,7 @@ describe('MailpitEmailProvider', () => {
        * encoding or the token entirely would break every invitation
        * link in production.
        */
-      await provider.sendInvitation('invite@example.test', {
+      await provider.sendInvitation('acme', 'invite@example.test', {
         inviterName: 'Alice',
         tenantName: 'Acme',
         inviteToken: 'token with +special &chars',
@@ -510,5 +476,131 @@ describe('MailpitEmailProvider', () => {
       expect(html).toContain('/auth/accept-invitation?token=');
       expect(html).toContain(encodeURIComponent('token with +special &chars'));
     });
+  });
+
+  // ─── Email change (lib v1.1.0+) ──────────────────────────────────────────
+
+  it('sendEmailChangeVerification — mails the NEW address a confirm link carrying the token', async () => {
+    /*
+     * Scenario: the verification link must go to the address the account is
+     * moving TO (that is what proves the user controls it) and must carry the
+     * single-use token in the confirm URL the web app serves.
+     * Protects: recipient selection, the confirm path, and the presence of the
+     * token in the URL — a link mailed to the old address, or one missing the
+     * token, makes the whole flow unusable.
+     */
+    await provider.sendEmailChangeVerification('acme', 'new@example.test', 'tok-abc123');
+
+    const opts = lastMailOptions();
+    expect(opts.to).toBe('new@example.test');
+    expect(opts.subject).toBe('Confirm your new email address');
+    expect(lastSentHtml()).toContain(
+      'http://localhost:3000/auth/confirm-email-change?token=tok-abc123',
+    );
+  });
+
+  it('sendEmailChangeVerification — carries the tenant in the confirm URL', async () => {
+    /*
+     * Scenario: the confirmation link is opened from the NEW mailbox, routinely
+     * in a browser that has never seen this app. With no `tenant_id` cookie the
+     * web client sends no `X-Tenant-Id`, and the API's tenant resolver refuses
+     * the confirm call before the token is read — so the tenant has to travel
+     * in the URL, exactly as the password-reset link already does.
+     * Protects: the `tenantId` query parameter, whose absence breaks the whole
+     * flow for the most common way a user opens the link.
+     */
+    await provider.sendEmailChangeVerification('acme', 'new@example.test', 'tok-abc123');
+
+    expect(lastSentHtml()).toContain('tenantId=acme');
+  });
+
+  it('sendEmailChangeVerification — percent-encodes a token containing URL metacharacters', async () => {
+    /*
+     * Scenario: a token carrying `&`, `#` or `+` would truncate or corrupt the
+     * query string if interpolated raw, so the confirm page would receive a
+     * different token than the one issued and reject every such change.
+     * Protects: the encodeURIComponent call on the token.
+     */
+    await provider.sendEmailChangeVerification('acme', 'new@example.test', 'a&b#c+d');
+
+    expect(lastSentHtml()).toContain(`token=${encodeURIComponent('a&b#c+d')}`);
+    expect(lastSentHtml()).not.toContain('token=a&b#c+d');
+  });
+
+  it('sendEmailChangedNotification — tells the OLD address which address the account moved to', async () => {
+    /*
+     * Scenario: this notice is the previous owner's only signal that an
+     * account takeover is in progress, so it must reach the OLD address and
+     * name the new one. Sending it to the new address would notify only the
+     * attacker.
+     * Protects: recipient selection and the newEmail substitution.
+     */
+    await provider.sendEmailChangedNotification('acme', 'old@example.test', 'new@example.test');
+
+    const opts = lastMailOptions();
+    expect(opts.to).toBe('old@example.test');
+    expect(opts.subject).toBe('Your email address was changed');
+    expect(lastSentHtml()).toContain('new@example.test');
+  });
+
+  it('sendEmailChangedNotification — HTML-escapes the new address in the notice body', async () => {
+    /*
+     * Scenario: `newEmail` reaches the template through the escaped textVars
+     * path. A value carrying markup must arrive inert — an unescaped one would
+     * let a crafted address inject markup into an email the victim is being
+     * asked to trust.
+     * Protects: routing newEmail through textVars rather than urlVars.
+     */
+    await provider.sendEmailChangedNotification(
+      'acme',
+      'old@example.test',
+      '<script>alert(1)</script>@evil.test',
+    );
+
+    const html = lastSentHtml();
+    expect(html).not.toContain('<script>alert(1)</script>');
+    expect(html).toContain('&lt;script&gt;');
+  });
+
+  // ─── Plain-text alternative ──────────────────────────────────────────────
+
+  it('sends a plain-text alternative alongside the HTML on every kind', async () => {
+    /*
+     * Scenario: a text-only client, or a filter that strips HTML, leaves an
+     * HTML-only message with no readable body — which for the reset, confirm
+     * and invitation kinds means an action the recipient can no longer
+     * complete, and for the security notices a warning they never see.
+     * Protects: every message carries a non-empty `text` part. Asserted across
+     * kinds rather than on one, because the regression this guards against is
+     * adding a tenth kind and forgetting the text body.
+     */
+    await provider.sendPasswordResetToken('acme', 'a@example.test', 'tok');
+    await provider.sendPasswordResetOtp('acme', 'a@example.test', '123456');
+    await provider.sendEmailVerificationOtp('acme', 'a@example.test', '654321');
+    await provider.sendMfaEnabledNotification('acme', 'a@example.test');
+    await provider.sendMfaDisabledNotification('acme', 'a@example.test');
+    await provider.sendEmailChangeVerification('acme', 'new@example.test', 'tok2');
+    await provider.sendEmailChangedNotification('acme', 'old@example.test', 'new@example.test');
+
+    const texts = sentTexts();
+    expect(texts).toHaveLength(7);
+    for (const text of texts) {
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('puts the actionable link in the plain-text body, not only in the HTML', async () => {
+    /*
+     * Scenario: a recipient reading the text part must still be able to finish
+     * the flow. A text body that omitted the URL would satisfy a "has text"
+     * check while leaving the message useless in the client that needed it.
+     * Protects: the confirm URL — token and tenant included — reaching the
+     * text alternative.
+     */
+    await provider.sendEmailChangeVerification('acme', 'new@example.test', 'tok-abc');
+
+    const text = sentTexts()[0] ?? '';
+    expect(text).toContain('/auth/confirm-email-change?token=tok-abc');
+    expect(text).toContain('tenantId=acme');
   });
 });

@@ -48,13 +48,14 @@ export class TenantsService {
   }
 
   /**
-   * Resolves a tenant slug to its internal CUID.
+   * Resolves a tenant slug to its internal id.
    *
    * Used by the public tenant-resolve endpoint so the login page can convert
-   * the `?tenantId=<slug>` URL param to the CUID required in `X-Tenant-Id`.
+   * the `?tenantId=<slug>` URL param to the id required in `X-Tenant-Id`
+   * (`cuid()` by default, but the column's contents are its own business).
    *
    * @param slug - URL-safe tenant slug (e.g. `'acme'`).
-   * @returns Object with the tenant's CUID `id` field.
+   * @returns Object with the tenant's `id` field.
    * @throws `NotFoundException` when no tenant with that slug exists.
    */
   async resolveBySlug(slug: string): Promise<{ id: string }> {
@@ -64,6 +65,32 @@ export class TenantsService {
     });
     if (!tenant) throw new NotFoundException(`Tenant not found: ${slug}`);
     return { id: tenant.id };
+  }
+
+  /**
+   * Resolves a tenant id back to its URL-safe slug.
+   *
+   * The inverse of {@link resolveBySlug}, and needed because the library hands
+   * providers `Tenant.id`: a link mailed from `sendEmailChangeVerification` (or
+   * any other tenant-scoped notification) carries that value, while the pages
+   * that receive it pick a workspace by slug. Without this the id is
+   * unrecognised and the page silently falls back to the default workspace.
+   *
+   * The id is whatever the column holds — `cuid()` by default, readable values
+   * in the e2e stack — so nothing here assumes a shape; an id no row carries is
+   * a 404.
+   *
+   * @param id - Tenant id as it appears in a mailed link.
+   * @returns Object with the tenant's `slug`.
+   * @throws `NotFoundException` when no tenant with that id exists.
+   */
+  async resolveSlugById(id: string): Promise<{ slug: string }> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: { slug: true },
+    });
+    if (!tenant) throw new NotFoundException(`Tenant not found: ${id}`);
+    return { slug: tenant.slug };
   }
 
   /**

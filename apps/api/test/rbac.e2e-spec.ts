@@ -36,8 +36,8 @@ process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0
 
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { createAuthValidationPipe } from '@bymax-one/nest-auth';
+import { Test, type TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import * as supertest from 'supertest';
 import type { Agent } from 'supertest';
@@ -47,6 +47,7 @@ import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { clearMailpit, waitForEmail, extractOtpFromHtml } from './helpers/mailpit.js';
+import { resetAuthRateLimits } from './helpers/throttle.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -91,7 +92,7 @@ async function registerVerifyLoginAs(
     .post('/api/auth/register')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', 'acme')
-    .send({ email, password, name, tenantId: 'acme' });
+    .send({ email, password, name });
   expect(regRes.status).toBe(201);
 
   const html = await waitForEmail(email);
@@ -102,7 +103,7 @@ async function registerVerifyLoginAs(
     .post('/api/auth/verify-email')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', 'acme')
-    .send({ email, otp, tenantId: 'acme' });
+    .send({ email, otp });
 
   // Promote to the requested role before issuing the JWT.
   await prisma.user.updateMany({
@@ -115,12 +116,18 @@ async function registerVerifyLoginAs(
     .post('/api/auth/login')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', 'acme')
-    .send({ email, password, tenantId: 'acme' });
+    .send({ email, password });
   expect(loginRes.status).toBe(200);
   return loginAgent;
 }
 
 // ─── Suite ───────────────────────────────────────────────────────────────────
+
+/**
+ * Testing module handle, kept at module scope so rate-limit counters can be
+ * reset between tests. Assigned in `beforeAll`.
+ */
+let moduleRef: TestingModule;
 
 describe('RBAC — role hierarchy is enforced on protected routes', () => {
   let app: INestApplication;
@@ -134,7 +141,7 @@ describe('RBAC — role hierarchy is enforced on protected routes', () => {
       stdio: 'pipe',
     });
 
-    const moduleRef = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
@@ -151,7 +158,7 @@ describe('RBAC — role hierarchy is enforced on protected routes', () => {
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({
+      createAuthValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
@@ -168,6 +175,10 @@ describe('RBAC — role hierarchy is enforced on protected routes', () => {
   });
 
   beforeEach(async () => {
+    // Clear both rate limiters (in-memory ThrottlerGuard + the library's
+    // Redis-backed per-IP counters) so auth-route limits never bleed across
+    // tests or spec files in a sequential run.
+    await resetAuthRateLimits(moduleRef);
     await clearMailpit();
     await truncateTables(prisma);
   });
@@ -182,7 +193,7 @@ describe('RBAC — role hierarchy is enforced on protected routes', () => {
       app.getHttpServer(),
       prisma,
       email,
-      'P@ssw0rd12345',
+      'Str0ngUniqu3Passw0rd!',
       'RBAC Admin',
       Role.ADMIN,
     );
@@ -211,7 +222,7 @@ describe('RBAC — role hierarchy is enforced on protected routes', () => {
       app.getHttpServer(),
       prisma,
       email,
-      'P@ssw0rd12345',
+      'Str0ngUniqu3Passw0rd!',
       'RBAC Member',
       Role.MEMBER,
     );
@@ -236,7 +247,7 @@ describe('RBAC — role hierarchy is enforced on protected routes', () => {
       app.getHttpServer(),
       prisma,
       email,
-      'P@ssw0rd12345',
+      'Str0ngUniqu3Passw0rd!',
       'RBAC Owner',
       Role.OWNER,
     );
@@ -268,7 +279,7 @@ describe('RBAC — role hierarchy is enforced on protected routes', () => {
       app.getHttpServer(),
       prisma,
       email,
-      'P@ssw0rd12345',
+      'Str0ngUniqu3Passw0rd!',
       'RBAC Viewer',
       Role.VIEWER,
     );

@@ -4,7 +4,8 @@
  *
  * `createTestApp` boots a full `NestApplication` against `DATABASE_URL_TEST`,
  * runs `prisma migrate deploy` once per process, wires all global middleware
- * (cookie-parser, ValidationPipe, AuthExceptionFilter, global prefix `/api`),
+ * (cookie-parser, the library's `createAuthValidationPipe`, AuthExceptionFilter,
+ * global prefix `/api`, plain `ws` WebSocket adapter),
  * and returns a disposable `{ app, agent, prisma, redis }` bundle.
  *
  * Usage in a spec file:
@@ -21,13 +22,13 @@
 
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { WsAdapter } from '@nestjs/platform-ws';
 import cookieParser from 'cookie-parser';
 import type { Redis } from 'ioredis';
 import * as supertest from 'supertest';
 import type { Agent } from 'supertest';
-import { BYMAX_AUTH_REDIS_CLIENT } from '@bymax-one/nest-auth';
+import { BYMAX_AUTH_REDIS_CLIENT, createAuthValidationPipe } from '@bymax-one/nest-auth';
 
 import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
@@ -85,7 +86,7 @@ export async function createTestApp(options?: { port?: number }): Promise<TestBu
   app.use(cookieParser());
   app.setGlobalPrefix('api');
   app.useGlobalPipes(
-    new ValidationPipe({
+    createAuthValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
@@ -93,6 +94,9 @@ export async function createTestApp(options?: { port?: number }): Promise<TestBu
     }),
   );
   app.useGlobalFilters(new AuthExceptionFilter());
+  // The notifications gateway requires an explicit WebSocket driver — the app
+  // uses the plain `ws` adapter (matching main.ts), not socket.io.
+  app.useWebSocketAdapter(new WsAdapter(app));
 
   const port = options?.port ?? 0;
   await app.listen(port);

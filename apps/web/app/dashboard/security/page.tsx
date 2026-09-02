@@ -1,5 +1,11 @@
 /**
- * @fileoverview Security settings page — MFA enrollment / disablement.
+ * @fileoverview Security settings page — MFA enrollment / disablement plus
+ * the email-address change card.
+ *
+ * Both cards depend on whether the account has a password, which arrives from
+ * `getMfaStatus()`. That answer has three states, not two: until it lands,
+ * neither card can be rendered honestly, so unknown gets its own state rather
+ * than a default.
  *
  * Uses `useSession()` from the auth library to read `mfaEnabled` and to
  * refresh the client-side session cache after every toggle. The page wires
@@ -24,6 +30,8 @@ import { ShieldAlert } from 'lucide-react';
 import { useSession } from '@bymax-one/nest-auth/react';
 import { MfaSetupCard } from '@/components/dashboard/mfa-setup-card';
 import { MfaDisableCard } from '@/components/dashboard/mfa-disable-card';
+import { MfaStatusUnavailableCard } from '@/components/dashboard/mfa-status-unavailable-card';
+import { EmailChangeCard } from '@/components/dashboard/email-change-card';
 import { getMfaStatus } from '@/lib/auth-client';
 import { Card } from '@/components/ui/card';
 
@@ -37,10 +45,26 @@ import { Card } from '@/components/ui/card';
  * latest server-side state and the page swaps to the correct card on the
  * next render tick.
  */
+/** How many times the MFA-status request is attempted before giving up. */
+const STATUS_FETCH_ATTEMPTS = 3;
+
+/** Pause between status-request attempts, in milliseconds. */
+const STATUS_RETRY_DELAY_MS = 750;
+
 export default function SecurityPage() {
   const { user, refresh } = useSession();
   const searchParams = useSearchParams();
   const [isMfaRequired, setIsMfaRequired] = useState(false);
+  // `null` means "not known yet" — either still loading or the status request
+  // failed. It is deliberately distinct from `false`: pinning it to a boolean
+  // on failure would either strand OAuth-only accounts behind a password field
+  // they cannot fill, or drop the password requirement for accounts that do
+  // have one. Consumers below decide what unknown means for them.
+  const [hasPassword, setHasPassword] = useState<boolean | null>(null);
+  // Bumped by the "Try again" control so the effect below re-runs. The
+  // automatic attempts are bounded, and once they are spent the user is the
+  // only thing that can ask again short of reloading the page.
+  const [statusRequestId, setStatusRequestId] = useState(0);
 
   // Fetch the workspace MFA policy on mount. We only need the `required`
   // flag here — the recovery-code counter inside MfaDisableCard has its
@@ -51,17 +75,36 @@ export default function SecurityPage() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      try {
-        const status = await getMfaStatus();
-        if (!cancelled) setIsMfaRequired(status.required);
-      } catch {
-        if (!cancelled) setIsMfaRequired(false);
+      // Retry rather than guess. `hasPassword` decides whether the cards ask
+      // for a password, and a single transient failure must not settle that
+      // for the rest of the page's life — the user has no way to re-trigger
+      // the request short of reloading. Attempts are bounded: if the API is
+      // still unreachable after these, the page has larger problems than a
+      // missing capability flag.
+      for (let attempt = 0; attempt < STATUS_FETCH_ATTEMPTS; attempt += 1) {
+        try {
+          const status = await getMfaStatus();
+          if (!cancelled) {
+            setIsMfaRequired(status.required);
+            setHasPassword(status.hasPassword);
+          }
+          return;
+        } catch {
+          if (cancelled) return;
+          // The banner is informational, so a failure here is not surfaced;
+          // the dashboard shell already redirected the user when the policy
+          // applies. `hasPassword` stays unknown for the consumers below.
+          setIsMfaRequired(false);
+          if (attempt < STATUS_FETCH_ATTEMPTS - 1) {
+            await new Promise((resolve) => setTimeout(resolve, STATUS_RETRY_DELAY_MS));
+          }
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user, statusRequestId]);
 
   // The cards expect a fire-and-forget `() => void` callback; the lib's
   // `refresh` is async. `void` discards the promise so the callback's
@@ -71,6 +114,11 @@ export default function SecurityPage() {
   const handleToggle = useCallback(() => {
     void refresh();
   }, [refresh]);
+
+  /** Re-runs the status effect after its bounded attempts have been spent. */
+  const handleStatusRetry = useCallback(() => {
+    setStatusRequestId((id) => id + 1);
+  }, []);
 
   const arrivedViaMfaRedirect = searchParams.get('reason') === 'mfa_required';
 
@@ -129,10 +177,29 @@ export default function SecurityPage() {
           </Card>
         ) : user.mfaEnabled ? (
           <MfaDisableCard onDisabled={handleToggle} />
+        ) : hasPassword === null ? (
+          <MfaStatusUnavailableCard onRetry={handleStatusRetry} />
         ) : (
-          <MfaSetupCard onEnabled={handleToggle} />
+          <MfaSetupCard onEnabled={handleToggle} hasPassword={hasPassword} />
         )}
       </div>
+
+      {/* ── Email address card ──
+          Starts the library's two-step address change: password re-proof
+          here, then a confirmation link mailed to the new address which
+          lands on /auth/confirm-email-change. Rendered only once the
+          session has resolved so an anonymous flash never shows the form,
+          and only once the capability is known to be true: the change
+          re-proves the current password, which an OAuth-only account cannot
+          supply, so showing the card there would offer an action that can
+          never succeed. Unknown is treated as "do not offer it" — better a
+          missing card after a failed status fetch than a permanently failing
+          form. Their address is owned by the identity provider. */}
+      {user !== null && hasPassword === true && (
+        <div className="max-w-xl">
+          <EmailChangeCard />
+        </div>
+      )}
     </div>
   );
 }

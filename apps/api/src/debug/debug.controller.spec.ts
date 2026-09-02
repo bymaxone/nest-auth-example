@@ -3,13 +3,17 @@
  * @description Unit tests for `DebugController`.
  *
  * Verifies that:
- * - `POST /debug/lockout` sets the correct Redis key with the correct value and TTL.
- * - The key format matches the library's brute-force namespace convention.
- * - The handler throws `ForbiddenException` when `NODE_ENV === 'production'`.
+ * - `POST /debug/lockout` replays wrong-password logins through the real
+ *   `AuthService.login` path and reports the resulting lockout state.
+ * - `GET /debug/lockout` reads state via `isAccountLockedOut` +
+ *   `getAccountLockoutSeconds`.
+ * - `DELETE /debug/lockout` delegates to `AuthService.unlockAccount`.
+ * - Every handler requires the `X-Tenant-Id` header and throws
+ *   `ForbiddenException` when `NODE_ENV === 'production'`.
  *
- * The Redis client is mocked via the `BYMAX_AUTH_REDIS_CLIENT` injection token
- * to avoid any real connection. `process.env['NODE_ENV']` is manipulated per
- * test to exercise the production guard branch.
+ * `AuthService` is mocked — no Redis or database is touched.
+ * `process.env['NODE_ENV']` is manipulated per test to exercise the
+ * production guard branch.
  *
  * @layer test
  * @see apps/api/src/debug/debug.controller.ts
@@ -18,39 +22,51 @@
 import { jest } from '@jest/globals';
 import { Test } from '@nestjs/testing';
 import { ForbiddenException } from '@nestjs/common';
-import { BYMAX_AUTH_REDIS_CLIENT, sha256 } from '@bymax-one/nest-auth';
+import type { Request } from 'express';
+import { AUTH_ERROR_CODES, AuthException, AuthService } from '@bymax-one/nest-auth';
 
 import { DebugController } from './debug.controller.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Namespace constant that mirrors the private static in `DebugController`. */
-const REDIS_NAMESPACE = 'nest-auth-example';
-
-/** Computes the expected Redis key for a given `(tenantId, email)` pair. */
-function expectedKey(tenantId: string, email: string): string {
-  const hash = sha256(`${tenantId}:${email.toLowerCase()}`);
-  return `${REDIS_NAMESPACE}:lf:${hash}`;
+/** Builds a minimal Express request stub carrying the given headers. */
+function makeRequest(headers: Record<string, string>): Request {
+  return { headers } as unknown as Request;
 }
+
+/** Request stub with the tenant header the endpoints require. */
+const TENANT_ID = 'tenant-1';
+const reqWithTenant = (): Request => makeRequest({ 'x-tenant-id': TENANT_ID });
 
 // ─── Suite ───────────────────────────────────────────────────────────────────
 
 describe('DebugController', () => {
   let controller: DebugController;
-  let redisSet: jest.Mock<() => Promise<string | null>>;
+  let login: jest.Mock<() => Promise<never>>;
+  let isAccountLockedOut: jest.Mock<() => Promise<boolean>>;
+  let getAccountLockoutSeconds: jest.Mock<() => Promise<number>>;
+  let unlockAccount: jest.Mock<() => Promise<void>>;
 
   const originalEnv = process.env['NODE_ENV'];
 
   beforeEach(async () => {
-    redisSet = jest.fn<() => Promise<string | null>>();
-    redisSet.mockResolvedValue('OK');
+    // Each wrong-password replay is refused with the library's own exception —
+    // the controller must swallow AuthException and keep looping.
+    login = jest.fn<() => Promise<never>>();
+    login.mockRejectedValue(new AuthException(AUTH_ERROR_CODES.INVALID_CREDENTIALS));
+    isAccountLockedOut = jest.fn<() => Promise<boolean>>();
+    isAccountLockedOut.mockResolvedValue(true);
+    getAccountLockoutSeconds = jest.fn<() => Promise<number>>();
+    getAccountLockoutSeconds.mockResolvedValue(900);
+    unlockAccount = jest.fn<() => Promise<void>>();
+    unlockAccount.mockResolvedValue(undefined);
 
     const moduleRef = await Test.createTestingModule({
       controllers: [DebugController],
       providers: [
         {
-          provide: BYMAX_AUTH_REDIS_CLIENT,
-          useValue: { set: redisSet },
+          provide: AuthService,
+          useValue: { login, isAccountLockedOut, getAccountLockoutSeconds, unlockAccount },
         },
       ],
     }).compile();
@@ -59,73 +75,91 @@ describe('DebugController', () => {
   });
 
   afterEach(() => {
-    jest.resetAllMocks();
-    // Restore the original NODE_ENV after each test that mutates it.
     process.env['NODE_ENV'] = originalEnv;
   });
 
-  // ─── lockout ─────────────────────────────────────────────────────────────
+  // Scenario: forcing a lockout replays exactly maxAttempts (5) failed logins
+  // through AuthService.login — the real brute-force path — and then reports
+  // the lockout state read back from the library. Protects FCM #16.
+  it('POST /debug/lockout replays 5 wrong-password logins and reports state', async () => {
+    process.env['NODE_ENV'] = 'test';
+    const result = await controller.lockout({ email: 'user@example.com' }, reqWithTenant());
 
-  describe('lockout', () => {
-    it('sets the correct Redis key with maxAttempts+1 and a 900-second TTL', async () => {
-      // The key format must mirror the library's internal BruteForceService key
-      // so the lockout is recognised by the library without code duplication.
-      process.env['NODE_ENV'] = 'development';
+    expect(login).toHaveBeenCalledTimes(5);
+    // The dto passed to the library must NOT name tenantId — the configured
+    // tenantIdResolver (X-Tenant-Id header) is the single source of tenancy.
+    const firstCall = login.mock.calls[0] as unknown as [
+      { email: string; password: string; tenantId?: string },
+      Request,
+    ];
+    expect(firstCall[0].email).toBe('user@example.com');
+    expect(firstCall[0]).not.toHaveProperty('tenantId');
+    expect(result).toEqual({ locked: true, retryAfterSeconds: 900 });
+  });
 
-      const result = await controller.lockout({ tenantId: 'tenant-1', email: 'Alice@Example.com' });
+  // Scenario: a non-AuthException failure inside the replay loop (e.g. a dead
+  // database) must propagate — only expected auth refusals are swallowed.
+  it('POST /debug/lockout rethrows unexpected non-auth errors', async () => {
+    process.env['NODE_ENV'] = 'test';
+    login.mockRejectedValueOnce(new Error('db down'));
 
-      const key = expectedKey('tenant-1', 'alice@example.com');
-      expect(result).toEqual({ locked: true, key });
-      expect(redisSet).toHaveBeenCalledWith(key, '6', 'EX', 900);
-    });
+    await expect(
+      controller.lockout({ email: 'user@example.com' }, reqWithTenant()),
+    ).rejects.toThrow('db down');
+  });
 
-    it('lowercases the email before hashing to match the library key derivation', async () => {
-      // Brute-force keys are always built from the lowercased address; an
-      // uppercase mismatch would produce a different key and leave the account
-      // unlocked despite calling this endpoint.
-      process.env['NODE_ENV'] = 'test';
+  // Scenario: the status endpoint surfaces the library's lockout read side —
+  // isAccountLockedOut + getAccountLockoutSeconds — scoped by the header tenant.
+  it('GET /debug/lockout reads lockout state via the library', async () => {
+    process.env['NODE_ENV'] = 'test';
+    isAccountLockedOut.mockResolvedValue(false);
+    getAccountLockoutSeconds.mockResolvedValue(0);
 
-      const lowerResult = await controller.lockout({
-        tenantId: 'tenant-1',
-        email: 'user@example.com',
-      });
-      jest.resetAllMocks();
-      redisSet.mockResolvedValue('OK');
+    const result = await controller.lockoutStatus({ email: 'user@example.com' }, reqWithTenant());
 
-      const upperResult = await controller.lockout({
-        tenantId: 'tenant-1',
-        email: 'USER@EXAMPLE.COM',
-      });
+    expect(isAccountLockedOut).toHaveBeenCalledWith('user@example.com', TENANT_ID);
+    expect(getAccountLockoutSeconds).toHaveBeenCalledWith('user@example.com', TENANT_ID);
+    expect(result).toEqual({ locked: false, retryAfterSeconds: 0 });
+  });
 
-      expect(lowerResult.key).toBe(upperResult.key);
-    });
+  // Scenario: the unlock endpoint delegates to AuthService.unlockAccount with
+  // the header tenant — the admin-side early-unlock surface.
+  it('DELETE /debug/lockout unlocks via AuthService.unlockAccount', async () => {
+    process.env['NODE_ENV'] = 'test';
+    await controller.unlock({ email: 'user@example.com' }, reqWithTenant());
 
-    it('throws ForbiddenException with the documented "Not available" message in production', async () => {
-      /*
-       * Scenario: even if the module is accidentally wired in
-       * production, the handler must refuse to execute AND
-       * carry a recognisable error message so operators can
-       * spot the gate's intent in 403 responses.
-       */
-      process.env['NODE_ENV'] = 'production';
+    expect(unlockAccount).toHaveBeenCalledWith('user@example.com', TENANT_ID);
+  });
 
-      await expect(
-        controller.lockout({ tenantId: 'tenant-1', email: 'user@example.com' }),
-      ).rejects.toBeInstanceOf(ForbiddenException);
-      await expect(
-        controller.lockout({ tenantId: 'tenant-1', email: 'user@example.com' }),
-      ).rejects.toThrow('Not available');
+  // Scenario: a request without the X-Tenant-Id header is refused — debug
+  // endpoints follow the same header-tenanting rule as the rest of the API.
+  it('refuses requests missing the X-Tenant-Id header', async () => {
+    process.env['NODE_ENV'] = 'test';
+    await expect(
+      controller.lockout({ email: 'user@example.com' }, makeRequest({})),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      controller.lockoutStatus({ email: 'user@example.com' }, makeRequest({})),
+    ).rejects.toThrow(ForbiddenException);
+    await expect(
+      controller.unlock({ email: 'user@example.com' }, makeRequest({})),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
 
-      expect(redisSet).not.toHaveBeenCalled();
-    });
-
-    it('returns locked:true on a successful Redis set', async () => {
-      // The caller relies on locked:true to confirm the operation succeeded.
-      process.env['NODE_ENV'] = 'development';
-
-      const result = await controller.lockout({ tenantId: 'tenant-1', email: 'user@example.com' });
-
-      expect(result.locked).toBe(true);
-    });
+  // Scenario: in production every handler refuses outright — the debug surface
+  // must be dead even if the module is accidentally wired in.
+  it('throws ForbiddenException in production on every endpoint', async () => {
+    process.env['NODE_ENV'] = 'production';
+    await expect(
+      controller.lockout({ email: 'user@example.com' }, reqWithTenant()),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      controller.lockoutStatus({ email: 'user@example.com' }, reqWithTenant()),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      controller.unlock({ email: 'user@example.com' }, reqWithTenant()),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(login).not.toHaveBeenCalled();
+    expect(unlockAccount).not.toHaveBeenCalled();
   });
 });

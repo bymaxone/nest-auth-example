@@ -103,10 +103,11 @@ Users can turn MFA off; a security email confirms the change.
 
 ## 12. OAuth (Google)
 
-"Continue with Google" signs in (or links) via the Google plugin. The OAuth controller is only mounted when both client env vars are set.
+"Continue with Google" signs in via the Google plugin. The OAuth controller is only mounted when both client env vars are set.
 
-- **Library API:** `controllers.oauth` toggled by `isGoogleOAuthConfigured()` in [`auth.module.ts`](../apps/api/src/auth/auth.module.ts); linking handled in [`app-auth.hooks.ts`](../apps/api/src/auth/app-auth.hooks.ts) `onOAuthLogin`. Button: [`app/auth/login/page.tsx:213`](../apps/web/app/auth/login/page.tsx).
-- **Walkthrough:** set `OAUTH_GOOGLE_CLIENT_ID`/`SECRET`/`CALLBACK_URL` and `NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED=true` → the button appears → it hits `GET /api/auth/oauth/google/start`, redirects to Google, and on callback either links (same email) or creates a verified account. Covered by [`oauth-link.e2e-spec.ts`](../apps/api/test/oauth-link.e2e-spec.ts).
+- **Library API:** `controllers.oauth` toggled by `isGoogleOAuthConfigured()` in [`auth.module.ts`](../apps/api/src/auth/auth.module.ts); the `'link' | 'create'` decision is made in [`app-auth.hooks.ts`](../apps/api/src/auth/app-auth.hooks.ts) `onOAuthLogin`. Button: [`app/auth/login/page.tsx`](../apps/web/app/auth/login/page.tsx).
+- **Walkthrough:** set `OAUTH_GOOGLE_CLIENT_ID`/`SECRET`/`CALLBACK_URL` and `NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED=true` → the button appears → it hits `GET /api/auth/oauth/google/start`, redirects to Google, and on callback creates a verified account for an address new to the tenant.
+- **No silent linking:** since lib 1.4.x an address that already has an account in the tenant is refused with `auth.oauth_email_mismatch` rather than attached to it — whoever controls the Google identity for someone's address must not inherit their account. With `errorRedirectUrl` configured the callback 302s to `/auth/login?error=oauth_email_mismatch` and issues no cookies. `onOAuthLogin` answers `'link'` only for an identity already matched by provider id, which is re-authentication, not first-time linking. Covered by [`oauth-link.e2e-spec.ts`](../apps/api/test/oauth-link.e2e-spec.ts).
 
 ## 13. Active sessions listing + revoke
 

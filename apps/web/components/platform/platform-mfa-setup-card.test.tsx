@@ -39,6 +39,20 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+/** Password used across tests for the setup re-authentication step. */
+const SETUP_PASSWORD = 'AdminPassword123!';
+
+/**
+ * Fills the idle-step current-password input — the lib's platform setup
+ * endpoint requires re-authentication, so every flow that clicks "Set up
+ * authenticator" must provide a non-empty password first.
+ */
+function fillSetupPassword(): void {
+  fireEvent.change(screen.getByTestId('platform-mfa-setup-password'), {
+    target: { value: SETUP_PASSWORD },
+  });
+}
+
 describe('PlatformMfaSetupCard', () => {
   it('renders the "Set up authenticator" button in the idle state', () => {
     /*
@@ -66,10 +80,14 @@ describe('PlatformMfaSetupCard', () => {
     });
     render(<PlatformMfaSetupCard onEnabled={vi.fn()} />);
 
+    fillSetupPassword();
+
     fireEvent.click(screen.getByTestId('platform-mfa-setup-button'));
 
     await waitFor(() => {
+      // The collected password must travel to the client as the re-auth proof.
       expect(platformMfaSetup).toHaveBeenCalledOnce();
+      expect(platformMfaSetup).toHaveBeenCalledWith(SETUP_PASSWORD);
     });
     await waitFor(() => {
       const secretInput = screen.getByTestId<HTMLInputElement>('platform-mfa-secret');
@@ -93,6 +111,7 @@ describe('PlatformMfaSetupCard', () => {
     vi.mocked(platformMfaVerifyEnable).mockResolvedValue(undefined);
 
     render(<PlatformMfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByTestId('platform-mfa-setup-button'));
     await screen.findByTestId('platform-mfa-secret');
 
@@ -125,6 +144,8 @@ describe('PlatformMfaSetupCard', () => {
     vi.mocked(platformMfaSetup).mockRejectedValue(err);
     render(<PlatformMfaSetupCard onEnabled={vi.fn()} />);
 
+    fillSetupPassword();
+
     fireEvent.click(screen.getByTestId('platform-mfa-setup-button'));
 
     await waitFor(() => {
@@ -150,6 +171,7 @@ describe('PlatformMfaSetupCard', () => {
     vi.mocked(platformMfaVerifyEnable).mockRejectedValue(err);
 
     render(<PlatformMfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByTestId('platform-mfa-setup-button'));
     await screen.findByTestId('platform-mfa-secret');
 
@@ -180,6 +202,7 @@ describe('PlatformMfaSetupCard', () => {
       recoveryCodes: ['AAAA'],
     });
     render(<PlatformMfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByTestId('platform-mfa-setup-button'));
     await screen.findByTestId('platform-mfa-secret');
 
@@ -201,6 +224,7 @@ describe('PlatformMfaSetupCard', () => {
       recoveryCodes: ['AAAA'],
     });
     render(<PlatformMfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByTestId('platform-mfa-setup-button'));
     await screen.findByTestId('platform-mfa-secret');
 
@@ -228,6 +252,7 @@ describe('PlatformMfaSetupCard', () => {
     vi.mocked(platformMfaVerifyEnable).mockReturnValue(new Promise(() => undefined));
 
     render(<PlatformMfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByTestId('platform-mfa-setup-button'));
     await screen.findByTestId('platform-mfa-secret');
 
@@ -256,6 +281,7 @@ describe('PlatformMfaSetupCard', () => {
       recoveryCodes: ['AAAA'],
     });
     render(<PlatformMfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByTestId('platform-mfa-setup-button'));
     const secretInput = await screen.findByTestId<HTMLInputElement>('platform-mfa-secret');
     const selectSpy = vi.spyOn(secretInput, 'select');
@@ -278,6 +304,7 @@ describe('PlatformMfaSetupCard', () => {
      */
     vi.mocked(platformMfaSetup).mockReturnValue(new Promise(() => undefined));
     render(<PlatformMfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByTestId('platform-mfa-setup-button'));
 
     await waitFor(() => {
@@ -311,6 +338,7 @@ describe('PlatformMfaSetupCard', () => {
       recoveryCodes: ['AAAA'],
     });
     render(<PlatformMfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByTestId('platform-mfa-setup-button'));
     await screen.findByTestId('platform-mfa-secret');
 
@@ -337,6 +365,7 @@ describe('PlatformMfaSetupCard', () => {
     vi.mocked(platformMfaVerifyEnable).mockRejectedValue(new Error('Invalid TOTP'));
 
     render(<PlatformMfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByTestId('platform-mfa-setup-button'));
     await screen.findByTestId('platform-mfa-secret');
     const otpInputs = screen
@@ -379,6 +408,7 @@ describe('PlatformMfaSetupCard', () => {
     vi.mocked(platformMfaVerifyEnable).mockResolvedValue(undefined);
 
     render(<PlatformMfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByTestId('platform-mfa-setup-button'));
     await screen.findByTestId('platform-mfa-secret');
     const otpInputs = screen
@@ -418,6 +448,7 @@ describe('PlatformMfaSetupCard', () => {
     vi.mocked(platformMfaVerifyEnable).mockResolvedValue(undefined);
 
     render(<PlatformMfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByTestId('platform-mfa-setup-button'));
     await screen.findByTestId('platform-mfa-secret');
     const otpInputs = screen
@@ -454,6 +485,7 @@ describe('PlatformMfaSetupCard', () => {
     const onEnabled = vi.fn();
 
     render(<PlatformMfaSetupCard onEnabled={onEnabled} />);
+    fillSetupPassword();
     fireEvent.click(screen.getByTestId('platform-mfa-setup-button'));
     await screen.findByTestId('platform-mfa-secret');
 
@@ -468,5 +500,62 @@ describe('PlatformMfaSetupCard', () => {
     fireEvent.click(screen.getByRole('button', { name: /saved my codes/i }));
 
     await waitFor(() => expect(onEnabled).toHaveBeenCalledOnce());
+  });
+});
+
+// ── Re-authentication password step ──────────────────────────────────────────
+
+describe('PlatformMfaSetupCard password re-authentication step', () => {
+  it('renders the current-password input with its label in the idle state', () => {
+    /*
+     * Scenario: the lib's platform setup endpoint requires re-authentication,
+     * so the idle step must collect the admin's current password before
+     * enrolment begins. Pins the password input attributes and its label.
+     */
+    render(<PlatformMfaSetupCard onEnabled={vi.fn()} />);
+    const input = screen.getByTestId<HTMLInputElement>('platform-mfa-setup-password');
+    expect(input.type).toBe('password');
+    expect(input.autocomplete).toBe('current-password');
+    expect(screen.getByText('Current password')).toBeDefined();
+  });
+
+  it('shows a validation error and does NOT call platformMfaSetup when the password is empty', async () => {
+    /*
+     * Scenario: clicking "Set up authenticator" without confirming the
+     * password must short-circuit client-side — the server would reject the
+     * call anyway (auth.reauthentication_required), so no request goes out
+     * and the inline error tells the admin what is missing.
+     * Protects: the empty-password guard in handleSetup.
+     */
+    render(<PlatformMfaSetupCard onEnabled={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('platform-mfa-setup-button'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Enter your current password to continue.')).toBeDefined();
+    });
+    expect(platformMfaSetup).not.toHaveBeenCalled();
+  });
+
+  it('forwards a wrong-password rejection from platformMfaSetup to handleAuthClientError', async () => {
+    /*
+     * Scenario: a wrong password makes the server answer with
+     * auth.invalid_credentials (or auth.reauthentication_required when the
+     * body is missing). The card must funnel that into the shared error
+     * handler exactly like every other setup failure.
+     * Protects: the catch arm of handleSetup for the re-auth error path.
+     */
+    const err = new Error('auth.invalid_credentials');
+    vi.mocked(platformMfaSetup).mockRejectedValue(err);
+
+    render(<PlatformMfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
+    fireEvent.click(screen.getByTestId('platform-mfa-setup-button'));
+
+    await waitFor(() => {
+      expect(handleAuthClientError).toHaveBeenCalledWith(
+        err,
+        expect.objectContaining({ toast: expect.anything() }),
+      );
+    });
   });
 });

@@ -10,7 +10,8 @@
  *  2. Using result types as explicit TypeScript annotations so that breaking
  *     API changes become compile errors in this reference application.
  *  3. Confirming that service tokens are importable for DI composition
- *     (`SessionService`, `OtpService`, `PasswordResetService`).
+ *     (`SessionService`, `OtpService`, `PasswordResetService`,
+ *     `PlatformAuthService`, `EmailChangeService`, `InvitationService`).
  *
  * @layer test
  */
@@ -34,12 +35,15 @@ import {
   OtpService,
   PasswordResetService,
   OptionalAuthGuard,
+  PlatformAuthService,
+  EmailChangeService,
+  InvitationService,
 } from '@bymax-one/nest-auth';
 
 // ── Types (import-only to confirm public surface) ─────────────────────────────
 
 import type {
-  ActiveSessionInfo,
+  SessionInfo,
   AuthResult,
   MfaChallengeResult,
   MfaSetupResult,
@@ -47,6 +51,20 @@ import type {
   OAuthMfaChallengeResult,
   PlatformAuthResult,
   RotatedTokenResult,
+  CreateSessionParams,
+  ListSessionsParams,
+  RevokeSessionParams,
+  RevokeAllSessionsParams,
+  RevokeAllExceptCurrentParams,
+  RevocableTokenPayload,
+  UpdateMfaData,
+  AuthFieldError,
+  AuthGuardFamily,
+  BymaxAuthRateLimitOptions,
+  ClientIpSource,
+  AuthRateLimitWindow,
+  OpenApiSecurityRequirement,
+  AuthDocumentSecurityParams,
 } from '@bymax-one/nest-auth';
 
 // ── Shared types ──────────────────────────────────────────────────────────────
@@ -212,6 +230,36 @@ describe('library service tokens', () => {
     expect(PasswordResetService).toBeDefined();
   });
 
+  it('PlatformAuthService is importable from @bymax-one/nest-auth', () => {
+    /**
+     * Scenario: apps that build custom platform-admin flows (e.g. scripted
+     * bootstrap of the first platform administrator) inject PlatformAuthService
+     * from the library module.
+     * Rule: PlatformAuthService is accessible as a named export.
+     */
+    expect(PlatformAuthService).toBeDefined();
+  });
+
+  it('EmailChangeService is importable from @bymax-one/nest-auth', () => {
+    /**
+     * Scenario: apps that orchestrate the two-step address change outside the
+     * mounted controllers (e.g. an admin-driven migration tool) inject
+     * EmailChangeService to start and confirm changes programmatically.
+     * Rule: EmailChangeService is accessible as a named export.
+     */
+    expect(EmailChangeService).toBeDefined();
+  });
+
+  it('InvitationService is importable from @bymax-one/nest-auth', () => {
+    /**
+     * Scenario: apps that persist invitations in their own store (as this
+     * example does via `POST /api/invitations`) inject InvitationService to
+     * mint and validate the library's invitation tokens.
+     * Rule: InvitationService is accessible as a named export.
+     */
+    expect(InvitationService).toBeDefined();
+  });
+
   it('OptionalAuthGuard is importable from @bymax-one/nest-auth', () => {
     /**
      * Scenario: controllers that serve both authenticated and anonymous callers
@@ -238,40 +286,66 @@ describe('library service tokens', () => {
 describe('result type surface (compile-time)', () => {
   it('type imports resolve without error', () => {
     /**
-     * Scenario: Importing ActiveSessionInfo, AuthResult, MfaChallengeResult,
+     * Scenario: Importing SessionInfo, AuthResult, MfaChallengeResult,
      * MfaSetupResult, MfaTempPayload, OAuthMfaChallengeResult, PlatformAuthResult,
      * RotatedTokenResult, and shared types confirms the full type surface.
      * Rule: all named result types are publicly exported.
      *
-     * The type-only variable assignments below are erased at compile time.
-     * If a type is removed from the library, TypeScript compilation fails here.
+     * Each binding below is declared as `T | undefined` and left undefined:
+     * it names the type without asserting anything about a value, so no cast
+     * is involved. If a type is removed from the library, this file stops
+     * compiling.
      */
-    const _activeSessionInfo = null as unknown as ActiveSessionInfo;
-    const _authResult = null as unknown as AuthResult;
-    const _mfaChallengeResult = null as unknown as MfaChallengeResult;
-    const _mfaSetupResult = null as unknown as MfaSetupResult;
-    const _mfaTempPayload = null as unknown as MfaTempPayload;
-    const _oauthMfaChallengeResult = null as unknown as OAuthMfaChallengeResult;
-    const _platformAuthResult = null as unknown as PlatformAuthResult;
-    const _rotatedTokenResult = null as unknown as RotatedTokenResult;
+    const _sessionInfo: SessionInfo | undefined = undefined;
+    const _authResult: AuthResult | undefined = undefined;
+    const _mfaChallengeResult: MfaChallengeResult | undefined = undefined;
+    const _mfaSetupResult: MfaSetupResult | undefined = undefined;
+    const _mfaTempPayload: MfaTempPayload | undefined = undefined;
+    const _oauthMfaChallengeResult: OAuthMfaChallengeResult | undefined = undefined;
+    const _platformAuthResult: PlatformAuthResult | undefined = undefined;
+    const _rotatedTokenResult: RotatedTokenResult | undefined = undefined;
+
+    // Session-service parameter objects (object params so tenantId can never
+    // be transposed with another string argument).
+    const _createSessionParams: CreateSessionParams | undefined = undefined;
+    const _listSessionsParams: ListSessionsParams | undefined = undefined;
+    const _revokeSessionParams: RevokeSessionParams | undefined = undefined;
+    const _revokeAllSessionsParams: RevokeAllSessionsParams | undefined = undefined;
+    const _revokeAllExceptCurrentParams: RevokeAllExceptCurrentParams | undefined = undefined;
+
+    // Revocation, MFA persistence, and validation-envelope shapes.
+    const _revocableTokenPayload: RevocableTokenPayload | undefined = undefined;
+    const _updateMfaData: UpdateMfaData | undefined = undefined;
+    const _authFieldError: AuthFieldError | undefined = undefined;
+
+    // Rate-limiter configuration surface.
+    const _bymaxAuthRateLimitOptions: BymaxAuthRateLimitOptions | undefined = undefined;
+    const _clientIpSource: ClientIpSource | undefined = undefined;
+    const _authRateLimitWindow: AuthRateLimitWindow | undefined = undefined;
+
+    // OpenAPI document-security surface (see library-utilities.spec.ts for
+    // the runtime demonstration of authDocumentSecurity).
+    const _authGuardFamily: AuthGuardFamily | undefined = undefined;
+    const _openApiSecurityRequirement: OpenApiSecurityRequirement | undefined = undefined;
+    const _authDocumentSecurityParams: AuthDocumentSecurityParams | undefined = undefined;
 
     // Shared types
-    const _authUserClient = null as unknown as AuthUserClient;
-    const _loginResult = null as unknown as LoginResult;
-    const _sharedMfaChallengeResult = null as unknown as SharedMfaChallengeResult;
-    const _sharedMfaTempPayload = null as unknown as SharedMfaTempPayload;
-    const _sharedPlatformAuthResult = null as unknown as SharedPlatformAuthResult;
-    const _platformJwtPayload = null as unknown as PlatformJwtPayload;
-    const _platformLoginResult = null as unknown as PlatformLoginResult;
-    const _tokenDeliveryMode = null as unknown as TokenDeliveryMode;
-    const _authContextKind = null as unknown as AuthContextKind;
-    const _authCookieNames = null as unknown as AuthCookieNames;
-    const _authJwtPayload = null as unknown as AuthJwtPayload;
-    const _authResponseCode = null as unknown as AuthResponseCode;
-    const _sharedAuthResult = null as unknown as SharedAuthResult;
+    const _authUserClient: AuthUserClient | undefined = undefined;
+    const _loginResult: LoginResult | undefined = undefined;
+    const _sharedMfaChallengeResult: SharedMfaChallengeResult | undefined = undefined;
+    const _sharedMfaTempPayload: SharedMfaTempPayload | undefined = undefined;
+    const _sharedPlatformAuthResult: SharedPlatformAuthResult | undefined = undefined;
+    const _platformJwtPayload: PlatformJwtPayload | undefined = undefined;
+    const _platformLoginResult: PlatformLoginResult | undefined = undefined;
+    const _tokenDeliveryMode: TokenDeliveryMode | undefined = undefined;
+    const _authContextKind: AuthContextKind | undefined = undefined;
+    const _authCookieNames: AuthCookieNames | undefined = undefined;
+    const _authJwtPayload: AuthJwtPayload | undefined = undefined;
+    const _authResponseCode: AuthResponseCode | undefined = undefined;
+    const _sharedAuthResult: SharedAuthResult | undefined = undefined;
 
     // Suppress 'declared but never read' lint errors — these are type guards.
-    void _activeSessionInfo;
+    void _sessionInfo;
     void _authResult;
     void _mfaChallengeResult;
     void _mfaSetupResult;
@@ -279,6 +353,20 @@ describe('result type surface (compile-time)', () => {
     void _oauthMfaChallengeResult;
     void _platformAuthResult;
     void _rotatedTokenResult;
+    void _createSessionParams;
+    void _listSessionsParams;
+    void _revokeSessionParams;
+    void _revokeAllSessionsParams;
+    void _revokeAllExceptCurrentParams;
+    void _revocableTokenPayload;
+    void _updateMfaData;
+    void _authFieldError;
+    void _bymaxAuthRateLimitOptions;
+    void _clientIpSource;
+    void _authRateLimitWindow;
+    void _authGuardFamily;
+    void _openApiSecurityRequirement;
+    void _authDocumentSecurityParams;
     void _authUserClient;
     void _loginResult;
     void _sharedMfaChallengeResult;

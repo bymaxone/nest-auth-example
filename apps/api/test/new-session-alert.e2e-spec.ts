@@ -36,14 +36,15 @@ process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0
 
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { createAuthValidationPipe } from '@bymax-one/nest-auth';
+import { Test, type TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import * as supertest from 'supertest';
 
 import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
+import { resetAuthRateLimits } from './helpers/throttle.js';
 import {
   clearMailpit,
   extractOtpFromHtml,
@@ -65,6 +66,12 @@ async function truncateTables(prisma: PrismaService): Promise<void> {
   await prisma.$executeRawUnsafe('DELETE FROM "User"');
 }
 
+/**
+ * Testing module handle, kept at module scope so rate-limit counters can be
+ * reset between tests. Assigned in `beforeAll`.
+ */
+let moduleRef: TestingModule;
+
 describe('New-session security alert — FCM #15', () => {
   let app: INestApplication;
   let prisma: PrismaService;
@@ -76,7 +83,7 @@ describe('New-session security alert — FCM #15', () => {
       stdio: 'pipe',
     });
 
-    const moduleRef = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
@@ -91,7 +98,7 @@ describe('New-session security alert — FCM #15', () => {
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({
+      createAuthValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
@@ -108,6 +115,10 @@ describe('New-session security alert — FCM #15', () => {
   });
 
   beforeEach(async () => {
+    // Clear both rate limiters (in-memory ThrottlerGuard + the library's
+    // Redis-backed per-IP counters) so auth-route limits never bleed across
+    // tests or spec files in a sequential run.
+    await resetAuthRateLimits(moduleRef);
     await clearMailpit();
     await truncateTables(prisma);
   });
@@ -119,7 +130,7 @@ describe('New-session security alert — FCM #15', () => {
     // without this assertion a refactor that drops the email dispatch would
     // ship silently. Covers FCM #15 (sendNewSessionAlert).
     const email = uniqueEmail('newsession');
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
 
     // Register and verify so login can succeed.
     await supertest
@@ -127,7 +138,7 @@ describe('New-session security alert — FCM #15', () => {
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password, name: 'New Session User', tenantId: 'acme' });
+      .send({ email, password, name: 'New Session User' });
 
     const verifyHtml = await waitForEmail(email);
     const otp = extractOtpFromHtml(verifyHtml);
@@ -136,7 +147,7 @@ describe('New-session security alert — FCM #15', () => {
       .post('/api/auth/verify-email')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, otp, tenantId: 'acme' });
+      .send({ email, otp });
 
     // Clear the inbox so only post-login emails count toward the assertion.
     await clearMailpit();
@@ -147,7 +158,7 @@ describe('New-session security alert — FCM #15', () => {
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
       .set('User-Agent', 'jest-e2e/new-session')
-      .send({ email, password, tenantId: 'acme' });
+      .send({ email, password });
 
     expect(loginRes.status).toBe(200);
 
@@ -171,14 +182,14 @@ describe('New-session security alert — FCM #15', () => {
     // The hook does both side-effects; assert the audit row exists so the
     // forensic trail is not lost if the SMTP service is unreachable.
     const email = uniqueEmail('auditparallel');
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
 
     await supertest
       .agent(app.getHttpServer())
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password, name: 'Audit User', tenantId: 'acme' });
+      .send({ email, password, name: 'Audit User' });
 
     const verifyHtml = await waitForEmail(email);
     const otp = extractOtpFromHtml(verifyHtml);
@@ -187,14 +198,14 @@ describe('New-session security alert — FCM #15', () => {
       .post('/api/auth/verify-email')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, otp, tenantId: 'acme' });
+      .send({ email, otp });
 
     await supertest
       .agent(app.getHttpServer())
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password, tenantId: 'acme' });
+      .send({ email, password });
 
     // The lib calls onNewSession via fire-and-forget — wait for the audit row
     // to actually land in Postgres before asserting. The email arrival in
@@ -218,14 +229,14 @@ describe('New-session security alert — FCM #15', () => {
     // Defensive — the hook must fire once. A bug that wired it twice (e.g.
     // re-binding in onLoginSuccess) would spam users and is worth pinning.
     const email = uniqueEmail('once');
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
 
     await supertest
       .agent(app.getHttpServer())
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password, name: 'Once User', tenantId: 'acme' });
+      .send({ email, password, name: 'Once User' });
 
     const verifyHtml = await waitForEmail(email);
     const otp = extractOtpFromHtml(verifyHtml);
@@ -234,7 +245,7 @@ describe('New-session security alert — FCM #15', () => {
       .post('/api/auth/verify-email')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, otp, tenantId: 'acme' });
+      .send({ email, otp });
 
     await clearMailpit();
 
@@ -243,7 +254,7 @@ describe('New-session security alert — FCM #15', () => {
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password, tenantId: 'acme' });
+      .send({ email, password });
 
     // Wait for the dispatch to complete, then count.
     await waitForEmailBySubject(email, /new sign-in detected/i);

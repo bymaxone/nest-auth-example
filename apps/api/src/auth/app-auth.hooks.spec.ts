@@ -22,7 +22,7 @@ import {
   type IEmailProvider,
   type OAuthProfile,
   type SafeAuthUser,
-  type SessionInfo,
+  type SessionAlertInfo,
 } from '@bymax-one/nest-auth';
 import { jest } from '@jest/globals';
 import { Test } from '@nestjs/testing';
@@ -200,10 +200,145 @@ describe('AppAuthHooks', () => {
     });
   });
 
-  // ─── onLoginFailure (afterLogin rejected via brute-force) ─────────────────
-  // Note: the library calls `beforeLogin` for every attempt. A separate
-  // "onLoginFailure" is surfaced here via the error-swallowing test pattern
-  // to demonstrate that the attempted row is sufficient for failure auditing.
+  // ─── onLoginFailed ─────────────────────────────────────────────────────────
+
+  describe('onLoginFailed', () => {
+    it('writes a user.login.failed audit row keyed by the email digest, not the address', async () => {
+      // A burst of invalid_credentials rows for one address is a
+      // credential-stuffing signal, so the payload must stay correlatable —
+      // but a failed login carries whatever address was submitted, frequently
+      // a third party's with no account here. The digest keeps the signal and
+      // keeps other people's addresses out of a long-retained table.
+      const ctx = makeContext({ tenantId: 'acme' });
+
+      await hooks.onLoginFailed(
+        {
+          email: 'alice@example.test',
+          tenantId: 'acme',
+          userId: 'user-1',
+          reason: 'invalid_credentials',
+        },
+        ctx,
+      );
+
+      expect(auditLogCreate).toHaveBeenCalledTimes(1);
+      expect(auditLogCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            event: 'user.login.failed',
+            payload: expect.objectContaining({
+              emailSha256: '69b1145a03334875161ea18c1373b5703aeeff144990a9f847867ff83ed5aaad',
+              tenantId: 'acme',
+              userId: 'user-1',
+              reason: 'invalid_credentials',
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('stores null for userId when the refusal happened before the account was resolved', async () => {
+      // An unknown email fails login without a userId — the payload must store
+      // null (not undefined) so the audit row serialises consistently.
+      const ctx = makeContext({ tenantId: 'acme' });
+
+      await hooks.onLoginFailed(
+        { email: 'ghost@example.test', tenantId: 'acme', reason: 'invalid_credentials' },
+        ctx,
+      );
+
+      expect(auditLogCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            event: 'user.login.failed',
+            payload: expect.objectContaining({ userId: null }),
+          }),
+        }),
+      );
+    });
+
+    it('swallows AuditLog write failures so the login refusal is never blocked', async () => {
+      // A broken audit DB must not turn a clean 401 into a 500.
+      auditLogCreate.mockRejectedValue(new Error('DB error'));
+      const ctx = makeContext({ tenantId: 'acme' });
+
+      await expect(
+        hooks.onLoginFailed(
+          { email: 'alice@example.test', tenantId: 'acme', reason: 'locked_out' },
+          ctx,
+        ),
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  // ─── onLockout ─────────────────────────────────────────────────────────────
+
+  describe('onLockout', () => {
+    it('writes a user.lockout audit row keyed by the email digest, not the address', async () => {
+      // The row marks when the brute-force threshold was crossed — one row per
+      // lockout, carrying the remaining window so support can advise the user.
+      // A lockout is reached through failed attempts, so the address is as
+      // untrusted as it is on `onLoginFailed` and is stored as a digest.
+      const ctx = makeContext({ tenantId: 'acme' });
+
+      await hooks.onLockout(
+        { email: 'alice@example.test', tenantId: 'acme', retryAfterSeconds: 900 },
+        ctx,
+      );
+
+      expect(auditLogCreate).toHaveBeenCalledTimes(1);
+      expect(auditLogCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            event: 'user.lockout',
+            payload: expect.objectContaining({
+              emailSha256: '69b1145a03334875161ea18c1373b5703aeeff144990a9f847867ff83ed5aaad',
+              tenantId: 'acme',
+              retryAfterSeconds: 900,
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('never lets the submitted address itself reach the audit payload', async () => {
+      /*
+       * Scenario: the digest assertions above pin what IS written; this pins
+       * what must NOT be. An implementation that added the raw address back
+       * alongside the hash would satisfy every `objectContaining` above while
+       * reintroducing exactly the exposure the hash exists to prevent.
+       * Protects: the absence of the raw address on both untrusted-input hooks.
+       */
+      const ctx = makeContext({ tenantId: 'acme' });
+
+      await hooks.onLoginFailed(
+        { email: 'victim@elsewhere.test', tenantId: 'acme', reason: 'invalid_credentials' },
+        ctx,
+      );
+      await hooks.onLockout(
+        { email: 'victim@elsewhere.test', tenantId: 'acme', retryAfterSeconds: 900 },
+        ctx,
+      );
+
+      const written = JSON.stringify(auditLogCreate.mock.calls);
+      expect(written).not.toContain('victim@elsewhere.test');
+      expect(written).toContain('emailSha256');
+    });
+
+    it('swallows AuditLog write failures so the lockout response is never blocked', async () => {
+      // The lockout is already enforced in Redis — a failed audit write must not
+      // change the caller-visible outcome.
+      auditLogCreate.mockRejectedValue(new Error('DB error'));
+      const ctx = makeContext({ tenantId: 'acme' });
+
+      await expect(
+        hooks.onLockout(
+          { email: 'alice@example.test', tenantId: 'acme', retryAfterSeconds: 900 },
+          ctx,
+        ),
+      ).resolves.toBeUndefined();
+    });
+  });
 
   // ─── onLogout (afterLogout) ────────────────────────────────────────────────
 
@@ -299,6 +434,40 @@ describe('AppAuthHooks', () => {
     });
   });
 
+  // ─── afterMfaRecoveryCodesRegenerated ─────────────────────────────────────
+
+  describe('afterMfaRecoveryCodesRegenerated', () => {
+    it('writes a mfa.recovery_codes.regenerated audit row with userId and tenantId', async () => {
+      // Regeneration invalidates the previous code set — the audit row lets
+      // security teams correlate the event with a support ticket or a
+      // suspected compromise. The codes themselves must never be recorded.
+      const user = makeSafeUser({ id: 'user-1', tenantId: 'acme' });
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await hooks.afterMfaRecoveryCodesRegenerated(user, ctx);
+
+      expect(auditLogCreate).toHaveBeenCalledTimes(1);
+      expect(auditLogCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            event: 'mfa.recovery_codes.regenerated',
+            payload: expect.objectContaining({ userId: 'user-1', tenantId: 'acme' }),
+          }),
+        }),
+      );
+    });
+
+    it('swallows AuditLog write failures so the regeneration flow is never blocked', async () => {
+      // The new codes are already committed when this hook runs — a failed audit
+      // write must not surface as an error for a completed regeneration.
+      auditLogCreate.mockRejectedValue(new Error('DB error'));
+      const user = makeSafeUser();
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await expect(hooks.afterMfaRecoveryCodesRegenerated(user, ctx)).resolves.toBeUndefined();
+    });
+  });
+
   // ─── onNewSession ──────────────────────────────────────────────────────────
 
   describe('onNewSession', () => {
@@ -306,7 +475,7 @@ describe('AppAuthHooks', () => {
       // FCM #15 — new session events must record device and IP so users can
       // identify unexpected sign-ins in the security activity log.
       const user = makeSafeUser({ id: 'user-1', tenantId: 'acme' });
-      const sessionInfo: SessionInfo = {
+      const sessionInfo: SessionAlertInfo = {
         sessionHash: 'sha256-abc',
         device: 'Chrome on macOS',
         ip: '203.0.113.5',
@@ -335,7 +504,7 @@ describe('AppAuthHooks', () => {
       // Security: only the hash is stored; the raw refresh token must never
       // appear in the AuditLog payload or it could be replayed.
       const user = makeSafeUser({ id: 'user-2', tenantId: 'acme' });
-      const sessionInfo: SessionInfo = {
+      const sessionInfo: SessionAlertInfo = {
         sessionHash: 'sha256-xyz',
         device: 'Firefox on Windows',
         ip: '10.0.0.1',
@@ -361,18 +530,19 @@ describe('AppAuthHooks', () => {
     it('swallows AuditLog write failures so the session creation flow is never blocked', async () => {
       auditLogCreate.mockRejectedValue(new Error('DB error'));
       const user = makeSafeUser();
-      const sessionInfo: SessionInfo = { sessionHash: 'x', device: 'y', ip: '1.2.3.4' };
+      const sessionInfo: SessionAlertInfo = { sessionHash: 'x', device: 'y', ip: '1.2.3.4' };
       const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
 
       await expect(hooks.onNewSession(user, sessionInfo, ctx)).resolves.toBeUndefined();
     });
 
-    it('dispatches sendNewSessionAlert with the user email and the session info (FCM #15)', async () => {
+    it('dispatches sendNewSessionAlert with the tenantId, user email, and session info (FCM #15)', async () => {
       // The library never calls sendNewSessionAlert itself — this hook is the
-      // only path that triggers the security email. Verify the call shape so a
-      // refactor that moves the dispatch elsewhere is caught at the unit level.
+      // only path that triggers the security email. Verify the call shape
+      // (tenantId first since lib v1.3.1) so a refactor that moves the
+      // dispatch elsewhere is caught at the unit level.
       const user = makeSafeUser({ id: 'user-3', email: 'carol@example.test' });
-      const sessionInfo: SessionInfo = {
+      const sessionInfo: SessionAlertInfo = {
         sessionHash: 'sha256-mail',
         device: 'Safari on iOS',
         ip: '198.51.100.7',
@@ -382,7 +552,7 @@ describe('AppAuthHooks', () => {
       await hooks.onNewSession(user, sessionInfo, ctx);
 
       expect(sendNewSessionAlert).toHaveBeenCalledTimes(1);
-      expect(sendNewSessionAlert).toHaveBeenCalledWith('carol@example.test', sessionInfo);
+      expect(sendNewSessionAlert).toHaveBeenCalledWith('acme', 'carol@example.test', sessionInfo);
     });
 
     it('swallows email dispatch failures so the session creation flow is never blocked', async () => {
@@ -390,7 +560,7 @@ describe('AppAuthHooks', () => {
       // for forensic traceability even when the email is lost.
       sendNewSessionAlert.mockRejectedValue(new Error('SMTP unreachable'));
       const user = makeSafeUser();
-      const sessionInfo: SessionInfo = { sessionHash: 'x', device: 'y', ip: '1.2.3.4' };
+      const sessionInfo: SessionAlertInfo = { sessionHash: 'x', device: 'y', ip: '1.2.3.4' };
       const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
 
       await expect(hooks.onNewSession(user, sessionInfo, ctx)).resolves.toBeUndefined();
@@ -409,7 +579,7 @@ describe('AppAuthHooks', () => {
     it('swallows non-Error email dispatch failures and logs them via String(err)', async () => {
       sendNewSessionAlert.mockRejectedValue('plain string rejection');
       const user = makeSafeUser();
-      const sessionInfo: SessionInfo = { sessionHash: 'x', device: 'y', ip: '1.2.3.4' };
+      const sessionInfo: SessionAlertInfo = { sessionHash: 'x', device: 'y', ip: '1.2.3.4' };
       const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
 
       await expect(hooks.onNewSession(user, sessionInfo, ctx)).resolves.toBeUndefined();
@@ -465,6 +635,40 @@ describe('AppAuthHooks', () => {
       const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
 
       await expect(hooks.onSessionEvicted('user-1', 'hash', ctx)).resolves.toBeUndefined();
+    });
+  });
+
+  // ─── onRefreshTokenReuseDetected ──────────────────────────────────────────
+
+  describe('onRefreshTokenReuseDetected', () => {
+    it('writes a session.reuse_detected audit row with userId and familyId', async () => {
+      // A replayed refresh token means a stolen token or a broken client — the
+      // library has already revoked the token lineage; the row records the
+      // incident (user + revoked family) for forensics.
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await hooks.onRefreshTokenReuseDetected({ userId: 'user-1', familyId: 'fam-abc' }, ctx);
+
+      expect(auditLogCreate).toHaveBeenCalledTimes(1);
+      expect(auditLogCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            event: 'session.reuse_detected',
+            payload: expect.objectContaining({ userId: 'user-1', familyId: 'fam-abc' }),
+          }),
+        }),
+      );
+    });
+
+    it('swallows AuditLog write failures so the reuse-response path is never blocked', async () => {
+      // The family revocation already happened inside the library — a failed
+      // audit write must not interfere with the security response.
+      auditLogCreate.mockRejectedValue(new Error('DB error'));
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await expect(
+        hooks.onRefreshTokenReuseDetected({ userId: 'user-1', familyId: 'fam-abc' }, ctx),
+      ).resolves.toBeUndefined();
     });
   });
 
@@ -574,6 +778,8 @@ describe('AppAuthHooks', () => {
       provider: 'google',
       providerId: 'google-sub-123',
       email: 'alice@example.test',
+      // Required since lib v1.4.x — the plugin reports what the provider said.
+      emailVerified: true,
       name: 'Alice Test',
     };
 

@@ -17,13 +17,17 @@
  * @see apps/api/src/platform/platform.service.ts
  */
 
-import { NotFoundException } from '@nestjs/common';
+import { Logger, NotFoundException } from '@nestjs/common';
 import { jest } from '@jest/globals';
 import { Test } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { UserStatus } from '@prisma/client';
 import type { Tenant, User } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { BYMAX_AUTH_REDIS_CLIENT, MfaService } from '@bymax-one/nest-auth';
+import { USER_CONNECTION_PORT } from '../realtime/user-connection.port.js';
+
 import { PlatformService } from './platform.service.js';
 import type { PlatformSafeUser } from './platform.service.js';
 import type { UpdateUserStatusDto } from './dto/update-user-status.dto.js';
@@ -65,6 +69,9 @@ function makeSafeUser(overrides: Partial<PlatformSafeUser> = {}): PlatformSafeUs
 
 describe('PlatformService', () => {
   let service: PlatformService;
+  let resetMfa: jest.Mock<() => Promise<void>>;
+  let disconnectUser: jest.Mock<() => void>;
+  let redisDel: jest.Mock<() => Promise<number>>;
 
   // Prisma mock stubs
   let tenantFindMany: jest.Mock<() => Promise<Tenant[]>>;
@@ -97,6 +104,10 @@ describe('PlatformService', () => {
         return cb(txClient);
       });
 
+    resetMfa = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    disconnectUser = jest.fn<() => void>();
+    redisDel = jest.fn<() => Promise<number>>().mockResolvedValue(1);
+
     const moduleRef = await Test.createTestingModule({
       providers: [
         PlatformService,
@@ -104,10 +115,22 @@ describe('PlatformService', () => {
           provide: PrismaService,
           useValue: {
             tenant: { findMany: tenantFindMany },
-            user: { findMany: userFindMany },
+            user: { findMany: userFindMany, findUnique: userFindUnique },
             auditLog: { create: auditLogCreate },
             $transaction: transaction,
           },
+        },
+        // The library's MfaService backs the administrative reset flow.
+        { provide: MfaService, useValue: { resetMfa } },
+        // The gateway closes live sockets once the reset revokes the session.
+        { provide: USER_CONNECTION_PORT, useValue: { disconnectUser } },
+        // The library-namespaced Redis client backs the UserStatusGuard cache
+        // invalidation performed after a status change.
+        { provide: BYMAX_AUTH_REDIS_CLIENT, useValue: { del: redisDel } },
+        // The status-cache key is namespaced from REDIS_NAMESPACE.
+        {
+          provide: ConfigService,
+          useValue: { getOrThrow: () => 'nest-auth-example' },
         },
       ],
     }).compile();
@@ -328,6 +351,57 @@ describe('PlatformService', () => {
       );
     });
 
+    it('still writes the audit row when cache invalidation fails after the commit', async () => {
+      /*
+       * Scenario: the status update has already committed when the Redis DEL
+       * rejects. Letting that escape would answer 500 — telling the operator
+       * the change failed when it did not — and would skip the audit row for a
+       * change that actually happened. The stale cache entry expires on its own
+       * TTL, so degrading here costs only a short enforcement delay.
+       * Protects: the try/catch around the invalidation, and the fact that the
+       * audit write still runs afterwards.
+       */
+      const existing = makeSafeUser({ status: UserStatus.ACTIVE });
+      userFindUnique.mockResolvedValue(existing);
+      userUpdate.mockResolvedValue(makeSafeUser({ status: UserStatus.BANNED }));
+      auditLogCreate.mockResolvedValue({});
+      redisDel.mockRejectedValue(new Error('redis down'));
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+      const dto: UpdateUserStatusDto = { status: UserStatus.BANNED };
+      await expect(
+        service.updateUserStatus('user-1', dto, 'admin-1', '127.0.0.1', 'jest'),
+      ).resolves.toBeDefined();
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          msg: 'UserStatusGuard cache invalidation failed after status change',
+        }),
+      );
+      expect(auditLogCreate).toHaveBeenCalled();
+      errorSpy.mockRestore();
+    });
+
+    it('stringifies a non-Error cache-invalidation rejection', async () => {
+      /*
+       * Scenario: an ioredis client can reject with a bare string. `err.message`
+       * is undefined on that path, so the log line must fall back to String(err)
+       * rather than recording `undefined` as the cause.
+       * Protects: the false arm of the `err instanceof Error` ternary.
+       */
+      userFindUnique.mockResolvedValue(makeSafeUser({ status: UserStatus.ACTIVE }));
+      userUpdate.mockResolvedValue(makeSafeUser({ status: UserStatus.BANNED }));
+      auditLogCreate.mockResolvedValue({});
+      redisDel.mockRejectedValue('connection reset');
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+      const dto: UpdateUserStatusDto = { status: UserStatus.BANNED };
+      await service.updateUserStatus('user-1', dto, 'admin-1', '127.0.0.1', 'jest');
+
+      expect(errorSpy).toHaveBeenCalledWith(expect.objectContaining({ error: 'connection reset' }));
+      errorSpy.mockRestore();
+    });
+
     it('runs the transaction with SERIALIZABLE isolation level', async () => {
       /*
        * Scenario: SERIALIZABLE isolation is required to prevent two concurrent
@@ -452,6 +526,217 @@ describe('PlatformService', () => {
       expect(arg.msg).toBe('AuditLog write failed for platform.user.status_changed');
       expect(arg.targetUserId).toBe('user-1');
       expect(arg.error).toBe('Postgres down');
+    });
+  });
+
+  describe('resetUserMfa', () => {
+    /** Arguments the controller forwards, in order. */
+    const ARGS = ['user-1', 'platform-admin-1', '203.0.113.9', 'Mozilla/5.0'] as const;
+
+    it('throws NotFoundException when the target user does not exist', async () => {
+      /*
+       * Scenario: a SUPER_ADMIN posts a reset for an id that is not in the
+       * database. The service must refuse before calling MfaService, because
+       * `resetMfa` on an unknown id would otherwise revoke sessions and bump
+       * the token epoch for nobody while reporting success.
+       * Protects: the pre-read guard and its short-circuit.
+       */
+      userFindUnique.mockResolvedValue(null);
+
+      await expect(service.resetUserMfa(...ARGS)).rejects.toBeInstanceOf(NotFoundException);
+      expect(resetMfa).not.toHaveBeenCalled();
+      expect(auditLogCreate).not.toHaveBeenCalled();
+    });
+
+    it('surfaces "User \'<id>\' not found" verbatim when the target row is missing', async () => {
+      /*
+       * Scenario: the message is what a platform operator reads in the API
+       * response, so it is pinned verbatim including the quoted id.
+       * Protects: StringLiteral mutants on the thrown message template.
+       */
+      userFindUnique.mockResolvedValue(null);
+
+      await expect(service.resetUserMfa(...ARGS)).rejects.toThrow("User 'user-1' not found");
+    });
+
+    it("delegates the reset to the library's MfaService scoped to the target's own tenant", async () => {
+      /*
+       * Scenario: platform admins act across tenants, so the tenant passed to
+       * `resetMfa` must come from the TARGET user's row, never from the actor.
+       * Passing the wrong tenant would either miss the session keys or touch
+       * another tenant's — the cross-tenant bug this app exists to demonstrate
+       * the absence of.
+       * Protects: the pre-read select of `tenantId` and its use in the call.
+       */
+      userFindUnique
+        .mockResolvedValueOnce({ id: 'user-1', tenantId: 'tenant-42' })
+        .mockResolvedValueOnce(makeSafeUser({ tenantId: 'tenant-42' }));
+      auditLogCreate.mockResolvedValue({});
+
+      await service.resetUserMfa(...ARGS);
+
+      expect(resetMfa).toHaveBeenCalledWith('user-1', 'dashboard', 'tenant-42');
+    });
+
+    it('returns the re-read user so the caller sees mfaEnabled false', async () => {
+      /*
+       * Scenario: the response must reflect state AFTER the library wrote, not
+       * the pre-read projection — returning the pre-read row would report
+       * mfaEnabled: true immediately after a successful reset.
+       * Protects: the post-reset re-read and its return.
+       */
+      const updated = makeSafeUser({ mfaEnabled: false });
+      userFindUnique
+        .mockResolvedValueOnce({ id: 'user-1', tenantId: 'tenant-1' })
+        .mockResolvedValueOnce(updated);
+      auditLogCreate.mockResolvedValue({});
+
+      await expect(service.resetUserMfa(...ARGS)).resolves.toEqual(updated);
+    });
+
+    it('throws NotFoundException when the row vanishes between the reset and the re-read', async () => {
+      /*
+       * Scenario: a concurrent hard delete removes the user after the reset
+       * committed. Returning a fabricated user here would report success for
+       * an account that no longer exists.
+       * Protects: the second not-found guard — the one a naive implementation
+       * omits because "the row existed a moment ago".
+       */
+      userFindUnique
+        .mockResolvedValueOnce({ id: 'user-1', tenantId: 'tenant-1' })
+        .mockResolvedValueOnce(null);
+      auditLogCreate.mockResolvedValue({});
+
+      await expect(service.resetUserMfa(...ARGS)).rejects.toBeInstanceOf(NotFoundException);
+      expect(resetMfa).toHaveBeenCalled();
+    });
+
+    it('closes the target user live notification sockets after the reset', async () => {
+      /*
+       * Scenario: the gateway authenticates a socket once, at connect time, so
+       * a connection opened before the reset keeps streaming afterwards even
+       * though `resetMfa` revoked the session and bumped the token epoch. An
+       * administrative reset answers a suspected compromise, so leaving the
+       * suspect's socket open would undo the revocation it just performed.
+       * Protects: the `disconnectUser` call — nothing else in the HTTP path
+       * would ever close that socket.
+       */
+      userFindUnique
+        .mockResolvedValueOnce({ id: 'user-1', tenantId: 'tenant-1' })
+        .mockResolvedValueOnce(makeSafeUser());
+      auditLogCreate.mockResolvedValue({});
+
+      await service.resetUserMfa(...ARGS);
+
+      expect(disconnectUser).toHaveBeenCalledWith('user-1');
+    });
+
+    it('does not close sockets when the target user does not exist', async () => {
+      /*
+       * Scenario: the pre-read finds no row, so no reset happens and no
+       * revocation occurred. Disconnecting here would drop a live session
+       * belonging to whoever currently holds that id — a denial of service
+       * driven by a typo'd id.
+       * Protects: the ordering — disconnect happens after a successful reset,
+       * never on the not-found path.
+       */
+      userFindUnique.mockResolvedValue(null);
+
+      await expect(service.resetUserMfa(...ARGS)).rejects.toBeInstanceOf(NotFoundException);
+      expect(disconnectUser).not.toHaveBeenCalled();
+    });
+
+    it('writes a platform-scoped audit row with the documented fields', async () => {
+      /*
+       * Scenario: an administrative MFA reset is a privileged action, so it
+       * must leave an audit trail naming the actor, the target, and the
+       * target's tenant. `tenantId` is null by design — platform events are
+       * not scoped to a tenant even when their target is.
+       * Protects: every field of the audit payload, including the null
+       * tenantId invariant and the verbatim event name.
+       */
+      userFindUnique
+        .mockResolvedValueOnce({ id: 'user-1', tenantId: 'tenant-7' })
+        .mockResolvedValueOnce(makeSafeUser());
+      auditLogCreate.mockResolvedValue({});
+
+      await service.resetUserMfa(...ARGS);
+
+      expect(auditLogCreate).toHaveBeenCalledWith({
+        data: {
+          tenantId: null,
+          actorUserId: null,
+          actorPlatformUserId: 'platform-admin-1',
+          event: 'platform.user.mfa_reset',
+          payload: { targetUserId: 'user-1', targetTenantId: 'tenant-7' },
+          ip: '203.0.113.9',
+          userAgent: 'Mozilla/5.0',
+        },
+      });
+    });
+
+    it('swallows an audit write failure and still returns the updated user', async () => {
+      /*
+       * Scenario: the reset already committed in the library when the audit
+       * insert fails. Propagating that error would tell the operator the reset
+       * failed while it actually succeeded, inviting a pointless retry.
+       * Protects: the try/catch around auditLog.create and the Error branch of
+       * its message extraction.
+       */
+      const updated = makeSafeUser();
+      userFindUnique
+        .mockResolvedValueOnce({ id: 'user-1', tenantId: 'tenant-1' })
+        .mockResolvedValueOnce(updated);
+      auditLogCreate.mockRejectedValue(new Error('DB timeout'));
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+      await expect(service.resetUserMfa(...ARGS)).resolves.toEqual(updated);
+      expect(errorSpy).toHaveBeenCalledWith({
+        msg: 'AuditLog write failed for platform.user.mfa_reset',
+        targetUserId: 'user-1',
+        error: 'DB timeout',
+      });
+      errorSpy.mockRestore();
+    });
+
+    it('stringifies a non-Error audit rejection instead of logging undefined', async () => {
+      /*
+       * Scenario: a driver rejects with a bare string. `err.message` would be
+       * undefined on that path, so the log line must fall back to String(err).
+       * Protects: the false arm of the `err instanceof Error` ternary.
+       */
+      userFindUnique
+        .mockResolvedValueOnce({ id: 'user-1', tenantId: 'tenant-1' })
+        .mockResolvedValueOnce(makeSafeUser());
+      auditLogCreate.mockRejectedValue('plain string rejection');
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+      await service.resetUserMfa(...ARGS);
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ error: 'plain string rejection' }),
+      );
+      errorSpy.mockRestore();
+    });
+
+    it('reads only {id, tenantId} on the pre-read projection', async () => {
+      /*
+       * Scenario: the pre-read exists to answer "does this user exist and in
+       * which tenant". Widening it would pull credential columns into memory
+       * for no reason.
+       * Protects: the select block of the first findUnique call.
+       */
+      userFindUnique
+        .mockResolvedValueOnce({ id: 'user-1', tenantId: 'tenant-1' })
+        .mockResolvedValueOnce(makeSafeUser());
+      auditLogCreate.mockResolvedValue({});
+
+      await service.resetUserMfa(...ARGS);
+
+      expect(userFindUnique).toHaveBeenNthCalledWith(1, {
+        where: { id: 'user-1' },
+        select: { id: true, tenantId: true },
+      });
     });
   });
 });

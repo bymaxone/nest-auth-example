@@ -16,12 +16,11 @@
 
 import { NoOpAuthHooks, NoOpEmailProvider } from '@bymax-one/nest-auth';
 import type {
-  IEmailProvider,
   HookContext,
   OAuthProfile,
   SafeAuthUser,
   InviteData,
-  SessionInfo,
+  SessionAlertInfo,
 } from '@bymax-one/nest-auth';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -38,6 +37,8 @@ const OAUTH_PROFILE: OAuthProfile = {
   provider: 'google',
   providerId: 'google-uid-001',
   email: 'alice@example.test',
+  // Required since lib v1.4.x — the plugin must report what the provider said.
+  emailVerified: true,
 };
 
 /** Minimal `SafeAuthUser` representing an already-existing account. */
@@ -62,8 +63,8 @@ const INVITE_DATA: InviteData = {
   expiresAt: new Date('2099-01-01T00:00:00Z'),
 };
 
-/** Minimal `SessionInfo` for the `sendNewSessionAlert` contract test. */
-const SESSION_INFO: SessionInfo = {
+/** Minimal `SessionAlertInfo` for the `sendNewSessionAlert` contract test. */
+const SESSION_INFO: SessionAlertInfo = {
   device: 'Chrome on macOS',
   ip: '1.2.3.4',
   sessionHash: 'a1b2c3d4',
@@ -126,7 +127,9 @@ describe('NoOpAuthHooks', () => {
 // ── NoOpEmailProvider ─────────────────────────────────────────────────────────
 
 describe('NoOpEmailProvider', () => {
-  let provider: IEmailProvider;
+  // Type as the concrete class so the optional `sendNewSessionAlert` interface
+  // method resolves to its concrete (always-present) implementation.
+  let provider: NoOpEmailProvider;
 
   beforeEach(() => {
     provider = new NoOpEmailProvider();
@@ -139,7 +142,7 @@ describe('NoOpEmailProvider', () => {
      * Rule: `sendPasswordResetToken` returns a resolved Promise<void>.
      */
     await expect(
-      provider.sendPasswordResetToken('alice@example.test', 'token-abc'),
+      provider.sendPasswordResetToken('acme', 'alice@example.test', 'token-abc'),
     ).resolves.toBeUndefined();
   });
 
@@ -150,7 +153,7 @@ describe('NoOpEmailProvider', () => {
      * Rule: `sendPasswordResetOtp` returns a resolved Promise<void>.
      */
     await expect(
-      provider.sendPasswordResetOtp('alice@example.test', '123456'),
+      provider.sendPasswordResetOtp('acme', 'alice@example.test', '123456'),
     ).resolves.toBeUndefined();
   });
 
@@ -161,7 +164,7 @@ describe('NoOpEmailProvider', () => {
      * Rule: `sendEmailVerificationOtp` returns a resolved Promise<void>.
      */
     await expect(
-      provider.sendEmailVerificationOtp('alice@example.test', '654321'),
+      provider.sendEmailVerificationOtp('acme', 'alice@example.test', '654321'),
     ).resolves.toBeUndefined();
   });
 
@@ -172,7 +175,7 @@ describe('NoOpEmailProvider', () => {
      * Rule: `sendMfaEnabledNotification` returns a resolved Promise<void>.
      */
     await expect(
-      provider.sendMfaEnabledNotification('alice@example.test'),
+      provider.sendMfaEnabledNotification('acme', 'alice@example.test'),
     ).resolves.toBeUndefined();
   });
 
@@ -182,7 +185,7 @@ describe('NoOpEmailProvider', () => {
      * Rule: `sendMfaDisabledNotification` returns a resolved Promise<void>.
      */
     await expect(
-      provider.sendMfaDisabledNotification('alice@example.test'),
+      provider.sendMfaDisabledNotification('acme', 'alice@example.test'),
     ).resolves.toBeUndefined();
   });
 
@@ -192,7 +195,7 @@ describe('NoOpEmailProvider', () => {
      * Rule: `sendNewSessionAlert` returns a resolved Promise<void>.
      */
     await expect(
-      provider.sendNewSessionAlert('alice@example.test', SESSION_INFO),
+      provider.sendNewSessionAlert('acme', 'alice@example.test', SESSION_INFO),
     ).resolves.toBeUndefined();
   });
 
@@ -202,6 +205,8 @@ describe('NoOpEmailProvider', () => {
      * must not abort the invitation-creation flow.
      * Rule: `sendInvitation` returns a resolved Promise<void>.
      */
-    await expect(provider.sendInvitation('bob@example.test', INVITE_DATA)).resolves.toBeUndefined();
+    await expect(
+      provider.sendInvitation('acme', 'bob@example.test', INVITE_DATA),
+    ).resolves.toBeUndefined();
   });
 });

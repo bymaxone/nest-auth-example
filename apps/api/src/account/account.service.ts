@@ -2,30 +2,25 @@
  * @file account.service.ts
  * @description Business logic for the authenticated user's own account management.
  *
- * Implements `POST /api/account/change-password` by verifying the current
- * password against the stored scrypt hash, then writing the new hash.
+ * `POST /api/account/change-password` is a custom controller over the
+ * library's own `PasswordResetService.changePassword`. The route exists to
+ * demonstrate app-owned wiring; the credential operation itself is the
+ * library's, so hash format, minimum length, breach checking and the session
+ * consequences of a rotation all stay in one place.
  *
- * **Scrypt parameters** — the library (`@bymax-one/nest-auth`) does not export
- * `PasswordService`. This service replicates the wire format and default cost
- * parameters documented in `PasswordService`:
- *   - Format: `scrypt:{salt_hex}:{derived_hex}`
- *   - N=32768, r=8, p=1, keyLen=64 bytes, saltLen=16 bytes
- *   - maxmem=64 MiB (matches library default calculation for those params)
- *
- * These values must stay in sync with `auth.config.ts`. Because `auth.config.ts`
- * does not override `password.*` options, the library uses its built-in defaults,
- * which are the constants defined here.
+ * It previously re-implemented scrypt here against the pre-1.4 wire format
+ * (`scrypt:{salt}:{derived}`), which the move to PHC turned into a route that
+ * rejected every valid password. Password hashing is not app code.
  *
  * @layer account
  * @see docs/guidelines/nestjs-guidelines.md
  * @see docs/guidelines/security-privacy-guidelines.md
  */
 
-import { randomBytes, scrypt as nodeScrypt, timingSafeEqual } from 'node:crypto';
-import { promisify } from 'node:util';
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -33,61 +28,12 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { UserStatus } from '@prisma/client';
+import { ChangePasswordDto, PasswordResetService } from '@bymax-one/nest-auth';
 
 import type { Env } from '../config/env.schema.js';
 import { parseRequiredTenantSlugs } from '../auth/tenant-mfa-policy.guard.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import type { ChangePasswordDto } from './dto/change-password.dto.js';
-
-// promisify picks the 3-arg overload; cast to include the options parameter.
-const scryptAsync = promisify(nodeScrypt) as (
-  password: string | Buffer,
-  salt: string | Buffer,
-  keylen: number,
-  options: { N: number; r: number; p: number; maxmem: number },
-) => Promise<Buffer>;
-
-/** Scrypt cost parameters — must match the library's PasswordService defaults. */
-const SCRYPT_PARAMS = { N: 32_768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 } as const;
-const SCRYPT_KEY_LEN = 64;
-const SALT_BYTES = 16;
-
-/**
- * Verifies `plain` against a hash in `scrypt:{salt_hex}:{derived_hex}` format.
- *
- * Returns `false` for any malformed input rather than throwing, matching the
- * library's timing-safe behaviour.
- *
- * @param plain - Plaintext password.
- * @param hash  - Stored scrypt hash string.
- */
-async function verifyScrypt(plain: string, hash: string): Promise<boolean> {
-  const parts = hash.split(':');
-  // Stryker disable next-line ConditionalExpression,LogicalOperator: dropping either disjunct or swapping `||` for `&&` produces equivalent observable behaviour — every malformed hash that the original early-returns at this gate is also rejected downstream by the empty-segment check or the SCRYPT_KEY_LEN check, all returning `false` without invoking scrypt. The disjunct exists for clarity, not for distinct externally-observable behaviour.
-  if (parts.length !== 3 || parts[0] !== 'scrypt') return false;
-
-  const saltHex = parts[1];
-  const derivedHex = parts[2];
-  if (!saltHex || !derivedHex) return false;
-
-  const salt = Buffer.from(saltHex, 'hex');
-  const stored = Buffer.from(derivedHex, 'hex');
-  if (stored.length !== SCRYPT_KEY_LEN) return false;
-
-  const candidate = await scryptAsync(plain, salt, SCRYPT_KEY_LEN, SCRYPT_PARAMS);
-  return timingSafeEqual(candidate, stored);
-}
-
-/**
- * Hashes `plain` and returns the `scrypt:{salt_hex}:{derived_hex}` string.
- *
- * @param plain - Plaintext password.
- */
-async function hashScrypt(plain: string): Promise<string> {
-  const salt = randomBytes(SALT_BYTES);
-  const derived = await scryptAsync(plain, salt, SCRYPT_KEY_LEN, SCRYPT_PARAMS);
-  return `scrypt:${salt.toString('hex')}:${derived.toString('hex')}`;
-}
+import { USER_CONNECTION_PORT, type UserConnectionPort } from '../realtime/user-connection.port.js';
 
 /**
  * One workspace the current user can sign into — a tenant where their email has
@@ -123,6 +69,16 @@ export interface WorkspaceInfo {
 export interface MfaStatusInfo {
   /** Whether the user has completed MFA enrollment (matches `user.mfaEnabled`). */
   readonly enabled: boolean;
+  /**
+   * Whether the account has a local password.
+   *
+   * `false` for OAuth-only accounts, which have no `passwordHash`. The library
+   * skips password re-authentication for them on MFA setup and falls back to a
+   * recent-authentication marker, so the UI must not demand a password those
+   * users do not have — without this flag the setup form is unreachable for
+   * them.
+   */
+  readonly hasPassword: boolean;
   /**
    * Count of unused recovery codes remaining on the account. Each successful
    * recovery-code login consumes one entry from `user.mfaRecoveryCodes`.
@@ -177,6 +133,9 @@ export class AccountService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<Env, true>,
+    private readonly passwordReset: PasswordResetService,
+    @Inject(USER_CONNECTION_PORT)
+    private readonly userConnections: UserConnectionPort,
   ) {}
 
   /**
@@ -347,32 +306,36 @@ export class AccountService {
    * @param userId   - Authenticated user's ID (from JWT).
    * @param tenantId - Authenticated user's tenant ID (from JWT).
    * @param dto      - Validated `currentPassword` + `newPassword`.
+   * On success every socket the user holds is closed, because a credential
+   * rotation that leaves an authenticated stream open has not really ended the
+   * sessions it revoked.
+   *
    * @throws `BadRequestException`  when the account has no password (OAuth-only).
    * @throws `UnauthorizedException` when `currentPassword` is wrong.
    */
   async changePassword(userId: string, tenantId: string, dto: ChangePasswordDto): Promise<void> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId, tenantId },
-      select: { id: true, passwordHash: true },
-    });
+    // Delegated wholesale to the library. It owns the hash format (PHC scrypt),
+    // the configured minimum length, the breach checker, and the session
+    // consequences of a credential rotation — ending every other session and
+    // bumping the token epoch so already-issued access tokens die with them.
+    // Re-implementing any of that here is what left this route rejecting every
+    // password once the library moved to PHC.
+    //
+    // No refresh token is passed: `cookies.refreshCookiePath` scopes that
+    // cookie to `/api/auth`, so it never reaches this `/api/account` route.
+    // The library's documented fallback then applies — every session ends,
+    // this one included, and the user signs in again. That is the safe
+    // direction: a change that leaves an unidentified session alive is the
+    // failure the control exists to prevent.
+    await this.passwordReset.changePassword(userId, tenantId, dto);
 
-    if (user === null || user.passwordHash === null) {
-      throw new BadRequestException(
-        'Password change is not available for accounts without a local password.',
-      );
-    }
-
-    const matches = await verifyScrypt(dto.currentPassword, user.passwordHash);
-    if (!matches) {
-      this.logger.warn({ msg: 'changePassword: wrong current password', userId });
-      throw new UnauthorizedException('Current password is incorrect.');
-    }
-
-    const newHash = await hashScrypt(dto.newPassword);
-    await this.prisma.user.update({
-      where: { id: userId, tenantId },
-      data: { passwordHash: newHash },
-    });
+    // Revoking the sessions does not reach the sockets they opened: the
+    // gateway authenticates a connection once, at the upgrade, and never
+    // revalidates an established one. Without this the user's devices keep
+    // receiving notifications on credentials that no longer exist — and on
+    // this route that is every device, since the fallback above ended every
+    // session rather than sparing the caller's.
+    this.userConnections.disconnectUser(userId);
 
     this.logger.log({ msg: 'changePassword: password updated', userId });
   }
@@ -399,7 +362,7 @@ export class AccountService {
   async getMfaStatus(userId: string, tenantId: string): Promise<MfaStatusInfo> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId, tenantId },
-      select: { mfaEnabled: true, mfaRecoveryCodes: true },
+      select: { mfaEnabled: true, mfaRecoveryCodes: true, passwordHash: true },
     });
 
     if (user === null) {
@@ -410,6 +373,8 @@ export class AccountService {
 
     return {
       enabled: user.mfaEnabled,
+      // Only the presence of the hash is exposed — never the hash itself.
+      hasPassword: user.passwordHash !== null,
       recoveryCodesRemaining: user.mfaEnabled ? user.mfaRecoveryCodes.length : 0,
       recoveryCodesTotal: RECOVERY_CODES_TOTAL,
       required: requiredTenantIds.has(tenantId),

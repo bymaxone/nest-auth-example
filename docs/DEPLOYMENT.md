@@ -135,6 +135,41 @@ When `EMAIL_PROVIDER=resend` (see [email](./EMAIL.md)):
 
 ---
 
+## Upgrading from a pre-1.4 deployment
+
+`@bymax-one/nest-auth` 1.4 stores password hashes in PHC format
+(`$scrypt$ln=…$salt$hash`). The 1.0 line wrote `scrypt:{salt_hex}:{derived_hex}`,
+and the current verifier does **not** read that older form — it parses PHC only.
+
+Any `User` row whose `passwordHash` predates the upgrade therefore stops
+authenticating. There is no in-place conversion: scrypt is one-way, so a legacy
+hash cannot be re-encoded without the plaintext.
+
+Pick one before deploying over an existing database:
+
+- **Reseed** — the demo path. `pnpm --filter @nest-auth-example/api prisma:seed`
+  rewrites the sample accounts with current hashes. This is what the example
+  deployment does, and it is why a fresh VPS install needs no migration at all.
+- **Force a reset** — for a database with real accounts. Null out
+  `passwordHash` for affected rows and route those users through
+  `POST /auth/password/forgot-password`. They set a new password; the library
+  writes it in PHC.
+
+Accounts with no local password (OAuth-only) are unaffected — they never had a
+hash to migrate.
+
+## Reverse proxies and the rate limiter
+
+`TRUSTED_PROXY_HOPS` must match the deployment. The web container proxies
+`/api/*` to the API, so a Compose deployment has at least one hop; add one more
+for an nginx/Traefik/Caddy in front of it. The value drives Express
+`trust proxy` and the auth limiter's client-IP source together.
+
+Too low and every browser is charged to the proxy's address, so one user's
+failed logins rate-limit everyone. Too high and a client can prepend a forged
+`X-Forwarded-For` entry and bypass the limiter. Production refuses to boot on
+the direct-connection default of `0`.
+
 ## Rollout strategy
 
 - Run database migrations with `prisma migrate deploy` (never `db push`) as a pre-deploy step — see [database](./DATABASE.md#migrations).

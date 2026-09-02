@@ -36,13 +36,12 @@ process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0
 
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import * as supertest from 'supertest';
 import type { Redis } from 'ioredis';
-import { BYMAX_AUTH_REDIS_CLIENT } from '@bymax-one/nest-auth';
+import { BYMAX_AUTH_REDIS_CLIENT, createAuthValidationPipe } from '@bymax-one/nest-auth';
 import { ThrottlerStorage, ThrottlerStorageService } from '@nestjs/throttler';
 
 import { AppModule } from '../src/app.module.js';
@@ -85,7 +84,7 @@ describe('Throttle-demo — IP-based rate limiting on GET /api/health/throttle-d
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({
+      createAuthValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,

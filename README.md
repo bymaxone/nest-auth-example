@@ -65,7 +65,7 @@ pnpm install && pnpm infra:up && pnpm dev
 - ✅ **JWT refresh rotation** — silent iframe refresh + client-triggered refresh, grace window for concurrency
 - ✅ **MFA enrollment** — QR code render via `qrcode`, recovery codes generation + download
 - ✅ **MFA challenge on login** — TOTP **and** recovery-code paths, temp token in `sessionStorage` (never cookie)
-- ✅ **Google OAuth** — "Continue with Google" wired to the library's plugin; account linking on existing emails
+- ✅ **Google OAuth** — "Continue with Google" wired to the library's plugin; a sign-in on an address that already has an account is refused, never silently linked
 - ✅ **Brute-force lockout** — Redis atomic counters; surfaced via `AUTH_ERROR_CODES.ACCOUNT_LOCKED`
 - ✅ **Session management** — list active devices, revoke one, revoke all; FIFO eviction at session limit; new-session alert email
 - ✅ **WebSocket notifications** — `ws://` channel authenticated via Bearer token + Redis JTI revocation check, with tenant isolation
@@ -212,7 +212,7 @@ Every `@bymax-one/nest-auth` capability is exercised. Each row links to the spec
 | TOTP challenge on login               | `app/auth/mfa-challenge`                   | `apps/web/e2e/mfa-enroll-and-login.spec.ts`             |
 | Recovery code consumption             | Same challenge page, recovery-code tab     | `apps/api/test/recovery-codes.e2e-spec.ts`              |
 | MFA disable                           | `dashboard/security`                       | `apps/api/test/mfa-setup-challenge-disable.e2e-spec.ts` |
-| Google OAuth sign-in + linking        | "Continue with Google" on login + register | `apps/api/test/oauth-link.e2e-spec.ts`                  |
+| Google OAuth, no silent linking       | "Continue with Google" on login + register | `apps/api/test/oauth-link.e2e-spec.ts`                  |
 
 ### 🏢 Multi-tenant & RBAC
 
@@ -446,7 +446,7 @@ nest-auth-example/
 
 | Layer             | Choice                        | Why                                                                   |
 | ----------------- | ----------------------------- | --------------------------------------------------------------------- |
-| Auth              | `@bymax-one/nest-auth@^1.0.2` | The library this repo demonstrates                                    |
+| Auth              | `@bymax-one/nest-auth@^1.4.5` | The library this repo demonstrates                                    |
 | Backend runtime   | Node.js ≥ 24                  | Library minimum; native `node:crypto` for scrypt/AES                  |
 | Backend framework | NestJS 11 on Express 5        | Library peer dep                                                      |
 | Database          | PostgreSQL 18                 | Most common SaaS choice; first-class tenant-isolation patterns        |

@@ -67,6 +67,11 @@ test.describe('MFA recovery code via challenge UI', () => {
 
     // ── 2. Enroll MFA from the security page. ──────────────────────────────
     await page.goto('/dashboard/security');
+    // Setup re-authenticates: since lib v1.1.0 `POST /auth/mfa/setup` requires
+    // the current password before it will return the TOTP secret, so the card
+    // collects it on the idle step. Without this the click is a no-op and the
+    // secret never renders.
+    await page.getByTestId('mfa-setup-password').fill(MFA_PASSWORD);
     await page
       .getByRole('button', { name: /set up authenticator|enable.*mfa|configure.*2fa/i })
       .click();
@@ -77,7 +82,10 @@ test.describe('MFA recovery code via challenge UI', () => {
     expect(secret.length).toBeGreaterThan(0);
 
     await fillOtp(page, authenticator.generate(secret));
-    await page.getByRole('button', { name: /verify.*enable|confirm|enable/i }).click();
+    // Anchored to the exact MFA button: the security page also carries the
+    // email-change card, whose "Send confirmation link" button matched the
+    // previous `|confirm|` alternative and tripped Playwright strict mode.
+    await page.getByRole('button', { name: /verify\s*&\s*enable/i }).click();
 
     // ── 3. Capture recovery codes from the post-enrollment modal. ──────────
     // The `RecoveryCodesModal` component renders each code inside a

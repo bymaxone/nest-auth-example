@@ -3,21 +3,24 @@
  * @description Unit tests for `NotificationsGateway`.
  *
  * Exercises all public methods and the connection-time auth logic:
- *   - `handleConnection`: Bearer header / cookie fallback / no token / invalid JWT /
- *     wrong token type / revoked token (Redis hit) / success
+ *   - `handleConnection`: ws-ticket redeem (success / refused / blocked status) /
+ *     Bearer header / cookie fallback / no token / invalid JWT /
+ *     wrong token type / revoked token (AuthRevocationService hit) / success
  *   - `handleDisconnect`: socket removed; empty set → map entry deleted
  *   - `emitNewNotification`: no sockets / OPEN socket / non-OPEN socket
  *   - `disconnectUser`: sockets closed 4403; map entry deleted
  *   - `maybeDisconnectBlockedUser`: blocked status → disconnectUser; other → no call
  *
- * All dependencies (JwtService, Redis) are plain jest mocks — no NestJS module.
+ * All dependencies (JwtService, WsTicketService, AuthRevocationService) are
+ * plain jest mocks — no NestJS module.
  *
  * @layer test
  * @see apps/api/src/notifications/notifications.gateway.ts
  */
 
 import { jest } from '@jest/globals';
-import type { DashboardJwtPayload } from '@bymax-one/nest-auth';
+import { AuthException, AUTH_ERROR_CODES } from '@bymax-one/nest-auth';
+import type { DashboardJwtPayload, WsTicketSnapshot } from '@bymax-one/nest-auth';
 import { NotificationsGateway } from './notifications.gateway.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -50,16 +53,39 @@ function makeJwtService(verifyResult: DashboardJwtPayload | Error = VALID_PAYLOA
   };
 }
 
+/** Snapshot returned by the mocked `WsTicketService.redeem` on success. */
+const VALID_SNAPSHOT: WsTicketSnapshot = {
+  sub: 'user-001',
+  tenantId: 'tenant-001',
+  role: 'MEMBER',
+  status: 'ACTIVE',
+  mfaEnabled: false,
+  mfaVerified: false,
+};
+
 /**
- * Builds a mock Redis stub.
+ * Builds a mock `WsTicketService` stub.
  *
- * @param revokedKeys - Set of keys that return `'1'` (i.e. revoked tokens).
+ * @param redeemResult - Snapshot resolved by `redeem`, or an Error to simulate
+ *   an invalid/replayed ticket (the library throws `AuthException`).
  */
-function makeRedis(revokedKeys: Set<string> = new Set()) {
+function makeTicketService(redeemResult: WsTicketSnapshot | Error = VALID_SNAPSHOT) {
   return {
-    get: jest
-      .fn<(key: string) => Promise<string | null>>()
-      .mockImplementation((key) => Promise.resolve(revokedKeys.has(key) ? '1' : null)),
+    redeem: jest.fn<(ticket: string) => Promise<WsTicketSnapshot>>().mockImplementation(() => {
+      if (redeemResult instanceof Error) return Promise.reject(redeemResult);
+      return Promise.resolve(redeemResult);
+    }),
+  };
+}
+
+/**
+ * Builds a mock `AuthRevocationService` stub.
+ *
+ * @param revoked - Whether `isAccessTokenRevoked` reports the token as revoked.
+ */
+function makeRevocationService(revoked = false) {
+  return {
+    isAccessTokenRevoked: jest.fn<() => Promise<boolean>>().mockResolvedValue(revoked),
   };
 }
 
@@ -91,20 +117,26 @@ function makeRequest(headers: Record<string, string>) {
  * Creates a `NotificationsGateway` with fresh mocks.
  *
  * @param jwtResult - Return value / thrown Error for `JwtService.verify`.
- * @param revokedKeys - Redis keys that simulate revoked tokens.
+ * @param revoked - Whether the mocked `AuthRevocationService` reports revocation.
+ * @param redeemResult - Snapshot / Error for the mocked `WsTicketService.redeem`.
  */
 function makeGateway(
   jwtResult: DashboardJwtPayload | Error = VALID_PAYLOAD,
-  revokedKeys: Set<string> = new Set(),
+  revoked = false,
+  redeemResult: WsTicketSnapshot | Error = VALID_SNAPSHOT,
 ) {
   const jwtService = makeJwtService(jwtResult);
-  const redis = makeRedis(revokedKeys);
+  const wsTickets = makeTicketService(redeemResult);
+  const revocation = makeRevocationService(revoked);
 
-  // NotificationsGateway uses @Inject(BYMAX_AUTH_REDIS_CLIENT) for redis.
-  // We bypass the DI container and construct directly with the mock.
-  const gateway = new NotificationsGateway(jwtService as never, redis as never);
+  // We bypass the DI container and construct directly with the mocks.
+  const gateway = new NotificationsGateway(
+    jwtService as never,
+    wsTickets as never,
+    revocation as never,
+  );
 
-  return { gateway, jwtService, redis };
+  return { gateway, jwtService, wsTickets, revocation };
 }
 
 // ─── Suite ────────────────────────────────────────────────────────────────────
@@ -183,17 +215,113 @@ describe('NotificationsGateway', () => {
       expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
     });
 
-    it('closes with 4401 when the rv:{jti} key exists in Redis (revoked token)', async () => {
-      // Tokens that have been explicitly revoked (logout, suspension) must be
-      // rejected even if the JWT signature is valid. Mirrors JwtAuthGuard behavior.
-      const revokedKeys = new Set(['rv:jti-valid-001']);
-      const { gateway } = makeGateway(VALID_PAYLOAD, revokedKeys);
+    it('closes with 4401 when AuthRevocationService reports the token revoked', async () => {
+      // Tokens that have been explicitly revoked (logout, "sign out everywhere",
+      // suspension) must be rejected even if the JWT signature is valid. The
+      // library's AuthRevocationService covers both the JTI blacklist and the
+      // per-user token epoch — the gateway must consult it, never raw Redis keys.
+      const { gateway, revocation } = makeGateway(VALID_PAYLOAD, true);
       const client = makeSocket();
       const req = makeRequest({ authorization: 'Bearer revoked-token' });
 
       await gateway.handleConnection(client as never, req);
 
+      expect(revocation.isAccessTokenRevoked).toHaveBeenCalledWith(VALID_PAYLOAD);
       expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+    });
+
+    it('treats an empty ?ticket= as no ticket at all', async () => {
+      /*
+       * Scenario: `?ticket=` present but empty. Redeeming an empty string
+       * would spend a Redis round-trip on a value that can never match, and
+       * worse, a redeem implementation that treated '' as a wildcard would
+       * admit the socket. `extractTicket` reports undefined so the JWT path
+       * takes over and refuses.
+       * Protects: the `ticket.length > 0` half of the ternary — the branch a
+       * `!== null` check alone would miss.
+       */
+      const { gateway, wsTickets } = makeGateway();
+      const client = makeSocket();
+      const req = { headers: {}, url: '/ws/notifications?ticket=' };
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(wsTickets.redeem).not.toHaveBeenCalled();
+      expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+    });
+
+    it('falls through to the JWT path when the upgrade URL cannot be parsed', async () => {
+      /*
+       * Scenario: a malformed upgrade URL makes the `URL` constructor throw.
+       * `extractTicket` must answer "no ticket" rather than propagating —
+       * an exception here would escape handleConnection and leave the socket
+       * neither authenticated nor closed, i.e. hung open and unauthenticated.
+       * Protects: the catch arm of extractTicket, and the fall-through to the
+       * JWT path that then rejects the connection with 4401.
+       */
+      const { gateway, wsTickets } = makeGateway();
+      const client = makeSocket();
+      const req = { headers: {}, url: 'http://[' };
+
+      await expect(gateway.handleConnection(client as never, req)).resolves.toBeUndefined();
+
+      expect(wsTickets.redeem).not.toHaveBeenCalled();
+      expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+    });
+
+    it('authenticates via a single-use ws-ticket in the upgrade URL query', async () => {
+      // FCM: WS upgrade tickets (lib v1.1.0+) — the browser path. The ticket is
+      // redeemed atomically and the socket is registered under the snapshot's sub.
+      const { gateway, wsTickets, jwtService } = makeGateway();
+      const client = makeSocket();
+      const req = {
+        headers: { cookie: 'access_token=live-token' },
+        url: '/ws/notifications?ticket=tkt-123',
+      };
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(wsTickets.redeem).toHaveBeenCalledWith('tkt-123');
+      // The cookie's token is verified — a ticket carries no `jti` or epoch, so
+      // it cannot be checked for revocation on its own — but identity still
+      // comes from the redeemed snapshot, not from that token.
+      expect(jwtService.verify).toHaveBeenCalled();
+      expect(client.data.user).toBeUndefined();
+      expect(client.data.userId).toBe('user-001');
+      expect(client.close).not.toHaveBeenCalled();
+      // A push notification must reach the ticket-authenticated socket.
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(1);
+    });
+
+    it('closes with 4401 when the ws-ticket is invalid or already redeemed', async () => {
+      // A replayed or expired ticket is refused by WsTicketService with an
+      // AuthException — the gateway must close 4401, not crash.
+      const { gateway } = makeGateway(
+        VALID_PAYLOAD,
+        false,
+        new AuthException(AUTH_ERROR_CODES.TOKEN_INVALID),
+      );
+      const client = makeSocket();
+      const req = { headers: {}, url: '/ws/notifications?ticket=replayed' };
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+    });
+
+    it('closes with 4403 when the ticket snapshot carries a blocked status', async () => {
+      // The snapshot's status is the repository's CURRENT state (unlike the JWT
+      // status claim) — a suspended account must be refused at the door.
+      const { gateway } = makeGateway(VALID_PAYLOAD, false, {
+        ...VALID_SNAPSHOT,
+        status: 'SUSPENDED',
+      });
+      const client = makeSocket();
+      const req = { headers: {}, url: '/ws/notifications?ticket=tkt-456' };
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(client.close).toHaveBeenCalledWith(4403, 'Account suspended');
     });
 
     it('sets client.handshake.headers.authorization from the Authorization header when present', async () => {
@@ -743,6 +871,287 @@ describe('NotificationsGateway', () => {
         body: 'b',
       });
       expect(delivered).toBe(1);
+    });
+  });
+
+  // ── Ticket corroborated by the access-token cookie ─────────────────────────
+
+  describe('ticket path — credential required alongside the ticket', () => {
+    it('refuses a ticket when the upgrade also carries a revoked access token', async () => {
+      /*
+       * Scenario: a device minted a ticket, then the user signed out
+       * everywhere (or changed their password) before the socket opened. The
+       * ticket is still redeemable for its TTL and its snapshot carries no
+       * `jti` or epoch to check, so the redemption alone cannot tell. The
+       * browser sends its cookies on this same-origin upgrade, and the access
+       * token in them does carry the session — revoked, in this case.
+       * Protects: the corroboration check on the ticket path, without which a
+       * ticket minted before a revocation opens a socket nothing revalidates.
+       */
+      const { gateway } = makeGateway(VALID_PAYLOAD, true);
+      const client = makeSocket();
+      const req = {
+        headers: { cookie: 'access_token=revoked-token' },
+        url: '/ws/notifications?ticket=tkt-stale',
+      };
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
+    });
+
+    it('refuses a ticket when a Bearer header carries the revoked token instead of a cookie', async () => {
+      /*
+       * Scenario: a non-browser client that holds both a ticket and its access
+       * token, presenting the token in the header the way the JWT path expects.
+       * The corroboration reads the credential from the same two places that
+       * path does, so the header must count exactly as the cookie does.
+       * Protects: the Authorization-header arm of the token extraction — a
+       * cookie-only reading would silently skip the check for these clients.
+       */
+      const { gateway } = makeGateway(VALID_PAYLOAD, true);
+      const client = makeSocket();
+      const req = {
+        headers: { authorization: 'Bearer revoked-token' },
+        url: '/ws/notifications?ticket=tkt-bearer',
+      };
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
+    });
+
+    it('refuses a ticket paired with a live token belonging to someone else', async () => {
+      /*
+       * Scenario: a ticket kept across a revocation, presented with a different
+       * account's working credential. The socket would be registered under the
+       * TICKET's subject, so a token that merely proves "somebody has a live
+       * session" is not enough — it has to prove that this is that somebody.
+       * Otherwise the retained ticket plus any other login the client can
+       * perform hands back the original account's stream.
+       * Protects: the subject binding between token and snapshot.
+       */
+      const { gateway } = makeGateway({ ...VALID_PAYLOAD, sub: 'user-999' });
+      const client = makeSocket();
+      const req = {
+        headers: { cookie: 'access_token=other-users-token' },
+        url: '/ws/notifications?ticket=tkt-borrowed',
+      };
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
+    });
+
+    it('refuses a ticket paired with a token for the same user in another tenant', async () => {
+      /*
+       * Scenario: the same subject, a different workspace. Tenancy is the other
+       * half of the identity here — every row and every socket in this app is
+       * scoped by it — so a credential from a tenant the ticket was not minted
+       * in proves nothing about the session that was revoked in the tenant it
+       * was.
+       * Protects: the tenant half of the binding, which a subject-only check
+       * would leave open.
+       */
+      const { gateway } = makeGateway({ ...VALID_PAYLOAD, tenantId: 'tenant-other' });
+      const client = makeSocket();
+      const req = {
+        headers: { cookie: 'access_token=other-tenant-token' },
+        url: '/ws/notifications?ticket=tkt-cross-tenant',
+      };
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
+    });
+
+    it('admits a ticket when the cookie is present and not revoked', async () => {
+      /*
+       * Scenario: the ordinary browser reconnect. The cookie corroborates the
+       * ticket rather than contradicting it.
+       * Protects: the check refusing only on an actual revocation — inverting
+       * it would break every normal ticket connection.
+       */
+      const { gateway } = makeGateway();
+      const client = makeSocket();
+      const req = {
+        headers: { cookie: 'access_token=live-token' },
+        url: '/ws/notifications?ticket=tkt-fresh',
+      };
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(client.close).not.toHaveBeenCalled();
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(1);
+    });
+
+    it('refuses a ticket that arrives with no credential at all', async () => {
+      /*
+       * Scenario: the ticket is presented alone. Since the snapshot carries no
+       * `jti` and no epoch, a ticket minted just before a revocation is
+       * indistinguishable from one minted just after it — so admitting on the
+       * ticket alone would make the revocation check optional for anyone who
+       * simply omits their cookie. Browsers cannot: the WS URL is same-origin
+       * so the cookies ride along, and a client that can set headers does not
+       * need a ticket in the first place.
+       * Protects: the `!token` refusal — treating absence as "nothing to say"
+       * is precisely the bypass.
+       */
+      const { gateway } = makeGateway();
+      const client = makeSocket();
+      const req = { headers: {}, url: '/ws/notifications?ticket=tkt-bare' };
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
+    });
+
+    it('refuses a ticket whose credential does not verify', async () => {
+      /*
+       * Scenario: the token is expired, forged, or minted for another plane.
+       * It cannot be checked against the revocation channels, so it is not a
+       * credential for this purpose. Minting a ticket is an authenticated call
+       * that refreshes the token first, so a live client is never in this
+       * state for the 30 s the ticket lasts.
+       * Protects: the `!payload` refusal — accepting an unverifiable token
+       * would let anyone bypass the check by sending a junk one.
+       */
+      const { gateway } = makeGateway(new Error('jwt expired'));
+      const client = makeSocket();
+      const req = {
+        headers: { cookie: 'access_token=expired-token' },
+        url: '/ws/notifications?ticket=tkt-expired-cookie',
+      };
+
+      await gateway.handleConnection(client as never, req);
+
+      expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
+    });
+  });
+
+  // ── Admission racing a forced disconnect ───────────────────────────────────
+
+  describe('admission racing a forced disconnect', () => {
+    it('refuses a ticket connection when the user is disconnected while the ticket is being redeemed', async () => {
+      /*
+       * Scenario: a device is redeeming its upgrade ticket at the moment
+       * "sign out everywhere" (or a suspension) fires. `disconnectUser` walks
+       * `userSockets` and finds nothing for this user — the socket is not
+       * registered until the redemption resolves — so the close reaches every
+       * device except the one still in the handshake. Registering it a moment
+       * later would hand the revoked session a socket that is never
+       * re-authenticated and therefore streams until the browser closes it.
+       * Protects: the admission check against the forced-disconnect marker on
+       * the ticket path, and the marker being stamped even when the disconnect
+       * had no socket to close.
+       */
+      const { gateway, wsTickets } = makeGateway();
+      let releaseRedeem: (snapshot: WsTicketSnapshot) => void = () => undefined;
+      wsTickets.redeem.mockImplementation(
+        () =>
+          new Promise<WsTicketSnapshot>((resolve) => {
+            releaseRedeem = resolve;
+          }),
+      );
+      const client = makeSocket();
+      const req = {
+        headers: { cookie: 'access_token=live-token' },
+        url: '/ws/notifications?ticket=tkt-race',
+      };
+
+      const connecting = gateway.handleConnection(client as never, req);
+      // The revocation lands mid-handshake, with nothing yet to close.
+      gateway.disconnectUser('user-001');
+      releaseRedeem(VALID_SNAPSHOT);
+      await connecting;
+
+      expect(client.close).toHaveBeenCalledWith(4403, 'Account suspended');
+      // Never registered: a notification has nowhere to go.
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
+    });
+
+    it('refuses a Bearer connection when the user is disconnected while the revocation lookup is in flight', async () => {
+      /*
+       * Scenario: same race on the JWT path. The token was checked against the
+       * revocation store before the disconnect committed, so the lookup answers
+       * "not revoked" and the socket would otherwise be admitted just after the
+       * disconnect swept the user's other connections.
+       * Protects: the admission check on the JWT path — the branch a
+       * ticket-only test would leave uncovered.
+       */
+      const { gateway, revocation } = makeGateway();
+      let releaseCheck: (revoked: boolean) => void = () => undefined;
+      revocation.isAccessTokenRevoked.mockImplementation(
+        () =>
+          new Promise<boolean>((resolve) => {
+            releaseCheck = resolve;
+          }),
+      );
+      const client = makeSocket();
+      const req = makeRequest({ authorization: 'Bearer valid-token' });
+
+      const connecting = gateway.handleConnection(client as never, req);
+      gateway.disconnectUser('user-001');
+      releaseCheck(false);
+      await connecting;
+
+      expect(client.close).toHaveBeenCalledWith(4403, 'Account suspended');
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
+    });
+
+    it('admits a connection that starts after the disconnect has already happened', async () => {
+      /*
+       * Scenario: the user signs out everywhere and then signs back in, or the
+       * initiating tab reconnects right after the change-password disconnect —
+       * the ordinary case the guard must not break. The marker is older than
+       * the attempt, so it says nothing about this connection.
+       * Protects: the timestamp comparison. A guard that refused on the mere
+       * existence of a marker would lock the user out of realtime for the rest
+       * of the process's life.
+       */
+      const { gateway } = makeGateway();
+      gateway.disconnectUser('user-001');
+
+      const client = makeSocket();
+      const req = makeRequest({ authorization: 'Bearer valid-token' });
+      await gateway.handleConnection(client as never, req);
+
+      expect(client.close).not.toHaveBeenCalled();
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(1);
+    });
+
+    it('does not refuse a connection because a different user was disconnected', async () => {
+      /*
+       * Scenario: two users are active; one is suspended while the other is
+       * mid-handshake. The marker is per-user, so the bystander must connect
+       * normally.
+       * Protects: the per-user key on the marker lookup — a global flag would
+       * refuse every concurrent connection in the process.
+       */
+      const { gateway, revocation } = makeGateway();
+      let releaseCheck: (revoked: boolean) => void = () => undefined;
+      revocation.isAccessTokenRevoked.mockImplementation(
+        () =>
+          new Promise<boolean>((resolve) => {
+            releaseCheck = resolve;
+          }),
+      );
+      const client = makeSocket();
+      const req = makeRequest({ authorization: 'Bearer valid-token' });
+
+      const connecting = gateway.handleConnection(client as never, req);
+      gateway.disconnectUser('someone-else');
+      releaseCheck(false);
+      await connecting;
+
+      expect(client.close).not.toHaveBeenCalled();
+      expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(1);
     });
   });
 });

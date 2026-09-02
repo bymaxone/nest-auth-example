@@ -22,14 +22,25 @@
  * @see docs/guidelines/nest-auth-guidelines.md §Decorators & guards
  */
 
-import { Body, Controller, Get, Headers, Ip, Param, Patch, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Ip,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   CurrentUser,
   JwtPlatformGuard,
   PlatformRoles,
   PlatformRolesGuard,
 } from '@bymax-one/nest-auth';
-import type { AuthPlatformUser } from '@bymax-one/nest-auth';
+import type { PlatformJwtPayload } from '@bymax-one/nest-auth';
 import type { Tenant } from '@prisma/client';
 
 import { SkipJwtAuth } from '../auth/skip-jwt-auth.decorator.js';
@@ -101,7 +112,9 @@ export class PlatformController {
    *
    * @param id - Target user ID from the URL parameter.
    * @param dto - Validated new status.
-   * @param platformUser - Authenticated platform user injected by `@CurrentUser()`.
+   * @param platformUser - Platform JWT payload injected by `@CurrentUser()`; the
+   *   acting admin's id is `sub`, not `id` — the guard puts the token payload on
+   *   the request, never the persisted `AuthPlatformUser` row.
    * @param ip - Client IP address for the audit entry.
    * @param userAgent - `User-Agent` header for the audit entry.
    * @returns The updated user as a safe object (no credentials).
@@ -115,16 +128,50 @@ export class PlatformController {
     // row matches the supplied id — no shape coercion is needed at the boundary.
     @Param('id') id: string,
     @Body() dto: UpdateUserStatusDto,
-    @CurrentUser() platformUser: AuthPlatformUser,
+    @CurrentUser() platformUser: PlatformJwtPayload,
     @Ip() ip: string,
     @Headers('user-agent') userAgent: string,
   ): Promise<PlatformSafeUser> {
     return this.platformService.updateUserStatus(
       id,
       dto,
-      platformUser.id,
+      platformUser.sub,
       ip ?? '',
       userAgent ?? '',
     );
+  }
+
+  /**
+   * Administratively resets a tenant user's MFA from the platform context.
+   *
+   * Demonstrates the library's `MfaService.resetMfa` (lib v1.2.0+): the support
+   * path for "lost device AND lost recovery codes" after out-of-band identity
+   * verification. The library clears the MFA state, revokes every session,
+   * bumps the token epoch, and notifies the account owner by email. Writes a
+   * `platform.user.mfa_reset` audit entry with the acting admin's ID.
+   *
+   * Restricted to `SUPER_ADMIN` — like the status mutation, this is a write
+   * that weakens an account's protections; `SUPPORT` stays read-only.
+   *
+   * POST /api/platform/users/:id/reset-mfa
+   *
+   * @param id - Target user ID from the URL parameter.
+   * @param platformUser - Platform JWT payload injected by `@CurrentUser()`; the
+   *   acting admin's id is `sub`, not `id` — the guard puts the token payload on
+   *   the request, never the persisted `AuthPlatformUser` row.
+   * @param ip - Client IP address for the audit entry.
+   * @param userAgent - `User-Agent` header for the audit entry.
+   * @returns The updated user as a safe object (`mfaEnabled: false`).
+   * @throws `NotFoundException` when the target user does not exist.
+   */
+  @Post('users/:id/reset-mfa')
+  @PlatformRoles('SUPER_ADMIN')
+  resetUserMfa(
+    @Param('id') id: string,
+    @CurrentUser() platformUser: PlatformJwtPayload,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string,
+  ): Promise<PlatformSafeUser> {
+    return this.platformService.resetUserMfa(id, platformUser.sub, ip ?? '', userAgent ?? '');
   }
 }

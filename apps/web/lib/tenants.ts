@@ -59,6 +59,22 @@ export const TENANT_OPTIONS: readonly TenantOption[] = [
 export const DEFAULT_TENANT_SLUG = 'acme';
 
 /**
+ * Whether a `?tenantId=` value is one of the slugs the picker offers.
+ *
+ * The parameter legitimately arrives in two forms: links the app builds carry
+ * the slug, links the library mails carry `Tenant.id`, because that is what
+ * `IEmailProvider` receives. Pages that must translate the second form ask this
+ * rather than testing for a CUID shape — `Tenant.id` defaults to `cuid()` but
+ * nothing guarantees it, and this repo's own e2e stack seeds readable ids, so
+ * a shape test would skip the translation exactly where it is hardest to spot.
+ *
+ * @param value - Raw value from `useSearchParams().get('tenantId')`.
+ */
+export function isKnownTenantSlug(value: string | null): value is string {
+  return value !== null && TENANT_OPTIONS.some((opt) => opt.value === value);
+}
+
+/**
  * Resolves the slug to use as the default value on a tenant picker,
  * honoring an explicit `?tenantId=` query param when it matches a known
  * tenant. Unknown or absent slugs fall back to {@link DEFAULT_TENANT_SLUG}.

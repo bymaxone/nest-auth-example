@@ -11,14 +11,18 @@
  *   `mfaRecoveryCodes` are never stored in `payload` or logged.
  * - `beforeRegister` always returns `{ allowed: true }` in this reference app but
  *   is wired and exercised by the test suite so consumers see the hook path.
- * - `onOAuthLogin` defaults to `'create'` for unknown profiles and `'link'` for
- *   profiles whose email already exists — the standard account-linking flow.
+ * - `onOAuthLogin` receives the user matched by OAuth provider id (or null) and
+ *   answers `'link'` for an already-linked identity, `'create'` otherwise. Under
+ *   lib v1.4.x there is NO silent email-based auto-linking: a first OAuth
+ *   sign-in against an email that already has a password account is refused by
+ *   the library with `auth.oauth_email_mismatch`.
  *
  * Event slug catalogue (append new slugs here when adding hooks):
  *   user.register.attempted | user.registered | user.login.attempted |
- *   user.login.succeeded | user.logout |
- *   mfa.enabled | mfa.disabled |
- *   session.new | session.evicted |
+ *   user.login.succeeded | user.login.failed | user.lockout |
+ *   user.logout |
+ *   mfa.enabled | mfa.disabled | mfa.recovery_codes.regenerated |
+ *   session.new | session.evicted | session.reuse_detected |
  *   email.verified |
  *   password.reset.completed |
  *   oauth.login |
@@ -39,7 +43,8 @@ import {
   type OAuthLoginResult,
   type OAuthProfile,
   type SafeAuthUser,
-  type SessionInfo,
+  type SessionAlertInfo,
+  sha256,
 } from '@bymax-one/nest-auth';
 import type { Prisma } from '@prisma/client';
 
@@ -179,6 +184,83 @@ export class AppAuthHooks implements IAuthHooks {
   }
 
   /**
+   * Called when a login attempt is refused (lib v1.1.0+).
+   *
+   * The `reason` discriminates why: bad credentials, blocked status, unverified
+   * email, or an active lockout window. Feeds SIEM-style alerting — a burst of
+   * `invalid_credentials` rows for one email is a credential-stuffing signal.
+   *
+   * @param details - Email, tenant, optional userId, and the refusal reason.
+   * @param context - Request metadata.
+   */
+  async onLoginFailed(
+    details: {
+      email: string;
+      tenantId: string;
+      userId?: string;
+      reason: 'invalid_credentials' | 'account_blocked' | 'email_not_verified' | 'locked_out';
+    },
+    context: HookContext,
+  ): Promise<void> {
+    // A failed login carries whatever address was submitted, which for
+    // credential-stuffing traffic is an arbitrary third party's — often with no
+    // account here at all. Storing the digest keeps the row correlatable across
+    // attempts without accumulating other people's addresses in a long-retained
+    // table (observability-guidelines.md § metadata: "pin to IDs, enums, and
+    // hashes (email_sha256)").
+    await this.record('user.login.failed', context, {
+      emailSha256: sha256(details.email),
+      tenantId: details.tenantId,
+      userId: details.userId ?? null,
+      reason: details.reason,
+    });
+  }
+
+  /**
+   * Called when brute-force protection locks an account (lib v1.1.0+).
+   *
+   * Fires once per lockout, not once per refused attempt — the row marks when
+   * the threshold was crossed. `AuthService.unlockAccount` (exposed via the
+   * debug controller in this example) clears the window early.
+   *
+   * @param details - Email, tenant, and seconds until the window expires.
+   * @param context - Request metadata.
+   */
+  async onLockout(
+    details: { email: string; tenantId: string; retryAfterSeconds: number },
+    context: HookContext,
+  ): Promise<void> {
+    // Same reasoning as `onLoginFailed`: a lockout is reached through failed
+    // attempts, so the address is equally untrusted.
+    await this.record('user.lockout', context, {
+      emailSha256: sha256(details.email),
+      tenantId: details.tenantId,
+      retryAfterSeconds: details.retryAfterSeconds,
+    });
+  }
+
+  /**
+   * Called when refresh-token reuse is detected (lib v1.1.0+).
+   *
+   * A previously rotated-out refresh token was replayed — either a stolen token
+   * or a badly-behaved client. The library has already revoked the whole token
+   * lineage (`familyId`); this hook records the incident for forensics.
+   *
+   * @param details - The affected user and the revoked token family.
+   * @param context - Request metadata (carries the replayer's real IP/user-agent
+   *   since lib v1.4.4).
+   */
+  async onRefreshTokenReuseDetected(
+    details: { userId: string; familyId: string },
+    context: HookContext,
+  ): Promise<void> {
+    await this.record('session.reuse_detected', context, {
+      userId: details.userId,
+      familyId: details.familyId,
+    });
+  }
+
+  /**
    * Called after TOTP MFA has been enabled on a user account.
    *
    * @param user - The user who enabled MFA (credentials omitted).
@@ -205,6 +287,22 @@ export class AppAuthHooks implements IAuthHooks {
   }
 
   /**
+   * Called after the user's MFA recovery codes have been regenerated (lib v1.4.x).
+   *
+   * The old code set is now invalid; the audit row lets security teams correlate
+   * a regeneration with a support ticket or a suspected compromise.
+   *
+   * @param user - The user whose codes were regenerated (credentials omitted).
+   * @param context - Request metadata.
+   */
+  async afterMfaRecoveryCodesRegenerated(user: SafeAuthUser, context: HookContext): Promise<void> {
+    await this.record('mfa.recovery_codes.regenerated', context, {
+      userId: user.id,
+      tenantId: user.tenantId,
+    });
+  }
+
+  /**
    * Called when a new session is detected from an unrecognised device or location.
    *
    * Persists the session hash (never the raw token) for incident forensics.
@@ -219,7 +317,7 @@ export class AppAuthHooks implements IAuthHooks {
    */
   onNewSession = async (
     user: SafeAuthUser,
-    sessionInfo: SessionInfo,
+    sessionInfo: SessionAlertInfo,
     context: HookContext,
   ): Promise<void> => {
     await this.record('session.new', context, {
@@ -232,10 +330,11 @@ export class AppAuthHooks implements IAuthHooks {
 
     // Dispatch the new-session security email. The library never
     // calls `sendNewSessionAlert` itself — consumers are responsible for the
-    // dispatch, typically from this hook. Wrap in try/catch so an email
-    // failure never blocks the login response.
+    // dispatch, typically from this hook. The method is optional on
+    // `IEmailProvider` (lib v1.2.0+), hence the `?.` call. Wrap in try/catch
+    // so an email failure never blocks the login response.
     try {
-      await this.emailProvider.sendNewSessionAlert(user.email, sessionInfo);
+      await this.emailProvider.sendNewSessionAlert?.(user.tenantId, user.email, sessionInfo);
     } catch (err: unknown) {
       this.logger.error({
         msg: 'sendNewSessionAlert dispatch failed',
@@ -278,10 +377,11 @@ export class AppAuthHooks implements IAuthHooks {
    * - `existingUser` non-null (user found by OAuth ID) → `'link'`: re-authenticates
    *   an already-linked identity via `userRepo.linkOAuth` (effectively a no-op update).
    * - `existingUser` null (OAuth ID not yet in the database) → `'create'`: delegates
-   *   to `PrismaUserRepository.createWithOAuth`, which performs an upsert on
-   *   `(tenantId, email)`. If a user registered via email/password with the same
-   *   address, their OAuth fields are updated in-place rather than creating a
-   *   duplicate row — implementing the account-linking guarantee.
+   *   to `PrismaUserRepository.createWithOAuth`, which inserts. The library has
+   *   already refused the address if it belongs to an account, and the unique
+   *   constraint on `(tenantId, email)` refuses it again if a registration wins
+   *   the race — surfacing as `auth.oauth_email_mismatch` either way. Nothing
+   *   attaches an OAuth identity to an account this flow did not create.
    *
    * @param profile - Normalised OAuth profile from the provider.
    * @param existingUser - Existing user found by OAuth provider ID, or null.

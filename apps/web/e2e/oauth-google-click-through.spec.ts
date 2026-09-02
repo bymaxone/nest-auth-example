@@ -71,7 +71,7 @@ async function captureGoogleAuthUrl(page: Page): Promise<AuthUrlAssertions> {
       await route.abort();
     });
 
-    void page.getByRole('link', { name: /continue with google/i }).click();
+    void page.getByRole('button', { name: /continue with google/i }).click();
   });
 
   return {
@@ -87,12 +87,16 @@ test.describe('Google OAuth — click-through (FCM #12)', () => {
   }) => {
     /**
      * Validates the entire library → Next proxy → Google chain at the URL
-     * level. A broken href, a missing tenantId param, a mis-configured
-     * `OAUTH_GOOGLE_CALLBACK_URL`, or a lib regression that drops the `state`
-     * nonce would all fail this assertion.
+     * level. A handler that navigates to the wrong endpoint, a missing tenant,
+     * a mis-configured `OAUTH_GOOGLE_CALLBACK_URL`, or a lib regression that
+     * drops the `state` nonce would all fail this assertion.
+     *
+     * The control is a button, not a link: the tenant slug has to be resolved
+     * to a CUID and written to the cookie before the navigation is correct, so
+     * there is no href a browser could usefully follow on its own.
      */
     await page.goto(`/auth/login?tenantId=${TENANT_ID}`);
-    await expect(page.getByRole('link', { name: /continue with google/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /continue with google/i })).toBeVisible();
 
     const auth = await captureGoogleAuthUrl(page);
 
@@ -115,12 +119,12 @@ test.describe('Google OAuth — click-through (FCM #12)', () => {
 
   test('register page: same button, same redirect target', async ({ page }) => {
     /**
-     * Mirrors the login spec from the register page. Confirms the link the
-     * register page builds carries the form's currently-selected tenantId
-     * (default = 'default' before the user picks one).
+     * Mirrors the login spec from the register page. Confirms the navigation
+     * the register page performs carries the form's currently-selected
+     * tenantId (default = 'default' before the user picks one).
      */
     await page.goto(`/auth/register?tenantId=${TENANT_ID}`);
-    await expect(page.getByRole('link', { name: /continue with google/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /continue with google/i })).toBeVisible();
 
     const auth = await captureGoogleAuthUrl(page);
 

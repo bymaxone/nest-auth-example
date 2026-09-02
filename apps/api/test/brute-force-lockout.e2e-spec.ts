@@ -35,19 +35,23 @@ process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0
 
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import * as supertest from 'supertest';
 import type { Redis } from 'ioredis';
-import { BYMAX_AUTH_REDIS_CLIENT } from '@bymax-one/nest-auth';
-import { ThrottlerStorage, ThrottlerStorageService } from '@nestjs/throttler';
+import {
+  AUTH_ERROR_CODES,
+  AUTH_ERROR_STATUS,
+  BYMAX_AUTH_REDIS_CLIENT,
+  createAuthValidationPipe,
+} from '@bymax-one/nest-auth';
 
 import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { clearMailpit, waitForEmail, extractOtpFromHtml } from './helpers/mailpit.js';
+import { resetAuthRateLimits } from './helpers/throttle.js';
 import { flushTestKeys } from './helpers/redis.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -70,12 +74,16 @@ async function truncateTables(prisma: PrismaService): Promise<void> {
 
 // ─── Suite ───────────────────────────────────────────────────────────────────
 
+/**
+ * Testing module handle, kept at module scope so rate-limit counters can be
+ * reset between tests. Assigned in `beforeAll`.
+ */
+let moduleRef: TestingModule;
+
 describe('Brute-force lockout — account locks after 5 wrong-password attempts', () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let redis: Redis;
-  /** In-memory throttle storage — cleared in beforeEach so login-rate counters don't bleed. */
-  let throttlerStorage: ThrottlerStorageService;
 
   beforeAll(async () => {
     // Run migrations against the test database before bootstrapping the app.
@@ -85,13 +93,12 @@ describe('Brute-force lockout — account locks after 5 wrong-password attempts'
       stdio: 'pipe',
     });
 
-    const moduleRef: TestingModule = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
     prisma = moduleRef.get<PrismaService>(PrismaService);
     redis = moduleRef.get<Redis>(BYMAX_AUTH_REDIS_CLIENT);
-    throttlerStorage = moduleRef.get<ThrottlerStorageService>(ThrottlerStorage);
 
     // Ensure the 'acme' tenant FK constraint is satisfied before the app starts.
     await prisma.$executeRaw`
@@ -104,7 +111,7 @@ describe('Brute-force lockout — account locks after 5 wrong-password attempts'
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({
+      createAuthValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
@@ -121,11 +128,13 @@ describe('Brute-force lockout — account locks after 5 wrong-password attempts'
   });
 
   beforeEach(async () => {
-    // Clear in-memory throttle counters so login-rate limits don't bleed between tests.
-    // ThrottlerModule.forRoot uses ThrottlerStorageService (in-memory Map) by default;
-    // the Redis flush below does NOT reset these counters.
-    throttlerStorage.storage.clear();
+    // Clear both rate limiters (in-memory ThrottlerGuard + the library's
+    // Redis-backed per-IP counters) so login-rate limits never bleed between
+    // tests or in from earlier spec files.
+    await resetAuthRateLimits(moduleRef);
     // Flush all brute-force lockout keys so each test starts from a clean state.
+    // The identifier inside the key is HMAC-derived since lib v1.4.4, but the
+    // `lf:` prefix survives, so the wildcard pattern still matches.
     await flushTestKeys(redis, 'nest-auth-example:lf:*');
     await clearMailpit();
     await truncateTables(prisma);
@@ -141,7 +150,7 @@ describe('Brute-force lockout — account locks after 5 wrong-password attempts'
     // A Redis key matching `nest-auth-example:lf:*` must also be present after
     // the lockout. Protects FCM #16.
     const email = uniqueEmail('brute-force');
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
     const httpServer = app.getHttpServer();
 
     // Register the user.
@@ -150,7 +159,7 @@ describe('Brute-force lockout — account locks after 5 wrong-password attempts'
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password, name: 'Brute Force Victim', tenantId: 'acme' });
+      .send({ email, password, name: 'Brute Force Victim' });
     expect(regRes.status).toBe(201);
 
     // Verify the email via Mailpit.
@@ -161,7 +170,7 @@ describe('Brute-force lockout — account locks after 5 wrong-password attempts'
       .post('/api/auth/verify-email')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, otp, tenantId: 'acme' });
+      .send({ email, otp });
     expect(verifyRes.status).toBe(204);
 
     // Fire 5 consecutive bad-password attempts.
@@ -171,18 +180,18 @@ describe('Brute-force lockout — account locks after 5 wrong-password attempts'
         .post('/api/auth/login')
         .set('Content-Type', 'application/json')
         .set('X-Tenant-Id', 'acme')
-        .send({ email, password: 'WrongPassword99!', tenantId: 'acme' });
+        .send({ email, password: 'WrongPassword99!' });
       // Each attempt should return 401 (not 429 from throttle).
       expect(attempt.status).toBe(401);
     }
 
     // The five attempts above also exhausted the `login` tier for this IP, and
-    // the ThrottlerGuard runs ahead of the auth service. Left in place it would
-    // answer the next request with a bare 429 carrying no `code`, hiding the
-    // lockout this test exists to prove. Clearing the counters lets the
-    // library's own response through; the rate limit itself is covered by the
-    // throttle-demo suite.
-    throttlerStorage.storage.clear();
+    // both rate limiters run ahead of the auth service. Left in place they
+    // would answer the next request with a per-IP 429 (`auth.too_many_requests`
+    // or the bare ThrottlerException), hiding the lockout this test exists to
+    // prove. Clearing the counters lets the library's own lockout response
+    // through; the rate limit itself is covered by the throttle-demo suite.
+    await resetAuthRateLimits(moduleRef);
 
     // The 6th attempt — even with the correct password — must be rejected because
     // the account is now locked. The library throws AuthException(ACCOUNT_LOCKED, 429).
@@ -191,13 +200,13 @@ describe('Brute-force lockout — account locks after 5 wrong-password attempts'
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password, tenantId: 'acme' });
+      .send({ email, password });
 
-    // ACCOUNT_LOCKED uses HTTP 429 (the library reserves 429 for rate-limit errors,
-    // lockout included). The error code must still be from the auth library.
-    expect(lockedAttempt.status).toBe(429);
+    // ACCOUNT_LOCKED answers HTTP 429 on every lockout path since lib v1.4.1
+    // (the library reserves 429 for rate-limit errors, lockout included).
+    expect(lockedAttempt.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.ACCOUNT_LOCKED]);
     expect(lockedAttempt.body).toMatchObject({
-      code: expect.stringMatching(/^auth\./),
+      code: AUTH_ERROR_CODES.ACCOUNT_LOCKED,
       statusCode: 429,
     });
 
@@ -222,7 +231,7 @@ describe('Brute-force lockout — account locks after 5 wrong-password attempts'
         .post('/api/auth/login')
         .set('Content-Type', 'application/json')
         .set('X-Tenant-Id', 'acme')
-        .send({ email: nonExistentEmail, password: 'AnyPassword99!', tenantId: 'acme' });
+        .send({ email: nonExistentEmail, password: 'AnyPassword99!' });
 
       // Must always be 401 with a generic auth error — never a lockout-specific code
       // that would reveal the email is registered.
@@ -235,5 +244,92 @@ describe('Brute-force lockout — account locks after 5 wrong-password attempts'
       const body = attempt.body as { code: string };
       expect(body.code).not.toMatch(/locked/i);
     }
+  });
+
+  // ─── Test 3: Debug lockout force → status read → unlock → login works ─────
+
+  it('debug lockout endpoints force, report, and clear a lockout end-to-end', async () => {
+    // Scenario: the dev-only debug surface drives the library's full lockout
+    // read/write API. POST /api/debug/lockout replays 5 wrong-password logins
+    // through the REAL AuthService path (firing onLoginFailed/onLockout hooks),
+    // GET reports `{ locked, retryAfterSeconds }`, and DELETE unlocks via
+    // `AuthService.unlockAccount` — after which a correct-password login
+    // succeeds without waiting out the window. The tenant always travels in the
+    // X-Tenant-Id header; the body names only the email.
+    const email = uniqueEmail('debug-lockout');
+    const password = 'Str0ngUniqu3Passw0rd!';
+    const httpServer = app.getHttpServer();
+
+    // Register and verify a real user so the post-unlock login can succeed.
+    const regRes = await supertest
+      .agent(httpServer)
+      .post('/api/auth/register')
+      .set('Content-Type', 'application/json')
+      .set('X-Tenant-Id', 'acme')
+      .send({ email, password, name: 'Debug Lockout User' });
+    expect(regRes.status).toBe(201);
+
+    const verifyHtml = await waitForEmail(email);
+    const otp = extractOtpFromHtml(verifyHtml);
+    const verifyRes = await supertest
+      .agent(httpServer)
+      .post('/api/auth/verify-email')
+      .set('Content-Type', 'application/json')
+      .set('X-Tenant-Id', 'acme')
+      .send({ email, otp });
+    expect(verifyRes.status).toBe(204);
+
+    // Force the lockout — the endpoint reports the resulting window.
+    const forceRes = await supertest
+      .agent(httpServer)
+      .post('/api/debug/lockout')
+      .set('Content-Type', 'application/json')
+      .set('X-Tenant-Id', 'acme')
+      .send({ email });
+    expect(forceRes.status).toBe(200);
+    expect(forceRes.body).toMatchObject({ locked: true });
+    expect((forceRes.body as { retryAfterSeconds: number }).retryAfterSeconds).toBeGreaterThan(0);
+
+    // The status read agrees with the forced state.
+    const statusRes = await supertest
+      .agent(httpServer)
+      .get(`/api/debug/lockout?email=${encodeURIComponent(email)}`)
+      .set('X-Tenant-Id', 'acme');
+    expect(statusRes.status).toBe(200);
+    expect(statusRes.body).toMatchObject({ locked: true });
+
+    // Even the correct password is refused while the account is locked.
+    const lockedLogin = await supertest
+      .agent(httpServer)
+      .post('/api/auth/login')
+      .set('Content-Type', 'application/json')
+      .set('X-Tenant-Id', 'acme')
+      .send({ email, password });
+    expect(lockedLogin.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.ACCOUNT_LOCKED]);
+    expect(lockedLogin.body).toMatchObject({ code: AUTH_ERROR_CODES.ACCOUNT_LOCKED });
+
+    // Unlock early — the admin "unlock account" surface.
+    const unlockRes = await supertest
+      .agent(httpServer)
+      .delete('/api/debug/lockout')
+      .set('Content-Type', 'application/json')
+      .set('X-Tenant-Id', 'acme')
+      .send({ email });
+    expect(unlockRes.status).toBe(204);
+
+    const afterUnlock = await supertest
+      .agent(httpServer)
+      .get(`/api/debug/lockout?email=${encodeURIComponent(email)}`)
+      .set('X-Tenant-Id', 'acme');
+    expect(afterUnlock.body).toMatchObject({ locked: false, retryAfterSeconds: 0 });
+
+    // With the lockout cleared, the correct password signs in immediately.
+    const loginRes = await supertest
+      .agent(httpServer)
+      .post('/api/auth/login')
+      .set('Content-Type', 'application/json')
+      .set('X-Tenant-Id', 'acme')
+      .send({ email, password });
+    expect(loginRes.status).toBe(200);
   });
 });

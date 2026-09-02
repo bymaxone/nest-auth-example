@@ -15,6 +15,7 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { jest } from '@jest/globals';
 import { Test } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import type { TestingModule } from '@nestjs/testing';
 import { UserStatus } from '@prisma/client';
 import { BYMAX_AUTH_REDIS_CLIENT } from '@bymax-one/nest-auth';
@@ -22,7 +23,7 @@ import type { SafeAuthUser } from '@bymax-one/nest-auth';
 
 import { PrismaUserRepository } from '../auth/prisma-user.repository.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { NotificationsGateway } from '../notifications/notifications.gateway.js';
+import { USER_CONNECTION_PORT } from '../realtime/user-connection.port.js';
 import { UsersService } from './users.service.js';
 import type { TenantUserRecord } from './users.service.js';
 import type { UpdateStatusDto } from './dto/update-status.dto.js';
@@ -134,9 +135,11 @@ describe('UsersService', () => {
             auditLog: { create: auditLogCreate },
           },
         },
+        { provide: USER_CONNECTION_PORT, useValue: { maybeDisconnectBlockedUser } },
+        // The status-cache key is namespaced from REDIS_NAMESPACE.
         {
-          provide: NotificationsGateway,
-          useValue: { maybeDisconnectBlockedUser },
+          provide: ConfigService,
+          useValue: { getOrThrow: () => 'nest-auth-example' },
         },
         {
           provide: BYMAX_AUTH_REDIS_CLIENT,
@@ -297,7 +300,7 @@ describe('UsersService', () => {
       expect('passwordHash' in result).toBe(false);
     });
 
-    it('invalidates the user-status cache by the exact `nest-auth-example:us:<userId>` Redis key', async () => {
+    it('invalidates the user-status cache by the tenant-scoped `nest-auth-example:us:<tenantId>:<userId>` Redis key', async () => {
       /*
        * Scenario: after a status change, the lib's
        * UserStatusGuard reads from Redis to enforce the new
@@ -322,7 +325,7 @@ describe('UsersService', () => {
 
       expect(redisDel).toHaveBeenCalledTimes(1);
       const calls = redisDel.mock.calls as unknown as Array<[string]>;
-      expect(calls[0]?.[0]).toBe('nest-auth-example:us:user-cache-key');
+      expect(calls[0]?.[0]).toBe('nest-auth-example:us:acme:user-cache-key');
     });
 
     it('swallows AuditLog write failures — does not throw, status update still returns', async () => {
@@ -418,7 +421,7 @@ describe('UsersService', () => {
 
       await service.findById('user-9', 'beta');
 
-      expect(findById).toHaveBeenCalledWith('user-9', 'beta');
+      expect(findById).toHaveBeenCalledWith({ id: 'user-9', tenantId: 'beta' });
     });
   });
 

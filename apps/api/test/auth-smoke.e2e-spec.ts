@@ -32,8 +32,8 @@ process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0
 
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { createAuthValidationPipe } from '@bymax-one/nest-auth';
+import { Test, type TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import * as supertest from 'supertest';
 import type { Agent } from 'supertest';
@@ -42,6 +42,7 @@ import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { clearMailpit, waitForEmail, extractOtpFromHtml } from './helpers/mailpit.js';
+import { resetAuthRateLimits } from './helpers/throttle.js';
 
 // ─── Helpers ───────────────���───────────────────────────────���────────────────
 
@@ -66,6 +67,12 @@ async function truncateTables(prisma: PrismaService): Promise<void> {
 
 // ─── Suite ──────────────────────────────��──────────────────────────────��────
 
+/**
+ * Testing module handle, kept at module scope so rate-limit counters can be
+ * reset between tests. Assigned in `beforeAll`.
+ */
+let moduleRef: TestingModule;
+
 describe('Auth smoke — register → verify → login → /me → /projects → logout → refresh', () => {
   let app: INestApplication;
   let prisma: PrismaService;
@@ -82,7 +89,7 @@ describe('Auth smoke — register → verify → login → /me → /projects →
       stdio: 'pipe',
     });
 
-    const moduleRef = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
@@ -100,7 +107,7 @@ describe('Auth smoke — register → verify → login → /me → /projects →
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({
+      createAuthValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
@@ -120,6 +127,10 @@ describe('Auth smoke — register → verify → login → /me → /projects →
   });
 
   beforeEach(async () => {
+    // Clear both rate limiters (in-memory ThrottlerGuard + the library's
+    // Redis-backed per-IP counters) so auth-route limits never bleed across
+    // tests or spec files in a sequential run.
+    await resetAuthRateLimits(moduleRef);
     // Clear the Mailpit inbox and accumulated test data before each spec.
     await clearMailpit();
     await truncateTables(prisma);
@@ -136,7 +147,7 @@ describe('Auth smoke — register → verify → login → /me → /projects →
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password: 'P@ssw0rd12345', name: 'Smoke Test', tenantId: 'acme' });
+      .send({ email, password: 'Str0ngUniqu3Passw0rd!', name: 'Smoke Test' });
 
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({ user: { email, status: 'PENDING' } });
@@ -159,7 +170,7 @@ describe('Auth smoke — register → verify → login → /me → /projects →
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password: 'P@ssw0rd12345', name: 'Smoke User', tenantId: 'acme' });
+      .send({ email, password: 'Str0ngUniqu3Passw0rd!', name: 'Smoke User' });
 
     expect(registerRes.status).toBe(201);
 
@@ -173,7 +184,7 @@ describe('Auth smoke — register → verify → login → /me → /projects →
       .post('/api/auth/verify-email')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, otp, tenantId: 'acme' });
+      .send({ email, otp });
 
     expect(verifyRes.status).toBe(204);
 
@@ -182,7 +193,7 @@ describe('Auth smoke — register → verify → login → /me → /projects →
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password: 'P@ssw0rd12345', tenantId: 'acme' });
+      .send({ email, password: 'Str0ngUniqu3Passw0rd!' });
 
     expect(loginRes.status).toBe(200);
     const cookies = loginRes.headers['set-cookie'] as string[] | undefined;
@@ -235,7 +246,7 @@ describe('Auth smoke — register → verify → login → /me → /projects →
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email: 'nobody@example.test', password: 'wrongPassword1!', tenantId: 'acme' });
+      .send({ email: 'nobody@example.test', password: 'wrongPassword1!' });
 
     expect(res.status).toBe(401);
     expect(res.body).toMatchObject({

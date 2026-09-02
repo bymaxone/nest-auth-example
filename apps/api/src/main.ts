@@ -5,7 +5,8 @@
  * Wires the Express 5 adapter, structured Pino logging, security headers (Helmet),
  * CORS (single allowed origin via WEB_ORIGIN), cookie-parser (required for HttpOnly
  * cookie delivery by @bymax-one/nest-auth), the `/api` global prefix, a global
- * ValidationPipe, and graceful shutdown hooks.
+ * validation pipe built with the library's `createAuthValidationPipe`, and
+ * graceful shutdown hooks.
  *
  * @layer bootstrap
  */
@@ -13,10 +14,12 @@
 import 'reflect-metadata';
 
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, type LoggerService } from '@nestjs/common';
+import { type LoggerService } from '@nestjs/common';
 import { ExpressAdapter } from '@nestjs/platform-express';
+import type { Application } from 'express';
 import { WsAdapter } from '@nestjs/platform-ws';
 import { ConfigService } from '@nestjs/config';
+import { createAuthValidationPipe } from '@bymax-one/nest-auth';
 import { Logger } from 'nestjs-pino';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
@@ -64,6 +67,23 @@ class LegacyRouteWarningFilter implements LoggerService {
  * Reads `API_PORT` and `WEB_ORIGIN` from `ConfigService<Env, true>` after the
  * application module is created so the Zod-validated values are always used.
  */
+/**
+ * Narrows the HTTP adapter's underlying instance to an Express application.
+ *
+ * `getInstance()` is untyped, so this guard is what lets `trust proxy` be set
+ * without an unchecked cast.
+ *
+ * @param value - The adapter instance returned by Nest.
+ * @returns True when the instance exposes Express's `set` settings API.
+ */
+function isExpressApplication(value: unknown): value is Application {
+  // An Express application is a callable request handler with methods hung off
+  // it, so `typeof` is 'function', not 'object'. Checking only for 'object'
+  // rejects the real adapter and aborts the boot.
+  const isObjectLike = typeof value === 'function' || (typeof value === 'object' && value !== null);
+  return isObjectLike && typeof (value as Application).set === 'function';
+}
+
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, new ExpressAdapter(), {
     bufferLogs: true,
@@ -82,6 +102,24 @@ async function bootstrap(): Promise<void> {
   app.useWebSocketAdapter(new WsAdapter(app));
 
   const config = app.get<ConfigService<Env, true>>(ConfigService);
+
+  // Tell Express how many proxies sit in front of us, so `req.ip` is the real
+  // client rather than the nearest hop. The auth rate limiter keys on this:
+  // the library's `clientIpSource` is derived from the SAME env var in
+  // auth.config.ts precisely so the two can never disagree. A count that is
+  // too low charges every browser to the proxy's address and lets one user's
+  // failed logins lock out everybody; too high lets a client prepend a forged
+  // `X-Forwarded-For` entry and impersonate any address. Zero means the API is
+  // reached directly and no forwarded header is trusted at all.
+  const trustedProxyHops = Number(config.get('TRUSTED_PROXY_HOPS') ?? 0);
+  const httpInstance: unknown = app.getHttpAdapter().getInstance();
+  if (!isExpressApplication(httpInstance)) {
+    // `trust proxy` is a security control, not a nicety: without it the rate
+    // limiter reads an untrusted forwarded chain. Refuse to boot rather than
+    // start with it silently unset.
+    throw new Error('Expected an Express HTTP adapter to configure `trust proxy`');
+  }
+  httpInstance.set('trust proxy', trustedProxyHops);
 
   // Helmet sets secure response headers (X-Content-Type-Options, X-Frame-Options,
   // Strict-Transport-Security, Referrer-Policy, etc.) before any route responds.
@@ -102,8 +140,14 @@ async function bootstrap(): Promise<void> {
   app.use(cookieParser());
   app.setGlobalPrefix('api');
 
+  // A plain global `new ValidationPipe(...)` would SHADOW the library's own
+  // pipe on /api/auth/* routes and answer DTO failures with Nest's default
+  // envelope instead of the `auth.validation` shape clients rely on
+  // (documented hazard since lib v1.4.3). `createAuthValidationPipe` is a
+  // drop-in factory that keeps the same class-validator options while
+  // emitting the library's error envelope everywhere.
   app.useGlobalPipes(
-    new ValidationPipe({
+    createAuthValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,

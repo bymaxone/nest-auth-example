@@ -73,7 +73,7 @@ describe('registerSchema', () => {
     const result = registerSchema.safeParse({
       email: 'new@example.com',
       name: 'Alice',
-      password: 'SuperSecure1!',
+      password: 'SuperSecurePass1!',
       tenantId: 'tenant-cuid-123',
     });
     expect(result.success).toBe(true);
@@ -88,7 +88,7 @@ describe('registerSchema', () => {
     const result = registerSchema.safeParse({
       email: 'bad-email',
       name: 'Alice',
-      password: 'SuperSecure1!',
+      password: 'SuperSecurePass1!',
       tenantId: 'tenant-cuid-123',
     });
     expect(result.success).toBe(false);
@@ -106,7 +106,7 @@ describe('registerSchema', () => {
     const result = registerSchema.safeParse({
       email: 'new@example.com',
       name: 'A',
-      password: 'SuperSecure1!',
+      password: 'SuperSecurePass1!',
       tenantId: 'tenant-cuid-123',
     });
     expect(result.success).toBe(false);
@@ -116,16 +116,17 @@ describe('registerSchema', () => {
     }
   });
 
-  it('rejects a password shorter than 8 characters', () => {
+  it('rejects a password shorter than 15 characters', () => {
     /*
-     * Scenario: a 7-character password must fail because the field requires
-     * at least 8 characters.
-     * Protects: password min(8) constraint in registerSchema.
+     * Scenario: a 14-character password must fail because the field requires
+     * at least 15 characters — matching the API's `password.minLength: 15`
+     * (the lib default since 1.4.x).
+     * Protects: password min(15) constraint in registerSchema.
      */
     const result = registerSchema.safeParse({
       email: 'new@example.com',
       name: 'Alice',
-      password: 'short1!',
+      password: 'FourteenChars1',
       tenantId: 'tenant-cuid-123',
     });
     expect(result.success).toBe(false);
@@ -133,6 +134,21 @@ describe('registerSchema', () => {
       const paths = result.error.issues.map((i) => i.path[0]);
       expect(paths).toContain('password');
     }
+  });
+
+  it('accepts a password of exactly 15 characters', () => {
+    /*
+     * Scenario: the boundary value must pass — 15 characters is the minimum,
+     * not an exclusive bound. Pins the min(15) threshold exactly.
+     * Protects: password min(15) boundary in registerSchema.
+     */
+    const result = registerSchema.safeParse({
+      email: 'new@example.com',
+      name: 'Alice',
+      password: 'ExactlyFifteen1',
+      tenantId: 'tenant-cuid-123',
+    });
+    expect(result.success).toBe(true);
   });
 
   it('rejects a missing tenantId', () => {
@@ -144,7 +160,7 @@ describe('registerSchema', () => {
     const result = registerSchema.safeParse({
       email: 'new@example.com',
       name: 'Alice',
-      password: 'SuperSecure1!',
+      password: 'SuperSecurePass1!',
       tenantId: '',
     });
     expect(result.success).toBe(false);
@@ -227,13 +243,13 @@ describe('forgotPasswordSchema', () => {
 describe('resetPasswordTokenSchema', () => {
   it('accepts matching passwords that meet the minimum length', () => {
     /*
-     * Scenario: two identical passwords of at least 8 characters must pass
+     * Scenario: two identical passwords of at least 15 characters must pass
      * both field constraints and the .refine check.
      * Protects: baseline resetPasswordTokenSchema validation.
      */
     const result = resetPasswordTokenSchema.safeParse({
-      newPassword: 'NewPass1!',
-      confirmPassword: 'NewPass1!',
+      newPassword: 'BrandNewPassword1!',
+      confirmPassword: 'BrandNewPassword1!',
     });
     expect(result.success).toBe(true);
   });
@@ -245,8 +261,8 @@ describe('resetPasswordTokenSchema', () => {
      * Protects: .refine passwords-match rule in resetPasswordTokenSchema.
      */
     const result = resetPasswordTokenSchema.safeParse({
-      newPassword: 'NewPass1!',
-      confirmPassword: 'DifferentPass!',
+      newPassword: 'BrandNewPassword1!',
+      confirmPassword: 'DifferentPassword2!',
     });
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -255,14 +271,15 @@ describe('resetPasswordTokenSchema', () => {
     }
   });
 
-  it('rejects a newPassword shorter than 8 characters', () => {
+  it('rejects a newPassword shorter than 15 characters', () => {
     /*
-     * Scenario: a short newPassword must fail before the refine even runs.
-     * Protects: newPassword min(8) constraint in resetPasswordTokenSchema.
+     * Scenario: a 14-character newPassword must fail before the refine even
+     * runs — the minimum matches the API's `password.minLength: 15`.
+     * Protects: newPassword min(15) constraint in resetPasswordTokenSchema.
      */
     const result = resetPasswordTokenSchema.safeParse({
-      newPassword: 'short',
-      confirmPassword: 'short',
+      newPassword: 'FourteenChars1',
+      confirmPassword: 'FourteenChars1',
     });
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -283,8 +300,8 @@ describe('resetPasswordOtpSchema', () => {
      */
     const result = resetPasswordOtpSchema.safeParse({
       otp: '1234',
-      newPassword: 'NewPass1!',
-      confirmPassword: 'NewPass1!',
+      newPassword: 'BrandNewPassword1!',
+      confirmPassword: 'BrandNewPassword1!',
     });
     expect(result.success).toBe(true);
   });
@@ -297,8 +314,8 @@ describe('resetPasswordOtpSchema', () => {
      */
     const result = resetPasswordOtpSchema.safeParse({
       otp: '1234',
-      newPassword: 'NewPass1!',
-      confirmPassword: 'WrongPass2!',
+      newPassword: 'BrandNewPassword1!',
+      confirmPassword: 'DifferentPassword2!',
     });
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -315,8 +332,8 @@ describe('resetPasswordOtpSchema', () => {
      */
     const result = resetPasswordOtpSchema.safeParse({
       otp: '123',
-      newPassword: 'NewPass1!',
-      confirmPassword: 'NewPass1!',
+      newPassword: 'BrandNewPassword1!',
+      confirmPassword: 'BrandNewPassword1!',
     });
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -333,8 +350,8 @@ describe('resetPasswordOtpSchema', () => {
      */
     const result = resetPasswordOtpSchema.safeParse({
       otp: '123456789',
-      newPassword: 'NewPass1!',
-      confirmPassword: 'NewPass1!',
+      newPassword: 'BrandNewPassword1!',
+      confirmPassword: 'BrandNewPassword1!',
     });
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -412,13 +429,13 @@ describe('acceptInvitationSchema', () => {
   it('accepts a valid name and matching passwords', () => {
     /*
      * Scenario: a name with at least 2 chars and matching passwords of at
-     * least 8 chars must parse successfully — happy path.
+     * least 15 chars must parse successfully — happy path.
      * Protects: baseline acceptInvitationSchema validation.
      */
     const result = acceptInvitationSchema.safeParse({
       name: 'Bob',
-      password: 'Welcome1!',
-      confirmPassword: 'Welcome1!',
+      password: 'WelcomeAboard123!',
+      confirmPassword: 'WelcomeAboard123!',
     });
     expect(result.success).toBe(true);
   });
@@ -430,8 +447,8 @@ describe('acceptInvitationSchema', () => {
      */
     const result = acceptInvitationSchema.safeParse({
       name: 'B',
-      password: 'Welcome1!',
-      confirmPassword: 'Welcome1!',
+      password: 'WelcomeAboard123!',
+      confirmPassword: 'WelcomeAboard123!',
     });
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -448,8 +465,8 @@ describe('acceptInvitationSchema', () => {
      */
     const result = acceptInvitationSchema.safeParse({
       name: 'Bob',
-      password: 'Welcome1!',
-      confirmPassword: 'Different2!',
+      password: 'WelcomeAboard123!',
+      confirmPassword: 'DifferentBoard45!',
     });
     expect(result.success).toBe(false);
     if (!result.success) {

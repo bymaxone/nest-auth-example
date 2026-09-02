@@ -38,7 +38,11 @@ process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0
 
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
+import {
+  AUTH_ERROR_CODES,
+  AUTH_ERROR_STATUS,
+  createAuthValidationPipe,
+} from '@bymax-one/nest-auth';
 import { Test, type TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import { generateSync } from 'otplib';
@@ -49,7 +53,7 @@ import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { clearMailpit, waitForEmail, extractOtpFromHtml } from './helpers/mailpit.js';
-import { resetThrottleCounters } from './helpers/throttle.js';
+import { resetAuthRateLimits } from './helpers/throttle.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -90,7 +94,7 @@ async function registerVerifyLogin(
     .post('/api/auth/register')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', 'acme')
-    .send({ email, password, name: 'Recovery Code User', tenantId: 'acme' });
+    .send({ email, password, name: 'Recovery Code User' });
 
   expect(registerRes.status).toBe(201);
 
@@ -102,7 +106,7 @@ async function registerVerifyLogin(
     .post('/api/auth/verify-email')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', 'acme')
-    .send({ email, otp, tenantId: 'acme' });
+    .send({ email, otp });
 
   expect(verifyRes.status).toBe(204);
 
@@ -111,7 +115,7 @@ async function registerVerifyLogin(
     .post('/api/auth/login')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', 'acme')
-    .send({ email, password, tenantId: 'acme' });
+    .send({ email, password });
 
   expect(loginRes.status).toBe(200);
 
@@ -122,16 +126,21 @@ async function registerVerifyLogin(
  * Sets up and enables MFA, returning both the TOTP secret and recovery codes.
  *
  * @param agent - An authenticated supertest agent.
+ * @param password - The account's current password — `POST /mfa/setup` requires
+ *   re-authentication (lib v1.4.x) before it hands out a fresh TOTP secret.
  * @returns An object with `secret` (TOTP) and `recoveryCodes` (string array).
  */
 async function setupAndEnableMfa(
   agent: Agent,
+  password: string,
 ): Promise<{ secret: string; recoveryCodes: string[] }> {
-  // POST /api/auth/mfa/setup — returns secret, qrCodeUri, and recoveryCodes.
+  // POST /api/auth/mfa/setup — re-authenticates with the account password and
+  // returns secret, qrCodeUri, and recoveryCodes.
   const setupRes = await agent
     .post('/api/auth/mfa/setup')
     .set('Content-Type', 'application/json')
-    .set('X-Tenant-Id', 'acme');
+    .set('X-Tenant-Id', 'acme')
+    .send({ password });
 
   expect([200, 201]).toContain(setupRes.status);
   const { secret, recoveryCodes } = setupRes.body as {
@@ -233,7 +242,7 @@ describe('MFA recovery codes — issuance, valid use, and single-use enforcement
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({
+      createAuthValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
@@ -253,7 +262,7 @@ describe('MFA recovery codes — issuance, valid use, and single-use enforcement
     // Every request in this suite comes from 127.0.0.1, so the per-IP `login`
     // tier is shared by all of its cases. Clear it between them: what is under
     // test here is auth behaviour, and a leaked 429 would mask it.
-    resetThrottleCounters(moduleRef);
+    await resetAuthRateLimits(moduleRef);
     // Clear accumulated email and user data before every individual test.
     await clearMailpit();
     await truncateTables(prisma);
@@ -266,13 +275,16 @@ describe('MFA recovery codes — issuance, valid use, and single-use enforcement
     // proves that exactly 8 recovery codes are returned in the setup response so
     // users always receive the correct number of emergency codes. FCM row #8.
     const email = uniqueEmail('rc-count');
-    const agent = await registerVerifyLogin(app.getHttpServer(), email, 'P@ssw0rd12345');
+    const password = 'Str0ngUniqu3Passw0rd!';
+    const agent = await registerVerifyLogin(app.getHttpServer(), email, password);
     await clearMailpit();
 
+    // Setup re-authenticates with the account password (lib v1.4.x).
     const setupRes = await agent
       .post('/api/auth/mfa/setup')
       .set('Content-Type', 'application/json')
-      .set('X-Tenant-Id', 'acme');
+      .set('X-Tenant-Id', 'acme')
+      .send({ password });
 
     expect([200, 201]).toContain(setupRes.status);
 
@@ -295,12 +307,12 @@ describe('MFA recovery codes — issuance, valid use, and single-use enforcement
     // app and use a recovery code to complete the MFA challenge. The server must
     // accept a valid recovery code and return auth cookies. FCM row #11.
     const email = uniqueEmail('rc-use');
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
     const agent = await registerVerifyLogin(app.getHttpServer(), email, password);
     await clearMailpit();
 
     // Enable MFA and capture the recovery codes.
-    const { recoveryCodes } = await setupAndEnableMfa(agent);
+    const { recoveryCodes } = await setupAndEnableMfa(agent, password);
     // Narrow away undefined — the setup helper asserts the array is non-empty.
     const recoveryCode: string = recoveryCodes[0] ?? '';
     expect(recoveryCode).toBeTruthy();
@@ -314,7 +326,7 @@ describe('MFA recovery codes — issuance, valid use, and single-use enforcement
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password, tenantId: 'acme' });
+      .send({ email, password });
 
     expect(loginRes.body).toMatchObject({ mfaRequired: true });
     const { mfaTempToken: tempToken } = loginRes.body as { mfaTempToken: string };
@@ -342,12 +354,12 @@ describe('MFA recovery codes — issuance, valid use, and single-use enforcement
     // successful challenge, the same code must be rejected with 4xx on any
     // subsequent attempt. This prevents replay attacks. FCM row #11.
     const email = uniqueEmail('rc-reuse');
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
     const agent = await registerVerifyLogin(app.getHttpServer(), email, password);
     await clearMailpit();
 
     // Enable MFA and capture the recovery codes.
-    const { recoveryCodes } = await setupAndEnableMfa(agent);
+    const { recoveryCodes } = await setupAndEnableMfa(agent, password);
     // Narrow away undefined — the setup helper asserts the array is non-empty.
     const recoveryCode: string = recoveryCodes[0] ?? '';
     expect(recoveryCode).toBeTruthy();
@@ -362,7 +374,7 @@ describe('MFA recovery codes — issuance, valid use, and single-use enforcement
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password, tenantId: 'acme' });
+      .send({ email, password });
 
     const { mfaTempToken: tempToken1 } = loginRes1.body as { mfaTempToken: string };
     expect(tempToken1).toBeTruthy();
@@ -388,7 +400,7 @@ describe('MFA recovery codes — issuance, valid use, and single-use enforcement
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password, tenantId: 'acme' });
+      .send({ email, password });
 
     const { mfaTempToken: tempToken2 } = loginRes2.body as { mfaTempToken: string };
     expect(tempToken2).toBeTruthy();
@@ -400,7 +412,10 @@ describe('MFA recovery codes — issuance, valid use, and single-use enforcement
       recoveryCode,
     );
 
-    expect(secondUse.status).toBeGreaterThanOrEqual(400);
-    expect(secondUse.status).toBeLessThan(500);
+    // Since lib v1.4.1 a consumed (or otherwise wrong) recovery code surfaces
+    // as `auth.mfa_invalid_code` — the dedicated RECOVERY_CODE_INVALID code was
+    // removed so recovery-code and TOTP failures are indistinguishable.
+    expect(secondUse.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.MFA_INVALID_CODE]);
+    expect(secondUse.body).toMatchObject({ code: AUTH_ERROR_CODES.MFA_INVALID_CODE });
   });
 });

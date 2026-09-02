@@ -37,8 +37,8 @@ process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0
 
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { createAuthValidationPipe } from '@bymax-one/nest-auth';
+import { Test, type TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import * as supertest from 'supertest';
 import type { Agent } from 'supertest';
@@ -47,6 +47,7 @@ import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { clearMailpit, waitForEmail, extractOtpFromHtml } from './helpers/mailpit.js';
+import { resetAuthRateLimits } from './helpers/throttle.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -87,7 +88,7 @@ async function registerAndVerify(
     .post('/api/auth/register')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', 'acme')
-    .send({ email, password, name: 'OTP Reset User', tenantId: 'acme' });
+    .send({ email, password, name: 'OTP Reset User' });
 
   expect(registerRes.status).toBe(201);
 
@@ -99,7 +100,7 @@ async function registerAndVerify(
     .post('/api/auth/verify-email')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', 'acme')
-    .send({ email, otp, tenantId: 'acme' });
+    .send({ email, otp });
 
   expect(verifyRes.status).toBe(204);
 
@@ -107,6 +108,12 @@ async function registerAndVerify(
 }
 
 // ─── Suite ───────────────────────────────────────────────────────────────────
+
+/**
+ * Testing module handle, kept at module scope so rate-limit counters can be
+ * reset between tests. Assigned in `beforeAll`.
+ */
+let moduleRef: TestingModule;
 
 describe('Password reset (OTP mode) — forgot-password → OTP email → reset → login', () => {
   let app: INestApplication;
@@ -120,7 +127,7 @@ describe('Password reset (OTP mode) — forgot-password → OTP email → reset 
       stdio: 'pipe',
     });
 
-    const moduleRef = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
@@ -138,7 +145,7 @@ describe('Password reset (OTP mode) — forgot-password → OTP email → reset 
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({
+      createAuthValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
@@ -155,6 +162,10 @@ describe('Password reset (OTP mode) — forgot-password → OTP email → reset 
   });
 
   beforeEach(async () => {
+    // Clear both rate limiters (in-memory ThrottlerGuard + the library's
+    // Redis-backed per-IP counters) so auth-route limits never bleed across
+    // tests or spec files in a sequential run.
+    await resetAuthRateLimits(moduleRef);
     // Clear accumulated email and user data before every individual test.
     await clearMailpit();
     await truncateTables(prisma);
@@ -167,7 +178,7 @@ describe('Password reset (OTP mode) — forgot-password → OTP email → reset 
     // sends an OTP (not a reset link) to the user's address. This proves the
     // OTP-mode reset path is active and the email adapter is working.
     const email = uniqueEmail('reset-otp');
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
     await registerAndVerify(app.getHttpServer(), email, password);
 
     // Clear Mailpit so only the reset OTP email is captured in the assertion.
@@ -178,7 +189,7 @@ describe('Password reset (OTP mode) — forgot-password → OTP email → reset 
       .post('/api/auth/password/forgot-password')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, tenantId: 'acme' });
+      .send({ email });
 
     expect(forgotRes.status).toBe(200);
 
@@ -199,8 +210,8 @@ describe('Password reset (OTP mode) — forgot-password → OTP email → reset 
     // extracts the OTP from the email, posts email + otp + newPassword, then logs
     // in with the new credentials. The old password must no longer work.
     const email = uniqueEmail('reset-otp-full');
-    const oldPassword = 'P@ssw0rd12345';
-    const newPassword = 'N3wP@ssword!99';
+    const oldPassword = 'Str0ngUniqu3Passw0rd!';
+    const newPassword = 'N3wStr0ngP@ssw0rd!42';
 
     await registerAndVerify(app.getHttpServer(), email, oldPassword);
 
@@ -213,7 +224,7 @@ describe('Password reset (OTP mode) — forgot-password → OTP email → reset 
       .post('/api/auth/password/forgot-password')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, tenantId: 'acme' });
+      .send({ email });
 
     expect(forgotRes.status).toBe(200);
 
@@ -228,7 +239,7 @@ describe('Password reset (OTP mode) — forgot-password → OTP email → reset 
       .post('/api/auth/password/reset-password')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, otp, newPassword, tenantId: 'acme' });
+      .send({ email, otp, newPassword });
 
     expect(resetRes.status).toBe(204);
 
@@ -238,7 +249,7 @@ describe('Password reset (OTP mode) — forgot-password → OTP email → reset 
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password: newPassword, tenantId: 'acme' });
+      .send({ email, password: newPassword });
 
     expect(loginRes.status).toBe(200);
 
@@ -248,7 +259,7 @@ describe('Password reset (OTP mode) — forgot-password → OTP email → reset 
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password: oldPassword, tenantId: 'acme' });
+      .send({ email, password: oldPassword });
 
     expect(oldLoginRes.status).toBe(401);
   });
@@ -260,8 +271,8 @@ describe('Password reset (OTP mode) — forgot-password → OTP email → reset 
     // result in a client-error (4xx) response, never a 5xx or silent success.
     // This ensures the OTP is validated and single-use semantics are enforced.
     const email = uniqueEmail('reset-otp-bad');
-    const password = 'P@ssw0rd12345';
-    const newPassword = 'N3wP@ssword!99';
+    const password = 'Str0ngUniqu3Passw0rd!';
+    const newPassword = 'N3wStr0ngP@ssw0rd!42';
 
     await registerAndVerify(app.getHttpServer(), email, password);
     await clearMailpit();
@@ -272,7 +283,7 @@ describe('Password reset (OTP mode) — forgot-password → OTP email → reset 
       .post('/api/auth/password/forgot-password')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, tenantId: 'acme' });
+      .send({ email });
 
     // Submit an incorrect OTP — the server must reject it with 4xx.
     const res = await supertest
@@ -280,7 +291,7 @@ describe('Password reset (OTP mode) — forgot-password → OTP email → reset 
       .post('/api/auth/password/reset-password')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, otp: '000000', newPassword, tenantId: 'acme' });
+      .send({ email, otp: '000000', newPassword });
 
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(res.status).toBeLessThan(500);

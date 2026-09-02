@@ -1,9 +1,16 @@
 /**
  * @fileoverview Password change form for the Account page.
  *
- * Validates `currentPassword` + `newPassword` + `confirmPassword` with Zod,
- * posts to `POST /api/account/change-password`, and shows a success or error
- * toast. On success the form resets to blank.
+ * Validates `currentPassword` + `newPassword` + `confirmPassword` with Zod
+ * (new password minimum 15 characters, matching the API's
+ * `password.minLength`), posts to the library's built-in
+ * `POST /api/auth/password/change` route (lib v1.1.0+ — revokes every other
+ * session while keeping the caller's cookie-mode session alive), and shows a
+ * success or error toast. On success the form resets to blank.
+ *
+ * Everything after the change itself is post-commit cleanup: the success is
+ * reported before it runs, so a failure there is never mistaken for the
+ * password change having failed.
  *
  * @layer components/dashboard
  */
@@ -19,7 +26,8 @@ import { KeyRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/auth/password-input';
-import { changePassword, handleAuthClientError } from '@/lib/auth-client';
+import { changePassword, disconnectRealtime, handleAuthClientError } from '@/lib/auth-client';
+import { getWsClient } from '@/lib/ws-client';
 import { cn } from '@/lib/utils';
 
 /** Tailwind error-border class applied to a password input on validation failure. */
@@ -28,7 +36,7 @@ const ERROR_BORDER_CLASS = 'border-red-500/60';
 const changePasswordSchema = z
   .object({
     currentPassword: z.string().min(1, 'Required'),
-    newPassword: z.string().min(8, 'Must be at least 8 characters'),
+    newPassword: z.string().min(15, 'Must be at least 15 characters'),
     confirmPassword: z.string().min(1, 'Required'),
   })
   .refine((data) => data.newPassword === data.confirmPassword, {
@@ -68,11 +76,37 @@ export function PasswordChangeForm() {
         currentPassword: data.currentPassword,
         newPassword: data.newPassword,
       });
-      toast.success('Password updated successfully.');
-      reset();
     } catch (err) {
       handleAuthClientError(err, { toast });
+      setIsPending(false);
+      return;
+    }
+
+    // Past this point the password is changed and the other sessions are
+    // revoked — committed server-side, whatever happens next. Reporting it
+    // first keeps a failure in the cleanup below from being read as "your
+    // password was not changed", which would send the user to try again with a
+    // password that is no longer current.
+    toast.success('Password updated successfully.');
+    reset();
+
+    // The library revokes every OTHER session and bumps the token epoch, but
+    // the gateway authenticates a socket at connect and never revalidates, so
+    // those devices keep streaming on connections opened before the change.
+    try {
+      await disconnectRealtime();
+    } catch (err) {
+      // Best-effort: the revoked devices keep their sockets until they close
+      // them, which is worth saying out loud, but the password change stands.
+      handleAuthClientError(err, { toast });
     } finally {
+      // Closing them server-side also drops this tab's socket — the gateway
+      // cannot single one out — and 4403 is a code `WsClient` never retries.
+      // This runs even when the call above reported a failure, because a lost
+      // response is indistinguishable from one that never reached the server,
+      // and in that case the sockets are already closed. This session is still
+      // valid; the revoked ones are refused and stop on their own.
+      getWsClient().reconnect();
       setIsPending(false);
     }
   };

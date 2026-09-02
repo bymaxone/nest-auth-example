@@ -173,6 +173,14 @@
   --color-brand-900: #7a2609;
 
   /*
+   * Semantic status colors. Declared here (not only in the `:root` blocks
+   * above) so Tailwind generates `text-success` / `border-success` utilities —
+   * a `--color-*` custom property outside `@theme` is invisible to the JIT,
+   * which is what previously forced call sites to inline the hex value.
+   */
+  --color-success: #22c55e;
+
+  /*
    * Binds the body font to the Geist Sans face the root layout loads. Without
    * this the `var(--font-sans)` the body rule reads resolves to Tailwind's
    * built-in system stack and the loaded face is never applied.

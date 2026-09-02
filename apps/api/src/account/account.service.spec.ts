@@ -34,8 +34,10 @@ import { Test } from '@nestjs/testing';
 import type { TestingModule } from '@nestjs/testing';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { USER_CONNECTION_PORT } from '../realtime/user-connection.port.js';
 import { AccountService } from './account.service.js';
-import type { ChangePasswordDto } from './dto/change-password.dto.js';
+import { PasswordResetService } from '@bymax-one/nest-auth';
+import type { ChangePasswordDto } from '@bymax-one/nest-auth';
 
 // ─── Scrypt helpers (mirrors service constants) ───────────────────────────────
 
@@ -90,16 +92,20 @@ describe('AccountService', () => {
   let service: AccountService;
   let userFindUnique: jest.Mock<() => Promise<UserFindUniqueReturn>>;
   let userFindMany: jest.Mock<() => Promise<WorkspaceRow[]>>;
+  let libChangePassword: jest.Mock<() => Promise<void>>;
   let userUpdate: jest.Mock<() => Promise<unknown>>;
   let tenantFindMany: jest.Mock<() => Promise<Array<{ id: string }>>>;
   let configGet: jest.Mock<(key: string) => string | undefined>;
+  let disconnectUser: jest.Mock<(userId: string) => void>;
 
   beforeEach(async () => {
     userFindUnique = jest.fn();
     userFindMany = jest.fn();
     userUpdate = jest.fn<() => Promise<unknown>>();
+    libChangePassword = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
     tenantFindMany = jest.fn();
     configGet = jest.fn<(key: string) => string | undefined>();
+    disconnectUser = jest.fn<(userId: string) => void>();
     // Default: no tenant requires MFA. Individual tests override per case.
     configGet.mockReturnValue('');
     // Default: tenant lookup returns no matches; tests that need a match
@@ -120,6 +126,18 @@ describe('AccountService', () => {
           provide: ConfigService,
           useValue: { get: configGet },
         },
+        // The library owns the credential rotation; this service only calls it.
+        {
+          provide: PasswordResetService,
+          useValue: { changePassword: libChangePassword },
+        },
+        // The gateway is reached through the shared port, never imported —
+        // `maybeDisconnectBlockedUser` is unused here, so the double supplies
+        // only what this service calls.
+        {
+          provide: USER_CONNECTION_PORT,
+          useValue: { disconnectUser, maybeDisconnectBlockedUser: jest.fn() },
+        },
       ],
     }).compile();
 
@@ -133,161 +151,102 @@ describe('AccountService', () => {
   // ─── changePassword ────────────────────────────────────────────────────────
 
   describe('changePassword', () => {
-    it('throws BadRequestException when the user record is not found', async () => {
-      // A null row means the userId+tenantId combination does not exist —
-      // either an expired session or a cross-tenant attempt. Must fail with 400
-      // before any crypto work is done.
-      userFindUnique.mockResolvedValue(null);
+    it('delegates the whole operation to the library password service', async () => {
+      /*
+       * Scenario: hash format, minimum length, breach checking and the session
+       * consequences of a rotation all belong to the library. This route is a
+       * custom controller over that service, not a second implementation —
+       * re-implementing it here is exactly what left the endpoint rejecting
+       * every valid password once the library moved to the PHC hash format.
+       * Protects: the delegation, and the argument order the library reads
+       * identity from.
+       */
       const dto: ChangePasswordDto = {
-        currentPassword: 'OldPassword1!',
-        newPassword: 'NewPassword1!',
+        currentPassword: 'CurrentPassw0rd!',
+        newPassword: 'BrandNewPassw0rd!!',
       };
 
-      await expect(service.changePassword('missing-user', 'acme', dto)).rejects.toThrow(
-        BadRequestException,
-      );
-      expect(userUpdate).not.toHaveBeenCalled();
+      await service.changePassword('user-1', 'tenant-acme', dto);
+
+      expect(libChangePassword).toHaveBeenCalledWith('user-1', 'tenant-acme', dto);
     });
 
-    it('throws BadRequestException when the user has no passwordHash (OAuth-only account)', async () => {
-      // OAuth-only users never set a password — attempting to change it must fail
-      // with 400 rather than UnauthorizedException so the client knows the reason.
-      userFindUnique.mockResolvedValue({ id: 'user-1', passwordHash: null });
-      const dto: ChangePasswordDto = {
-        currentPassword: 'AnyPassword1!',
-        newPassword: 'NewPassword1!',
-      };
-
-      await expect(service.changePassword('user-1', 'acme', dto)).rejects.toThrow(
-        BadRequestException,
-      );
-      expect(userUpdate).not.toHaveBeenCalled();
-    });
-
-    it('throws UnauthorizedException when currentPassword does not match the stored hash', async () => {
-      // The wrong current password must be rejected with 401. A real scrypt hash
-      // is produced for a different password to exercise the timingSafeEqual mismatch path
-      // without mocking the crypto layer.
-      const storedHash = await makeHash('CorrectPassword1!');
-      userFindUnique.mockResolvedValue({ id: 'user-1', passwordHash: storedHash });
-      const dto: ChangePasswordDto = {
-        currentPassword: 'WrongPassword1!',
-        newPassword: 'NewPassword1!',
-      };
-
-      await expect(service.changePassword('user-1', 'acme', dto)).rejects.toThrow(
-        UnauthorizedException,
-      );
-      expect(userUpdate).not.toHaveBeenCalled();
-    }, 15_000 /* scrypt is intentionally slow — allow 15 s */);
-
-    it('returns undefined and calls prisma.user.update when currentPassword is correct', async () => {
-      // The happy path — current password matches, new hash is stored. The service
-      // must call update exactly once with the new hash and resolve to void.
-      const storedHash = await makeHash('CorrectPassword1!');
-      userFindUnique.mockResolvedValue({ id: 'user-1', passwordHash: storedHash });
-      userUpdate.mockResolvedValue({});
-      const dto: ChangePasswordDto = {
-        currentPassword: 'CorrectPassword1!',
-        newPassword: 'NewPassword2!',
-      };
-
-      const result = await service.changePassword('user-1', 'acme', dto);
-
-      expect(result).toBeUndefined();
-      expect(userUpdate).toHaveBeenCalledTimes(1);
-      expect(userUpdate).toHaveBeenCalledWith({
-        where: { id: 'user-1', tenantId: 'acme' },
-        data: { passwordHash: expect.stringMatching(/^scrypt:[0-9a-f]+:[0-9a-f]+$/) },
+    it('closes the user sockets after the library call, not before it', async () => {
+      /*
+       * Scenario: the library ends the sessions, but the gateway authenticates
+       * a socket once at the upgrade and never revalidates it, so every device
+       * keeps streaming on credentials that no longer exist. On this route the
+       * caller's own session dies too — no refresh token reaches `/api/account`
+       * — so the disconnect is not a partial cleanup, it is the rest of the
+       * revocation. Ordering matters: disconnecting first would drop the
+       * sockets of a change that then failed its current-password check.
+       * Protects: the `disconnectUser` call, its subject, and its position
+       * after the delegation.
+       */
+      await service.changePassword('user-1', 'tenant-acme', {
+        currentPassword: 'CurrentPassw0rd!',
+        newPassword: 'BrandNewPassw0rd!!',
       });
-    }, 30_000 /* two scrypt ops — allow 30 s */);
 
-    it('writes a new hash in scrypt:{salt}:{derived} format on success', async () => {
-      // The new hash must be stored in the same format the library's PasswordService
-      // uses so the library can verify it on subsequent logins.
-      const storedHash = await makeHash('CorrectPassword1!');
-      userFindUnique.mockResolvedValue({ id: 'user-1', passwordHash: storedHash });
-      userUpdate.mockResolvedValue({});
-      const dto: ChangePasswordDto = {
-        currentPassword: 'CorrectPassword1!',
-        newPassword: 'NewPassword2!',
-      };
-
-      await service.changePassword('user-1', 'acme', dto);
-
-      const callData = (
-        userUpdate.mock.calls[0] as unknown as [{ where: unknown; data: { passwordHash: string } }]
-      )[0];
-      const parts = callData.data.passwordHash.split(':');
-      expect(parts[0]).toBe('scrypt');
-      expect(parts[1]).toMatch(/^[0-9a-f]{32}$/); // 16-byte salt → 32 hex chars
-      expect(parts[2]).toMatch(/^[0-9a-f]{128}$/); // 64-byte derived → 128 hex chars
-    }, 30_000 /* two scrypt ops — allow 30 s */);
-
-    it('scopes both findUnique and update queries by tenantId', async () => {
-      // Both the lookup and update must include tenantId in their WHERE clause
-      // to enforce tenant isolation at the DB level.
-      const storedHash = await makeHash('CorrectPassword1!');
-      userFindUnique.mockResolvedValue({ id: 'user-1', passwordHash: storedHash });
-      userUpdate.mockResolvedValue({});
-      const dto: ChangePasswordDto = {
-        currentPassword: 'CorrectPassword1!',
-        newPassword: 'NewPassword2!',
-      };
-
-      await service.changePassword('user-1', 'tenant-xyz', dto);
-
-      expect(userFindUnique).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: 'user-1', tenantId: 'tenant-xyz' } }),
-      );
-      expect(userUpdate).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: 'user-1', tenantId: 'tenant-xyz' } }),
-      );
-    }, 30_000);
-
-    it('throws UnauthorizedException when the stored hash has the wrong format (missing scrypt prefix)', async () => {
-      // verifyScrypt returns false immediately when the hash is not in
-      // `scrypt:{salt}:{derived}` format — the guard at line 55 is triggered.
-      userFindUnique.mockResolvedValue({ id: 'user-1', passwordHash: 'invalid-hash-no-colons' });
-      const dto: ChangePasswordDto = {
-        currentPassword: 'AnyPassword1!',
-        newPassword: 'NewPassword2!',
-      };
-
-      await expect(service.changePassword('user-1', 'acme', dto)).rejects.toThrow(
-        UnauthorizedException,
-      );
+      expect(disconnectUser).toHaveBeenCalledWith('user-1');
+      const changeOrder = libChangePassword.mock.invocationCallOrder[0] ?? 0;
+      const disconnectOrder = disconnectUser.mock.invocationCallOrder[0] ?? 0;
+      expect(changeOrder).toBeLessThan(disconnectOrder);
     });
 
-    it('throws UnauthorizedException when the stored hash has an empty salt segment', async () => {
-      // verifyScrypt returns false when parts[1] (salt) is an empty string —
-      // the `!saltHex` guard at line 59 is triggered.
-      userFindUnique.mockResolvedValue({ id: 'user-1', passwordHash: 'scrypt::somedrived' });
-      const dto: ChangePasswordDto = {
-        currentPassword: 'AnyPassword1!',
-        newPassword: 'NewPassword2!',
-      };
+    it('leaves the sockets alone when the library rejects the change', async () => {
+      /*
+       * Scenario: a wrong current password, an OAuth-only account, or a
+       * breached new password. Nothing was revoked, so cutting the user's
+       * notification streams would punish a failed attempt — including one
+       * made by someone who simply mistyped.
+       * Protects: the disconnect being reachable only on the success path.
+       */
+      libChangePassword.mockRejectedValueOnce(new Error('auth.invalid_credentials'));
 
-      await expect(service.changePassword('user-1', 'acme', dto)).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(
+        service.changePassword('user-1', 'tenant-acme', {
+          currentPassword: 'WrongPassw0rd!',
+          newPassword: 'BrandNewPassw0rd!!',
+        }),
+      ).rejects.toThrow('auth.invalid_credentials');
+
+      expect(disconnectUser).not.toHaveBeenCalled();
     });
 
-    it('throws UnauthorizedException when the stored hash has a derived value shorter than SCRYPT_KEY_LEN', async () => {
-      // verifyScrypt returns false when the decoded derived buffer is shorter than
-      // 64 bytes — the `stored.length !== SCRYPT_KEY_LEN` guard at line 63 is triggered.
-      userFindUnique.mockResolvedValue({
-        id: 'user-1',
-        passwordHash: 'scrypt:deadbeef:0102', // 1-byte salt, 1-byte derived (too short)
+    it('never writes the password itself through Prisma', async () => {
+      /*
+       * Scenario: the previous implementation hashed and wrote the credential
+       * here. Nothing in this service may touch `passwordHash` any more — a
+       * stray write would reintroduce the app-owned hash format that the
+       * library upgrade turned into a route rejecting every password.
+       * Protects: the absence of a local persistence path for credentials.
+       */
+      await service.changePassword('user-1', 'tenant-acme', {
+        currentPassword: 'CurrentPassw0rd!',
+        newPassword: 'BrandNewPassw0rd!!',
       });
-      const dto: ChangePasswordDto = {
-        currentPassword: 'AnyPassword1!',
-        newPassword: 'NewPassword2!',
-      };
 
-      await expect(service.changePassword('user-1', 'acme', dto)).rejects.toThrow(
-        UnauthorizedException,
-      );
+      expect(userUpdate).not.toHaveBeenCalled();
+    });
+
+    it('lets a library rejection bubble unchanged', async () => {
+      /*
+       * Scenario: the library answers a wrong current password, an OAuth-only
+       * account, or a breached new password with its own AuthException, which
+       * the exception filter maps to the documented `auth.*` code. Wrapping it
+       * here would replace that contract with a generic 500.
+       * Protects: library-thrown exceptions are not caught or re-wrapped.
+       */
+      const libError = new Error('auth.invalid_credentials');
+      libChangePassword.mockRejectedValueOnce(libError);
+
+      await expect(
+        service.changePassword('user-1', 'tenant-acme', {
+          currentPassword: 'WrongPassw0rd!',
+          newPassword: 'BrandNewPassw0rd!!',
+        }),
+      ).rejects.toBe(libError);
     });
   });
 
@@ -735,80 +694,6 @@ describe('AccountService', () => {
 
   // ─── verifyScrypt guard — stored-hash format edge cases ────────────────────
 
-  describe('verifyScrypt edge cases (exercised through changePassword)', () => {
-    it('rejects a stored hash whose algorithm prefix is not "scrypt"', async () => {
-      /*
-       * Scenario: an admin imports password hashes from a system that
-       * used Argon2 ("argon2:salt:derived") and forgets to migrate them
-       * before flipping to this library. The verify path must refuse
-       * unknown algorithm prefixes so the user is forced through the
-       * password-reset flow instead of being silently locked out by a
-       * runtime crypto crash.
-       */
-      userFindUnique.mockResolvedValue({
-        id: 'user-1',
-        passwordHash: 'argon2:abcdef:0102030405',
-      });
-      const dto: ChangePasswordDto = {
-        currentPassword: 'AnyPassword1!',
-        newPassword: 'NewPassword2!',
-      };
-
-      await expect(service.changePassword('user-1', 'acme', dto)).rejects.toThrow(
-        UnauthorizedException,
-      );
-      expect(userUpdate).not.toHaveBeenCalled();
-    });
-
-    it('rejects a stored hash with more than three colon-separated segments', async () => {
-      /*
-       * Scenario: a corrupted hash gains an extra colon-separated
-       * segment ("scrypt:salt:derived:bogus"). The wire format is
-       * exactly three segments; anything else indicates DB tampering
-       * or a deserialisation bug. The change-password flow must reject
-       * the hash safely rather than parse it as salt+derived and run
-       * scrypt on garbage data.
-       */
-      userFindUnique.mockResolvedValue({
-        id: 'user-1',
-        passwordHash: 'scrypt:deadbeef:0102:extra-segment',
-      });
-      const dto: ChangePasswordDto = {
-        currentPassword: 'AnyPassword1!',
-        newPassword: 'NewPassword2!',
-      };
-
-      await expect(service.changePassword('user-1', 'acme', dto)).rejects.toThrow(
-        UnauthorizedException,
-      );
-      expect(userUpdate).not.toHaveBeenCalled();
-    });
-
-    it('rejects a stored hash with an empty derived segment', async () => {
-      /*
-       * Scenario: a partial database migration produced rows where the
-       * derived-key segment is empty ("scrypt:deadbeef:"). The flow
-       * must short-circuit and surface a 401 instead of accepting an
-       * empty buffer as a valid derived key — accepting it would let
-       * any candidate password "match" once timingSafeEqual hits the
-       * zero-length comparison, which is a silent authentication
-       * bypass.
-       */
-      userFindUnique.mockResolvedValue({
-        id: 'user-1',
-        passwordHash: 'scrypt:deadbeef:',
-      });
-      const dto: ChangePasswordDto = {
-        currentPassword: 'AnyPassword1!',
-        newPassword: 'NewPassword2!',
-      };
-
-      await expect(service.changePassword('user-1', 'acme', dto)).rejects.toThrow(
-        UnauthorizedException,
-      );
-    });
-  });
-
   // ─── Database call-shape pinning ───────────────────────────────────────────
 
   describe('database call shapes and exception messages', () => {
@@ -951,7 +836,7 @@ describe('AccountService', () => {
       ).rejects.toThrow('Your account in the target workspace is not active.');
     });
 
-    it('getMfaStatus requests exactly {mfaEnabled, mfaRecoveryCodes} from prisma.user', async () => {
+    it('getMfaStatus requests exactly {mfaEnabled, mfaRecoveryCodes, passwordHash} from prisma.user', async () => {
       /*
        * Scenario: the security page reads the MFA snapshot to render
        * the recovery-code counter. The select clause MUST stay narrow:
@@ -967,7 +852,52 @@ describe('AccountService', () => {
       const calls = userFindUnique.mock.calls as unknown as Array<
         [{ where: { id: string; tenantId: string }; select: Record<string, boolean> }]
       >;
-      expect(calls[0]?.[0].select).toEqual({ mfaEnabled: true, mfaRecoveryCodes: true });
+      expect(calls[0]?.[0].select).toEqual({
+        mfaEnabled: true,
+        mfaRecoveryCodes: true,
+        // Presence only — the hash itself never leaves the service.
+        passwordHash: true,
+      });
+    });
+
+    it('getMfaStatus reports hasPassword false for an OAuth-only account', async () => {
+      /*
+       * Scenario: an account created through OAuth has no `passwordHash`. The
+       * library skips password re-authentication for those on MFA setup, so
+       * the UI needs this flag to know not to demand a password the user does
+       * not have — without it, MFA enrollment is unreachable for every OAuth
+       * account.
+       * Protects: the null check, and that only presence is exposed — the hash
+       * itself must never appear in the response.
+       */
+      userFindUnique.mockResolvedValue({
+        mfaEnabled: false,
+        mfaRecoveryCodes: [],
+        passwordHash: null,
+      });
+
+      const status = await service.getMfaStatus('user-1', 'tenant-acme');
+
+      expect(status.hasPassword).toBe(false);
+      expect(JSON.stringify(status)).not.toContain('passwordHash');
+    });
+
+    it('getMfaStatus reports hasPassword true for a local-password account', async () => {
+      /*
+       * Scenario: the mirror case. A stored hash means the setup form must
+       * keep asking for the password, so the flag has to distinguish the two
+       * rather than defaulting one way.
+       * Protects: the true arm of the same check.
+       */
+      userFindUnique.mockResolvedValue({
+        mfaEnabled: false,
+        mfaRecoveryCodes: [],
+        passwordHash: '$scrypt$ln=17,r=8,p=1$c2FsdA$aGFzaA',
+      });
+
+      const status = await service.getMfaStatus('user-1', 'tenant-acme');
+
+      expect(status.hasPassword).toBe(true);
     });
 
     it('getMfaStatus surfaces the documented 401 message when the user row is missing', async () => {
@@ -1009,56 +939,6 @@ describe('AccountService', () => {
       const args = calls[0]?.[0];
       expect(args?.where).toEqual({ slug: { in: ['globex', 'acme'] } });
       expect(args?.select).toEqual({ id: true });
-    });
-
-    it('changePassword writes a single `passwordHash` field via prisma.user.update on the happy path', async () => {
-      /*
-       * Scenario: a successful password change must update exactly
-       * the password column — no other field should be touched. A
-       * future refactor that accidentally drops the data payload or
-       * widens it (e.g. clears the MFA secret as a side effect)
-       * would either leave the password unchanged (silent success
-       * the user can't explain) or wreck unrelated security state.
-       * Asserting the precise data key set prevents both regressions.
-       */
-      const storedHash = await makeHash('CorrectPassword1!');
-      userFindUnique.mockResolvedValue({ id: 'user-1', passwordHash: storedHash });
-      userUpdate.mockResolvedValue({});
-      const dto: ChangePasswordDto = {
-        currentPassword: 'CorrectPassword1!',
-        newPassword: 'NewPassword2!',
-      };
-
-      await service.changePassword('user-1', 'tenant-acme', dto);
-
-      const calls = userUpdate.mock.calls as unknown as Array<
-        [{ data: { passwordHash: string }; where: { id: string; tenantId: string } }]
-      >;
-      const data = calls[0]?.[0].data;
-      expect(data).toBeDefined();
-      expect(Object.keys(data ?? {})).toEqual(['passwordHash']);
-      expect(typeof data?.passwordHash).toBe('string');
-      expect(data?.passwordHash.length).toBeGreaterThan(0);
-    }, 30_000);
-
-    it('changePassword surfaces the documented OAuth-only message verbatim', async () => {
-      /*
-       * Scenario: a user who originally signed up via Google OAuth has
-       * no local password set (passwordHash is null). When they try to
-       * change their password from the security page, the 400 response
-       * must explain that this is an OAuth-only account so the UI can
-       * surface the right hint ("Set a password first to enable
-       * change") rather than a generic validation error.
-       */
-      userFindUnique.mockResolvedValue({ id: 'user-1', passwordHash: null });
-      const dto: ChangePasswordDto = {
-        currentPassword: 'AnyPassword1!',
-        newPassword: 'NewPassword1!',
-      };
-
-      await expect(service.changePassword('user-1', 'acme', dto)).rejects.toThrow(
-        'Password change is not available for accounts without a local password.',
-      );
     });
 
     it('places the current workspace first when its name sorts AFTER the other workspace name', async () => {
@@ -1127,57 +1007,6 @@ describe('AccountService', () => {
       expect(arg.targetTenantId).toBe('tenant-globex');
     });
 
-    it('changePassword findUnique select clause requests {id, passwordHash} only', async () => {
-      /*
-       * Scenario: the change-password flow only needs the user id
-       * (to confirm the row exists) and the stored hash (to verify
-       * the current password). Widening the select would pull
-       * unrelated columns (MFA secrets, recovery codes) through
-       * the service boundary — exactly the leak that the focused
-       * projection is designed to prevent.
-       */
-      const storedHash = await makeHash('CorrectPassword1!');
-      userFindUnique.mockResolvedValue({ id: 'user-1', passwordHash: storedHash });
-      userUpdate.mockResolvedValue({});
-
-      await service.changePassword('user-1', 'tenant-acme', {
-        currentPassword: 'CorrectPassword1!',
-        newPassword: 'NewPassword2!',
-      });
-
-      const calls = userFindUnique.mock.calls as unknown as Array<
-        [{ where: { id: string; tenantId: string }; select: Record<string, boolean> }]
-      >;
-      expect(calls[0]?.[0].select).toEqual({ id: true, passwordHash: true });
-    }, 30_000);
-
-    it('logs the wrong-current-password warning with the documented payload', async () => {
-      /*
-       * Scenario: the user supplies the wrong current password. The
-       * warning log must surface BOTH the canonical event message
-       * and the userId so support can correlate repeated wrong-
-       * password attempts to a specific account (rate-limiting and
-       * brute-force investigation depend on this signal).
-       */
-      const storedHash = await makeHash('CorrectPassword1!');
-      userFindUnique.mockResolvedValue({ id: 'user-1', passwordHash: storedHash });
-      const warnSpy = jest
-        .spyOn((service as unknown as { logger: { warn: (m: unknown) => void } }).logger, 'warn')
-        .mockImplementation(() => undefined);
-
-      await expect(
-        service.changePassword('user-bob', 'tenant-acme', {
-          currentPassword: 'WrongPassword1!',
-          newPassword: 'NewPassword2!',
-        }),
-      ).rejects.toThrow();
-
-      expect(warnSpy).toHaveBeenCalledTimes(1);
-      const arg = warnSpy.mock.calls[0]?.[0] as { msg?: string; userId?: string };
-      expect(arg.msg).toBe('changePassword: wrong current password');
-      expect(arg.userId).toBe('user-bob');
-    }, 15_000);
-
     it('logs the password-updated event with the documented payload on success', async () => {
       /*
        * Scenario: a successful password change must surface in
@@ -1202,24 +1031,5 @@ describe('AccountService', () => {
       expect(arg.msg).toBe('changePassword: password updated');
       expect(arg.userId).toBe('user-claire');
     }, 30_000);
-
-    it('changePassword surfaces the documented wrong-current-password message verbatim', async () => {
-      /*
-       * Scenario: the user mistyped their current password. The 401
-       * response carries the literal text the UI binds to the
-       * "currentPassword" form field — without the exact match, the
-       * field-level error would not appear and the user would see a
-       * generic toast that doesn't tell them which field to fix.
-       */
-      const storedHash = await makeHash('CorrectPassword1!');
-      userFindUnique.mockResolvedValue({ id: 'user-1', passwordHash: storedHash });
-
-      await expect(
-        service.changePassword('user-1', 'acme', {
-          currentPassword: 'WrongPassword1!',
-          newPassword: 'NewPassword2!',
-        }),
-      ).rejects.toThrow('Current password is incorrect.');
-    }, 15_000);
   });
 });

@@ -25,10 +25,10 @@ import { fileURLToPath } from 'node:url';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Resend } from 'resend';
-import type { IEmailProvider, InviteData, SessionInfo } from '@bymax-one/nest-auth';
+import type { IEmailProvider, InviteData, SessionAlertInfo } from '@bymax-one/nest-auth';
 
 import type { Env } from '../config/env.schema.js';
-import { PrismaService } from '../prisma/prisma.service.js';
+import { emailTextBodies } from './email-text-bodies.js';
 
 /**
  * Directory that contains the HTML email templates shared with `MailpitEmailProvider`.
@@ -63,6 +63,8 @@ export class ResendEmailProvider implements IEmailProvider {
     'mfa-disabled',
     'new-session-alert',
     'invitation',
+    'email-change-verification',
+    'email-changed',
   ]);
 
   /**
@@ -90,10 +92,7 @@ export class ResendEmailProvider implements IEmailProvider {
    *
    * @param config - Zod-validated `ConfigService`.
    */
-  constructor(
-    config: ConfigService<Env, true>,
-    private readonly prisma: PrismaService,
-  ) {
+  constructor(config: ConfigService<Env, true>) {
     const apiKey = config.getOrThrow<string>('RESEND_API_KEY');
     this.client = new Resend(apiKey);
     this.from = config.getOrThrow<string>('SMTP_FROM');
@@ -160,8 +159,8 @@ export class ResendEmailProvider implements IEmailProvider {
    * @param html - Rendered HTML body.
    * @throws Re-throws Resend errors so the caller decides on retry strategy.
    */
-  private async send(to: string, subject: string, html: string): Promise<void> {
-    const result = await this.client.emails.send({ from: this.from, to, subject, html });
+  private async send(to: string, subject: string, html: string, text: string): Promise<void> {
+    const result = await this.client.emails.send({ from: this.from, to, subject, html, text });
     if (result.error) {
       // Log the provider error class only — never the message, which may contain
       // account-specific details that should not reach exception serializers.
@@ -174,81 +173,121 @@ export class ResendEmailProvider implements IEmailProvider {
   /**
    * Sends a password-reset link email.
    *
+   * @param tenantId - Tenant the reset was requested in (lib v1.3.1+ passes it first).
    * @param email - Recipient's email address.
    * @param token - Signed reset token embedded in the reset URL. Never logged.
    * @param _locale - BCP 47 locale tag (unused; single locale supported).
    */
-  async sendPasswordResetToken(email: string, token: string, _locale?: string): Promise<void> {
-    const user = await this.prisma.user.findFirst({
-      where: { email: email.toLowerCase() },
-      select: { tenantId: true },
-    });
-    const tenantId = user?.tenantId ?? 'default';
+  async sendPasswordResetToken(
+    tenantId: string,
+    email: string,
+    token: string,
+    _locale?: string,
+  ): Promise<void> {
     const resetUrl =
       `${this.webOrigin}/auth/reset-password?mode=token` +
       `&email=${encodeURIComponent(email)}` +
       `&tenantId=${encodeURIComponent(tenantId)}` +
       `&token=${encodeURIComponent(token)}`;
     const html = this.render('password-reset-token', {}, { resetUrl });
-    await this.send(email, 'Reset your password', html);
+    await this.send(
+      email,
+      'Reset your password',
+      html,
+      emailTextBodies.passwordResetToken(resetUrl),
+    );
   }
 
   /**
    * Sends a password-reset OTP code email.
    *
+   * @param _tenantId - Tenant scope (unused; templates are tenant-agnostic here).
    * @param email - Recipient's email address.
    * @param otp - Short-lived numeric OTP code. Never logged.
    * @param _locale - BCP 47 locale tag (unused).
    */
-  async sendPasswordResetOtp(email: string, otp: string, _locale?: string): Promise<void> {
+  async sendPasswordResetOtp(
+    _tenantId: string,
+    email: string,
+    otp: string,
+    _locale?: string,
+  ): Promise<void> {
     const html = this.render('password-reset-otp', { otp });
-    await this.send(email, 'Your password reset code', html);
+    await this.send(email, 'Your password reset code', html, emailTextBodies.passwordResetOtp(otp));
   }
 
   /**
    * Sends an email-verification OTP code.
    *
+   * @param _tenantId - Tenant scope (unused; templates are tenant-agnostic here).
    * @param email - Recipient's email address to be verified.
    * @param otp - Short-lived OTP code for verification. Never logged.
    * @param _locale - BCP 47 locale tag (unused).
    */
-  async sendEmailVerificationOtp(email: string, otp: string, _locale?: string): Promise<void> {
+  async sendEmailVerificationOtp(
+    _tenantId: string,
+    email: string,
+    otp: string,
+    _locale?: string,
+  ): Promise<void> {
     const html = this.render('verify-email', { otp });
-    await this.send(email, 'Verify your email address', html);
+    await this.send(
+      email,
+      'Verify your email address',
+      html,
+      emailTextBodies.emailVerificationOtp(otp),
+    );
   }
 
   /**
    * Sends a security notification that MFA was enabled on the account.
    *
+   * @param _tenantId - Tenant scope (unused; templates are tenant-agnostic here).
    * @param email - Recipient's email address.
    * @param _locale - BCP 47 locale tag (unused).
    */
-  async sendMfaEnabledNotification(email: string, _locale?: string): Promise<void> {
+  async sendMfaEnabledNotification(
+    _tenantId: string,
+    email: string,
+    _locale?: string,
+  ): Promise<void> {
     const html = this.render('mfa-enabled', {});
-    await this.send(email, 'Two-factor authentication enabled', html);
+    await this.send(email, 'Two-factor authentication enabled', html, emailTextBodies.mfaEnabled());
   }
 
   /**
    * Sends a security alert that MFA was disabled on the account.
    *
+   * @param _tenantId - Tenant scope (unused; templates are tenant-agnostic here).
    * @param email - Recipient's email address.
    * @param _locale - BCP 47 locale tag (unused).
    */
-  async sendMfaDisabledNotification(email: string, _locale?: string): Promise<void> {
+  async sendMfaDisabledNotification(
+    _tenantId: string,
+    email: string,
+    _locale?: string,
+  ): Promise<void> {
     const html = this.render('mfa-disabled', {});
-    await this.send(email, 'Two-factor authentication disabled', html);
+    await this.send(
+      email,
+      'Two-factor authentication disabled',
+      html,
+      emailTextBodies.mfaDisabled(),
+    );
   }
 
   /**
    * Sends a new-session security alert.
    *
+   * @param _tenantId - Tenant scope (unused; templates are tenant-agnostic here).
    * @param email - Recipient's email address.
    * @param sessionInfo - Device, IP, and session hash. Never logged.
    * @param _locale - BCP 47 locale tag (unused).
    */
   async sendNewSessionAlert(
+    _tenantId: string,
     email: string,
-    sessionInfo: SessionInfo,
+    sessionInfo: SessionAlertInfo,
     _locale?: string,
   ): Promise<void> {
     const html = this.render('new-session-alert', {
@@ -256,17 +295,90 @@ export class ResendEmailProvider implements IEmailProvider {
       ip: sessionInfo.ip,
       sessionHash: sessionInfo.sessionHash,
     });
-    await this.send(email, 'New sign-in detected on your account', html);
+    await this.send(
+      email,
+      'New sign-in detected on your account',
+      html,
+      emailTextBodies.newSessionAlert(sessionInfo.device, sessionInfo.ip),
+    );
+  }
+
+  /**
+   * Sends the email-change verification link to the NEW address (lib v1.1.0+).
+   *
+   * Optional on `IEmailProvider`, but REQUIRED when `controllers.emailChange`
+   * is enabled — the library refuses to boot without it. The raw token is
+   * embedded in the confirm URL only — never logged.
+   *
+   * @param tenantId - Tenant the account belongs to; travels in the confirm URL.
+   * @param newEmail - The address the account is moving to (the recipient).
+   * @param token - Single-use confirmation token. Never logged.
+   * @param _locale - BCP 47 locale tag (unused).
+   */
+  async sendEmailChangeVerification(
+    tenantId: string,
+    newEmail: string,
+    token: string,
+    _locale?: string,
+  ): Promise<void> {
+    // The tenant travels in the URL for the same reason the reset link carries
+    // it: the confirmation is opened from the NEW mailbox, routinely in another
+    // browser or a private window, where no `tenant_id` cookie exists. Without
+    // it `tenantAwareFetch` sends no `X-Tenant-Id` and the API's resolver
+    // refuses the confirm call before the token is ever read.
+    const confirmUrl =
+      `${this.webOrigin}/auth/confirm-email-change` +
+      `?token=${encodeURIComponent(token)}` +
+      `&tenantId=${encodeURIComponent(tenantId)}`;
+    const html = this.render('email-change-verification', {}, { confirmUrl });
+    await this.send(
+      newEmail,
+      'Confirm your new email address',
+      html,
+      emailTextBodies.emailChangeVerification(confirmUrl),
+    );
+  }
+
+  /**
+   * Notifies the OLD address that the account's email was changed (lib v1.1.0+).
+   *
+   * Security notice: gives the previous owner a chance to react to an
+   * account-takeover attempt. Sent after the change is committed.
+   *
+   * @param _tenantId - Tenant scope (unused; templates are tenant-agnostic here).
+   * @param oldEmail - The address the account moved away from (the recipient).
+   * @param newEmail - The address the account now uses (shown in the notice).
+   * @param _locale - BCP 47 locale tag (unused).
+   */
+  async sendEmailChangedNotification(
+    _tenantId: string,
+    oldEmail: string,
+    newEmail: string,
+    _locale?: string,
+  ): Promise<void> {
+    const html = this.render('email-changed', { newEmail });
+    await this.send(
+      oldEmail,
+      'Your email address was changed',
+      html,
+      emailTextBodies.emailChanged(newEmail),
+    );
   }
 
   /**
    * Sends a tenant invitation email to a prospective member.
    *
+   * @param _tenantId - Tenant scope (redundant here — `inviteData.tenantName` carries it).
    * @param email - Recipient's email address (the invitee).
    * @param inviteData - Invitation metadata. `inviteToken` is embedded in the URL only.
    * @param _locale - BCP 47 locale tag (unused).
    */
-  async sendInvitation(email: string, inviteData: InviteData, _locale?: string): Promise<void> {
+  async sendInvitation(
+    _tenantId: string,
+    email: string,
+    inviteData: InviteData,
+    _locale?: string,
+  ): Promise<void> {
     const acceptUrl = `${this.webOrigin}/auth/accept-invitation?token=${encodeURIComponent(inviteData.inviteToken)}`;
     const html = this.render(
       'invitation',
@@ -279,6 +391,16 @@ export class ResendEmailProvider implements IEmailProvider {
     );
     // Strip CRLF from tenantName to prevent SMTP header injection in the subject line.
     const safeSubject = inviteData.tenantName.replace(/[\r\n]/g, '');
-    await this.send(email, `You've been invited to join ${safeSubject}`, html);
+    await this.send(
+      email,
+      `You've been invited to join ${safeSubject}`,
+      html,
+      emailTextBodies.invitation(
+        inviteData.inviterName,
+        inviteData.tenantName,
+        acceptUrl,
+        inviteData.expiresAt.toUTCString(),
+      ),
+    );
   }
 }

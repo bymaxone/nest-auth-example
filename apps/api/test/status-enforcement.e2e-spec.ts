@@ -36,8 +36,8 @@ process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0
 
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { createAuthValidationPipe } from '@bymax-one/nest-auth';
+import { Test, type TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import * as supertest from 'supertest';
 import type { Agent } from 'supertest';
@@ -47,6 +47,7 @@ import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { clearMailpit, waitForEmail, extractOtpFromHtml } from './helpers/mailpit.js';
+import { resetAuthRateLimits } from './helpers/throttle.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -91,7 +92,7 @@ async function registerVerifyLogin(
     .post('/api/auth/register')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', 'acme')
-    .send({ email, password, name, tenantId: 'acme' });
+    .send({ email, password, name });
   expect(regRes.status).toBe(201);
 
   const html = await waitForEmail(email);
@@ -102,7 +103,7 @@ async function registerVerifyLogin(
     .post('/api/auth/verify-email')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', 'acme')
-    .send({ email, otp, tenantId: 'acme' });
+    .send({ email, otp });
 
   if (role !== Role.MEMBER) {
     await prisma.user.updateMany({
@@ -116,12 +117,18 @@ async function registerVerifyLogin(
     .post('/api/auth/login')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', 'acme')
-    .send({ email, password, tenantId: 'acme' });
+    .send({ email, password });
   expect(loginRes.status).toBe(200);
   return loginAgent;
 }
 
 // ─── Suite ───────────────────────────────────────────────────────────────────
+
+/**
+ * Testing module handle, kept at module scope so rate-limit counters can be
+ * reset between tests. Assigned in `beforeAll`.
+ */
+let moduleRef: TestingModule;
 
 describe('Status enforcement — suspended users are blocked by UserStatusGuard', () => {
   let app: INestApplication;
@@ -135,7 +142,7 @@ describe('Status enforcement — suspended users are blocked by UserStatusGuard'
       stdio: 'pipe',
     });
 
-    const moduleRef = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
@@ -152,7 +159,7 @@ describe('Status enforcement — suspended users are blocked by UserStatusGuard'
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({
+      createAuthValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
@@ -169,6 +176,10 @@ describe('Status enforcement — suspended users are blocked by UserStatusGuard'
   });
 
   beforeEach(async () => {
+    // Clear both rate limiters (in-memory ThrottlerGuard + the library's
+    // Redis-backed per-IP counters) so auth-route limits never bleed across
+    // tests or spec files in a sequential run.
+    await resetAuthRateLimits(moduleRef);
     await clearMailpit();
     await truncateTables(prisma);
   });
@@ -188,7 +199,7 @@ describe('Status enforcement — suspended users are blocked by UserStatusGuard'
       httpServer,
       prisma,
       adminEmail,
-      'P@ssw0rd12345',
+      'Str0ngUniqu3Passw0rd!',
       'Status Admin',
       Role.ADMIN,
     );
@@ -199,7 +210,7 @@ describe('Status enforcement — suspended users are blocked by UserStatusGuard'
       httpServer,
       prisma,
       memberEmail,
-      'P@ssw0rd12345',
+      'Str0ngUniqu3Passw0rd!',
       'Status Member',
     );
     await clearMailpit();
@@ -242,14 +253,14 @@ describe('Status enforcement — suspended users are blocked by UserStatusGuard'
       httpServer,
       prisma,
       adminEmail,
-      'P@ssw0rd12345',
+      'Str0ngUniqu3Passw0rd!',
       'Reactivate Admin',
       Role.ADMIN,
     );
     await clearMailpit();
 
     const memberEmail = uniqueEmail('reactivate-member');
-    const memberPassword = 'P@ssw0rd12345';
+    const memberPassword = 'Str0ngUniqu3Passw0rd!';
     const memberAgent = await registerVerifyLogin(
       httpServer,
       prisma,
@@ -286,7 +297,7 @@ describe('Status enforcement — suspended users are blocked by UserStatusGuard'
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email: memberEmail, password: memberPassword, tenantId: 'acme' });
+      .send({ email: memberEmail, password: memberPassword });
     expect(loginRes.status).toBe(200);
 
     // Confirm the re-activated member can access protected routes.

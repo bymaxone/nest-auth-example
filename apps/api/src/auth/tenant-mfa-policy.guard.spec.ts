@@ -22,12 +22,16 @@
  */
 
 import { jest } from '@jest/globals';
-import { HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import type { TestingModule } from '@nestjs/testing';
-import { AUTH_ERROR_CODES, AuthException, SKIP_MFA_KEY } from '@bymax-one/nest-auth';
+import {
+  AUTH_ERROR_CODES,
+  AUTH_ERROR_STATUS,
+  AuthException,
+  SKIP_MFA_KEY,
+} from '@bymax-one/nest-auth';
 import type { ExecutionContext } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -298,10 +302,11 @@ describe('TenantMfaPolicyGuard', () => {
       /*
        * Scenario: the policy violator path — a globex user without MFA
        * tries to read /api/projects. The guard must throw
-       * AuthException(MFA_SETUP_REQUIRED) with HTTP 403 so the web app
-       * can intercept the code and redirect to /dashboard/security.
-       * Pinning both the code and the status — they are the contract
-       * between the API and the UI.
+       * AuthException(MFA_SETUP_REQUIRED); since lib v1.4.1 the HTTP
+       * status derives from AUTH_ERROR_STATUS (mfa_setup_required → 400)
+       * so the web app intercepts the CODE, not the status, to redirect
+       * to /dashboard/security. Pinning both via the library's own map —
+       * they are the contract between the API and the UI.
        */
       await initGuardWithGlobexRequired();
       const context = makeContext({
@@ -315,7 +320,7 @@ describe('TenantMfaPolicyGuard', () => {
       } catch (err) {
         expect(err).toBeInstanceOf(AuthException);
         const ex = err as AuthException;
-        expect(ex.getStatus()).toBe(HttpStatus.FORBIDDEN);
+        expect(ex.getStatus()).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.MFA_SETUP_REQUIRED]);
         // AuthException stores the code inside its response body
         // (`{ error: { code, message, details } }`) rather than on a
         // direct property — see the lib bundle's class definition.

@@ -9,6 +9,8 @@
  *   the correct argument order: id, dto, platformUser.id, ip, userAgent.
  * - `ip` and `userAgent` default to empty strings when absent.
  * - `@PlatformRoles('SUPER_ADMIN')` is applied to `updateUserStatus` (write-only guard).
+ * - `POST /platform/users/:id/reset-mfa` forwards id, actor id, ip and userAgent
+ *   to `PlatformService.resetUserMfa`, defaulting ip/userAgent to empty strings.
  *
  * Pipes (`ParseUUIDPipe`) are bypassed by calling the handler directly with a pre-
  * validated UUID string — this is correct controller-layer testing practice.
@@ -34,13 +36,22 @@ import type { UpdateUserStatusDto } from './dto/update-user-status.dto.js';
 /** Valid UUID v4 used as a placeholder target user id. */
 const VALID_UUID = '550e8400-e29b-41d4-a716-446655440000';
 
-/** Builds a minimal fake `AuthPlatformUser`. */
-function makePlatformUser(overrides: { id?: string } = {}) {
+/**
+ * Builds a minimal fake `PlatformJwtPayload` — what `@CurrentUser()` actually
+ * injects on a platform route.
+ *
+ * The acting admin's id is `sub`. An `AuthPlatformUser`-shaped fixture (with
+ * `id`) would let a controller that reads `.id` pass its unit tests while
+ * writing a null actor into every audit row in production.
+ */
+function makePlatformUser(overrides: { sub?: string } = {}) {
   return {
-    id: overrides.id ?? 'platform-user-1',
-    email: 'superadmin@platform.test',
+    jti: 'jti-1',
+    sub: overrides.sub ?? 'platform-user-1',
     role: 'SUPER_ADMIN',
-    createdAt: new Date('2026-01-01T00:00:00Z'),
+    type: 'platform' as const,
+    mfaEnabled: false,
+    mfaVerified: true,
   };
 }
 
@@ -82,11 +93,13 @@ describe('PlatformController', () => {
   let listTenants: jest.Mock<() => Promise<Tenant[]>>;
   let listUsers: jest.Mock<() => Promise<PlatformSafeUser[]>>;
   let updateUserStatus: jest.Mock<() => Promise<PlatformSafeUser>>;
+  let resetUserMfa: jest.Mock<() => Promise<PlatformSafeUser>>;
 
   beforeEach(async () => {
     listTenants = jest.fn<() => Promise<Tenant[]>>();
     listUsers = jest.fn<() => Promise<PlatformSafeUser[]>>();
     updateUserStatus = jest.fn<() => Promise<PlatformSafeUser>>();
+    resetUserMfa = jest.fn<() => Promise<PlatformSafeUser>>();
 
     const noOpGuard = { canActivate: () => true };
 
@@ -95,7 +108,7 @@ describe('PlatformController', () => {
       providers: [
         {
           provide: PlatformService,
-          useValue: { listTenants, listUsers, updateUserStatus },
+          useValue: { listTenants, listUsers, updateUserStatus, resetUserMfa },
         },
       ],
     })
@@ -156,7 +169,7 @@ describe('PlatformController', () => {
       const dto: UpdateUserStatusDto = { status: 'SUSPENDED' };
       const updated = makePlatformSafeUser({ status: 'SUSPENDED' });
       updateUserStatus.mockResolvedValue(updated);
-      const platformUser = makePlatformUser({ id: 'pu-99' });
+      const platformUser = makePlatformUser({ sub: 'pu-99' });
 
       const result = await controller.updateUserStatus(
         VALID_UUID,
@@ -203,6 +216,53 @@ describe('PlatformController', () => {
 
       // At least one metadata key must be present from @PlatformRoles.
       expect(rolesKey.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('resetUserMfa', () => {
+    it('forwards id, actor id, ip and userAgent to the service in that order', async () => {
+      /*
+       * Scenario: the audit row the service writes is only correct if the
+       * controller hands over the arguments in the documented order. A
+       * transposition of the two string pairs (actor/ip, ip/userAgent) type-
+       * checks silently, so the order is pinned explicitly here.
+       * Protects: the argument list of the resetUserMfa delegation.
+       */
+      const updated = makePlatformSafeUser({ mfaEnabled: false });
+      resetUserMfa.mockResolvedValue(updated);
+      const platformUser = makePlatformUser({ sub: 'platform-admin-9' });
+
+      await expect(
+        controller.resetUserMfa(VALID_UUID, platformUser as never, '198.51.100.4', 'curl/8.0'),
+      ).resolves.toEqual(updated);
+
+      expect(resetUserMfa).toHaveBeenCalledWith(
+        VALID_UUID,
+        'platform-admin-9',
+        '198.51.100.4',
+        'curl/8.0',
+      );
+    });
+
+    it('passes empty strings for ip and userAgent when they are undefined', async () => {
+      /*
+       * Scenario: NestJS passes undefined for a missing IP or absent
+       * User-Agent header. The controller normalises both to '' so the audit
+       * row never stores undefined.
+       * Protects: both `?? ''` fallbacks — each is an independent branch, and
+       * dropping either writes undefined into the audit trail.
+       */
+      resetUserMfa.mockResolvedValue(makePlatformSafeUser());
+      const platformUser = makePlatformUser();
+
+      await controller.resetUserMfa(
+        VALID_UUID,
+        platformUser as never,
+        undefined as never,
+        undefined as never,
+      );
+
+      expect(resetUserMfa).toHaveBeenCalledWith(VALID_UUID, 'platform-user-1', '', '');
     });
   });
 });

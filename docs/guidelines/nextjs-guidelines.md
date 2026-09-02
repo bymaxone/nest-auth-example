@@ -2,7 +2,7 @@
 
 Next.js 16 App Router for `apps/web`.
 
-- **Package**: `next` `^16.2.x`
+- **Package**: `next` `^16.3.x`
 - **Router**: App Router only (`app/`), no Pages Router
 - **Runtime**: Node.js `>=24`, React 19, ESM (`"type": "module"`)
 - **Styling**: Tailwind CSS 4 (see [tailwind-guidelines.md](tailwind-guidelines.md))

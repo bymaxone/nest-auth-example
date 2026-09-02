@@ -33,16 +33,15 @@ process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0
 
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { Test, type TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
-import type { Redis } from 'ioredis';
 import * as supertest from 'supertest';
 
 import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { BYMAX_AUTH_REDIS_CLIENT } from '@bymax-one/nest-auth';
+import { resetAuthRateLimits } from './helpers/throttle.js';
+import { createAuthValidationPipe } from '@bymax-one/nest-auth';
 import {
   clearMailpit,
   extractOtpFromHtml,
@@ -59,10 +58,15 @@ async function truncateTables(prisma: PrismaService): Promise<void> {
   await prisma.$executeRawUnsafe('DELETE FROM "User"');
 }
 
+/**
+ * Testing module handle, kept at module scope so rate-limit counters can be
+ * reset between tests. Assigned in `beforeAll`.
+ */
+let moduleRef: TestingModule;
+
 describe('POST /api/auth/resend-verification — resend OTP + throttling', () => {
   let app: INestApplication;
   let prisma: PrismaService;
-  let redis: Redis;
 
   beforeAll(async () => {
     execSync('pnpm prisma migrate deploy', {
@@ -71,12 +75,11 @@ describe('POST /api/auth/resend-verification — resend OTP + throttling', () =>
       stdio: 'pipe',
     });
 
-    const moduleRef = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
     prisma = moduleRef.get<PrismaService>(PrismaService);
-    redis = moduleRef.get<Redis>(BYMAX_AUTH_REDIS_CLIENT);
     await prisma.$executeRaw`
       INSERT INTO "Tenant" (id, name, slug, "createdAt", "updatedAt")
       VALUES ('acme', 'Acme Corp', 'acme', NOW(), NOW())
@@ -87,7 +90,7 @@ describe('POST /api/auth/resend-verification — resend OTP + throttling', () =>
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({
+      createAuthValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
@@ -106,10 +109,10 @@ describe('POST /api/auth/resend-verification — resend OTP + throttling', () =>
   beforeEach(async () => {
     await clearMailpit();
     await truncateTables(prisma);
-    // The throttler key is per-IP and short-TTL — flush so prior tests'
-    // counters do not bleed into the current spec.
-    const keys = await redis.keys('*throttler*');
-    if (keys.length > 0) await redis.del(...keys);
+    // Clear both rate limiters (in-memory ThrottlerGuard + the library's
+    // Redis-backed per-IP counters) so auth-route limits never bleed across
+    // tests or spec files in a sequential run.
+    await resetAuthRateLimits(moduleRef);
   });
 
   it('resends the verification OTP and the new code verifies the account', async () => {
@@ -120,7 +123,7 @@ describe('POST /api/auth/resend-verification — resend OTP + throttling', () =>
      * only one that works.
      */
     const email = uniqueEmail('resendverify');
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
 
     // Step 1: register (creates a PENDING user + dispatches OTP #1).
     const regRes = await supertest
@@ -128,7 +131,7 @@ describe('POST /api/auth/resend-verification — resend OTP + throttling', () =>
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password, name: 'Resend Verify', tenantId: 'acme' });
+      .send({ email, password, name: 'Resend Verify' });
     expect(regRes.status).toBe(201);
 
     // Capture the FIRST OTP and clear Mailpit so the resent OTP is unambiguous.
@@ -142,7 +145,7 @@ describe('POST /api/auth/resend-verification — resend OTP + throttling', () =>
       .post('/api/auth/resend-verification')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, tenantId: 'acme' });
+      .send({ email });
     expect(resendRes.status).toBeGreaterThanOrEqual(200);
     expect(resendRes.status).toBeLessThan(300);
 
@@ -157,7 +160,7 @@ describe('POST /api/auth/resend-verification — resend OTP + throttling', () =>
       .post('/api/auth/verify-email')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, otp: secondOtp, tenantId: 'acme' });
+      .send({ email, otp: secondOtp });
     expect(verifyRes.status).toBe(204);
 
     const userRow = await prisma.user.findFirst({
@@ -176,14 +179,14 @@ describe('POST /api/auth/resend-verification — resend OTP + throttling', () =>
      * response status is in the 2xx range and no new email is dispatched.
      */
     const email = uniqueEmail('alreadyverified');
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
 
     await supertest
       .agent(app.getHttpServer())
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password, name: 'Already Verified', tenantId: 'acme' });
+      .send({ email, password, name: 'Already Verified' });
 
     const html = await waitForEmail(email);
     const otp = extractOtpFromHtml(html);
@@ -192,7 +195,7 @@ describe('POST /api/auth/resend-verification — resend OTP + throttling', () =>
       .post('/api/auth/verify-email')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, otp, tenantId: 'acme' });
+      .send({ email, otp });
     await clearMailpit();
 
     const resendRes = await supertest
@@ -200,7 +203,7 @@ describe('POST /api/auth/resend-verification — resend OTP + throttling', () =>
       .post('/api/auth/resend-verification')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, tenantId: 'acme' });
+      .send({ email });
     expect(resendRes.status).toBeGreaterThanOrEqual(200);
     expect(resendRes.status).toBeLessThan(300);
 
@@ -224,7 +227,7 @@ describe('POST /api/auth/resend-verification — resend OTP + throttling', () =>
       .post('/api/auth/resend-verification')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email: ghostEmail, tenantId: 'acme' });
+      .send({ email: ghostEmail });
     expect(resendRes.status).toBeGreaterThanOrEqual(200);
     expect(resendRes.status).toBeLessThan(300);
 
@@ -232,27 +235,25 @@ describe('POST /api/auth/resend-verification — resend OTP + throttling', () =>
     expect(stragglerCheck).toBeNull();
   });
 
-  it('accepts repeated calls without crashing the lib (lib-level decorator metadata, not in-process throttling)', async () => {
+  it('accepts repeated calls and answers 2xx or a per-IP 429 once the tier is spent', async () => {
     /*
      * Scenario: send several resend-verification requests in succession. The
-     * library annotates the endpoint with `@Throttle(AUTH_THROTTLE_CONFIGS.resendVerification)`
-     * (limit 3 / 5 min per IP) but the example app intentionally does NOT wire
-     * `ThrottlerGuard` as a global `APP_GUARD` — many e2e specs would hit the
-     * global cap. In-process throttling is exercised by
-     * `apps/api/test/throttle-demo.e2e-spec.ts` against the `/api/health/throttle-demo`
-     * route, which DOES register the guard explicitly. This test therefore
-     * only asserts that the lib decorator does not crash the endpoint when
-     * the global guard is absent — calls keep succeeding shape-wise.
+     * route is rate-limited per IP at 3 / 5 min (AUTH_THROTTLE_CONFIGS
+     * .resendVerification) by BOTH the app's global ThrottlerGuard and the
+     * library's own AuthRateLimitGuard (Redis-backed, lib v1.4.x). The first
+     * calls succeed shape-wise; once the tier is spent the endpoint answers
+     * 429 — either outcome is library-faithful, so both are accepted here.
+     * Deterministic 429 coverage lives in throttle-demo.e2e-spec.ts.
      */
     const email = uniqueEmail('throttle');
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
 
     await supertest
       .agent(app.getHttpServer())
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password, name: 'Throttle Test', tenantId: 'acme' });
+      .send({ email, password, name: 'Throttle Test' });
 
     const agent = supertest.agent(app.getHttpServer());
     for (let i = 0; i < 4; i++) {
@@ -260,7 +261,7 @@ describe('POST /api/auth/resend-verification — resend OTP + throttling', () =>
         .post('/api/auth/resend-verification')
         .set('Content-Type', 'application/json')
         .set('X-Tenant-Id', 'acme')
-        .send({ email, tenantId: 'acme' });
+        .send({ email });
       // 2xx or 429 — both are valid library-faithful outcomes depending on
       // whether the consumer wires the global throttler guard.
       expect([200, 201, 204, 429]).toContain(res.status);

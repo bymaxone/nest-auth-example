@@ -8,8 +8,8 @@ import { WsAdapter } from '@nestjs/platform-ws';
  *     resend; the second OTP is the one that completes the reset.
  *  2. Anti-enumeration — unknown emails return a success-shaped response with
  *     no email dispatched.
- *  3. Library decorator does not crash when global throttler guard is absent
- *     (see throttle-demo for in-process throttling coverage).
+ *  3. Repeated calls stay well-behaved — 2xx until the per-IP tier is spent,
+ *     then 429 (see throttle-demo for deterministic 429 coverage).
  *
  * Requires `PASSWORD_RESET_METHOD=otp` so the reset flow generates OTPs.
  *
@@ -32,14 +32,17 @@ process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0
 
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { BYMAX_AUTH_REDIS_CLIENT, createAuthValidationPipe } from '@bymax-one/nest-auth';
+import { Test, type TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
+import type { Redis } from 'ioredis';
 import * as supertest from 'supertest';
 
 import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
+import { resetAuthRateLimits } from './helpers/throttle.js';
+import { flushTestKeys } from './helpers/redis.js';
 import {
   clearMailpit,
   extractOtpFromHtml,
@@ -67,7 +70,7 @@ async function makeVerifiedUser(
     .post('/api/auth/register')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', 'acme')
-    .send({ email, password, name: 'Reset Resend', tenantId: 'acme' });
+    .send({ email, password, name: 'Reset Resend' });
   const verifyHtml = await waitForEmail(email);
   const verifyOtp = extractOtpFromHtml(verifyHtml);
   await supertest
@@ -75,13 +78,20 @@ async function makeVerifiedUser(
     .post('/api/auth/verify-email')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', 'acme')
-    .send({ email, otp: verifyOtp, tenantId: 'acme' });
+    .send({ email, otp: verifyOtp });
   return email;
 }
+
+/**
+ * Testing module handle, kept at module scope so rate-limit counters can be
+ * reset between tests. Assigned in `beforeAll`.
+ */
+let moduleRef: TestingModule;
 
 describe('POST /api/auth/password/resend-otp — OTP-mode reset resend', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let redis: Redis;
 
   beforeAll(async () => {
     execSync('pnpm prisma migrate deploy', {
@@ -90,11 +100,12 @@ describe('POST /api/auth/password/resend-otp — OTP-mode reset resend', () => {
       stdio: 'pipe',
     });
 
-    const moduleRef = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
     prisma = moduleRef.get<PrismaService>(PrismaService);
+    redis = moduleRef.get<Redis>(BYMAX_AUTH_REDIS_CLIENT);
     await prisma.$executeRaw`
       INSERT INTO "Tenant" (id, name, slug, "createdAt", "updatedAt")
       VALUES ('acme', 'Acme Corp', 'acme', NOW(), NOW())
@@ -105,7 +116,7 @@ describe('POST /api/auth/password/resend-otp — OTP-mode reset resend', () => {
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({
+      createAuthValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
@@ -122,6 +133,10 @@ describe('POST /api/auth/password/resend-otp — OTP-mode reset resend', () => {
   });
 
   beforeEach(async () => {
+    // Clear both rate limiters (in-memory ThrottlerGuard + the library's
+    // Redis-backed per-IP counters) so auth-route limits never bleed across
+    // tests or spec files in a sequential run.
+    await resetAuthRateLimits(moduleRef);
     await clearMailpit();
     await truncateTables(prisma);
   });
@@ -133,7 +148,7 @@ describe('POST /api/auth/password/resend-otp — OTP-mode reset resend', () => {
      * and is then able to log in with the new password. Verifies that the
      * resend invalidates the prior code.
      */
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
     const email = await makeVerifiedUser(app.getHttpServer(), password);
     await clearMailpit();
 
@@ -143,7 +158,7 @@ describe('POST /api/auth/password/resend-otp — OTP-mode reset resend', () => {
       .post('/api/auth/password/forgot-password')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, tenantId: 'acme' });
+      .send({ email });
     expect(forgotRes.status).toBeGreaterThanOrEqual(200);
     expect(forgotRes.status).toBeLessThan(300);
 
@@ -151,13 +166,19 @@ describe('POST /api/auth/password/resend-otp — OTP-mode reset resend', () => {
     const firstOtp = extractOtpFromHtml(firstHtml);
     await clearMailpit();
 
+    // `forgot-password` arms the library's atomic 60-second resend cooldown
+    // (`resend:password_reset:*`), and `resend-otp` inside that window silently
+    // no-ops by design (anti-flooding + anti-enumeration). Clear the cooldown
+    // so this test can exercise the resend itself without waiting a minute.
+    await flushTestKeys(redis, 'nest-auth-example:resend:*');
+
     // Resend OTP.
     const resendRes = await supertest
       .agent(app.getHttpServer())
       .post('/api/auth/password/resend-otp')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, tenantId: 'acme' });
+      .send({ email });
     expect(resendRes.status).toBeGreaterThanOrEqual(200);
     expect(resendRes.status).toBeLessThan(300);
 
@@ -173,7 +194,7 @@ describe('POST /api/auth/password/resend-otp — OTP-mode reset resend', () => {
       .post('/api/auth/password/reset-password')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, otp: secondOtp, newPassword, tenantId: 'acme' });
+      .send({ email, otp: secondOtp, newPassword });
     expect(resetRes.status).toBeGreaterThanOrEqual(200);
     expect(resetRes.status).toBeLessThan(300);
 
@@ -183,7 +204,7 @@ describe('POST /api/auth/password/resend-otp — OTP-mode reset resend', () => {
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password: newPassword, tenantId: 'acme' });
+      .send({ email, password: newPassword });
     expect(loginRes.status).toBe(200);
   });
 
@@ -199,7 +220,7 @@ describe('POST /api/auth/password/resend-otp — OTP-mode reset resend', () => {
       .post('/api/auth/password/resend-otp')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email: ghost, tenantId: 'acme' });
+      .send({ email: ghost });
     expect(resendRes.status).toBeGreaterThanOrEqual(200);
     expect(resendRes.status).toBeLessThan(300);
 
@@ -207,13 +228,15 @@ describe('POST /api/auth/password/resend-otp — OTP-mode reset resend', () => {
     expect(straggler).toBeNull();
   });
 
-  it('accepts repeated calls (lib decorator metadata only; throttle via throttle-demo)', async () => {
+  it('accepts repeated calls and answers 2xx or a per-IP 429 once the tier is spent', async () => {
     /*
-     * Same rationale as resend-verification.e2e-spec — the example does not
-     * wire ThrottlerGuard globally, so the lib's @Throttle metadata is set but
-     * not enforced. Asserts the endpoint stays well-behaved under repeat use.
+     * Same rationale as resend-verification.e2e-spec — the route is rate
+     * limited per IP by both the global ThrottlerGuard and the library's own
+     * AuthRateLimitGuard, so under repeat use each call answers 2xx until the
+     * tier is spent and 429 after. Both outcomes are library-faithful here;
+     * deterministic 429 coverage lives in throttle-demo.e2e-spec.ts.
      */
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
     const email = await makeVerifiedUser(app.getHttpServer(), password);
     await clearMailpit();
     await supertest
@@ -221,7 +244,7 @@ describe('POST /api/auth/password/resend-otp — OTP-mode reset resend', () => {
       .post('/api/auth/password/forgot-password')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, tenantId: 'acme' });
+      .send({ email });
 
     const agent = supertest.agent(app.getHttpServer());
     for (let i = 0; i < 4; i++) {
@@ -229,7 +252,7 @@ describe('POST /api/auth/password/resend-otp — OTP-mode reset resend', () => {
         .post('/api/auth/password/resend-otp')
         .set('Content-Type', 'application/json')
         .set('X-Tenant-Id', 'acme')
-        .send({ email, tenantId: 'acme' });
+        .send({ email });
       expect([200, 201, 204, 429]).toContain(res.status);
     }
   });

@@ -32,14 +32,14 @@ import {
   type IEmailProvider,
 } from '@bymax-one/nest-auth';
 
+import { ConfigService } from '@nestjs/config';
+
+import type { Env } from '../config/env.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateInvitationDto } from './dto/create-invitation.dto.js';
 
 /** Must match `auth.config.ts` → `invitations.tokenTtlSeconds`. */
 const INVITE_TTL_SECONDS = 172_800;
-
-/** Redis key namespace — must match `auth.config.ts` → `redisNamespace`. */
-const REDIS_NAMESPACE = 'nest-auth-example';
 
 /** Role hierarchy — must mirror `auth.config.ts` → `roles.hierarchy`. */
 const ROLE_HIERARCHY: Record<string, string[]> = {
@@ -78,7 +78,22 @@ export class InvitationsService {
     private readonly redis: Redis,
     @Inject(BYMAX_AUTH_EMAIL_PROVIDER)
     private readonly emailProvider: IEmailProvider,
+    private readonly config: ConfigService<Env, true>,
   ) {}
+
+  /**
+   * Prefix for the invitation keys this service writes.
+   *
+   * Read from config rather than hard-coded: the library consumes these same
+   * keys under the namespace `auth.config.ts` passes it, so a literal here
+   * would split producer from consumer the moment `REDIS_NAMESPACE` is set —
+   * invitations would send successfully and then fail to accept.
+   *
+   * @returns The configured Redis namespace.
+   */
+  private get namespace(): string {
+    return this.config.getOrThrow<string>('REDIS_NAMESPACE');
+  }
 
   /**
    * Creates a new tenant invitation, stores it in Redis + Prisma, and emails the invitee.
@@ -125,7 +140,7 @@ export class InvitationsService {
     const tokenHash = sha256(rawToken);
     const expiresAt = new Date(Date.now() + INVITE_TTL_SECONDS * 1000);
 
-    const redisKey = `${REDIS_NAMESPACE}:inv:${tokenHash}`;
+    const redisKey = `${this.namespace}:inv:${tokenHash}`;
     const redisPayload = JSON.stringify({
       email: normalizedEmail,
       role: dto.role,
@@ -159,7 +174,7 @@ export class InvitationsService {
 
     // Send the invitation email — non-blocking failure must not abort the flow.
     try {
-      await this.emailProvider.sendInvitation(normalizedEmail, {
+      await this.emailProvider.sendInvitation(tenantId, normalizedEmail, {
         inviterName: inviter.name,
         tenantName: tenant.name,
         inviteToken: rawToken,
@@ -225,7 +240,7 @@ export class InvitationsService {
     await this.prisma.invitation.delete({ where: { id } });
 
     // Best-effort Redis cleanup — the entry will expire naturally if this fails.
-    const redisKey = `${REDIS_NAMESPACE}:inv:${invitation.token}`;
+    const redisKey = `${this.namespace}:inv:${invitation.token}`;
     await this.redis.del(redisKey).catch((err: unknown) => {
       this.logger.warn({
         msg: 'invitations: Redis cleanup failed',

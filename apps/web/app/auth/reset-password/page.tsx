@@ -11,7 +11,11 @@
  * `/auth/forgot-password` so the user can request a new reset.
  *
  * Both flows call `useAuth().resetPassword` with the payload shape required by
- * `ResetPasswordInput` (mutually exclusive `token` vs `otp` fields).
+ * `ResetPasswordInput` (mutually exclusive `token` vs `otp` fields). The tenant
+ * is NOT part of the body — the API configures `tenantIdResolver`, so the
+ * `?tenantId=` URL param is resolved to a CUID and stashed in the `tenant_id`
+ * cookie before the call, letting `tenantAwareFetch` inject the `X-Tenant-Id`
+ * header the resolver reads.
  *
  * On success: `router.replace('/auth/login?reset=1')`.
  *
@@ -45,7 +49,7 @@ import { translateAuthError } from '@/lib/auth-errors';
  *
  * @param token    - Signed reset token from the URL.
  * @param email    - Email address of the account being reset.
- * @param tenantId - Tenant identifier scoping the reset.
+ * @param tenantId - Tenant slug or CUID from the URL — resolved and sent via the X-Tenant-Id header.
  */
 function TokenModeForm({
   token,
@@ -73,7 +77,15 @@ function TokenModeForm({
   const onSubmit = async (data: ResetPasswordTokenFormValues) => {
     setIsSubmitting(true);
     try {
-      await resetPassword({ email, tenantId, newPassword: data.newPassword, token });
+      // The link is built by the email provider from the `tenantId` the library
+      // hands it — `Tenant.id`, never the slug — so it goes into the cookie as
+      // it stands, for `tenantAwareFetch` to send as X-Tenant-Id. Running it
+      // through the slug lookup would ask the server to translate an id, which
+      // answers 404 for any deployment whose ids are not also slugs. The body
+      // carries no tenantId: the API's `tenantIdResolver` refuses it.
+      document.cookie = `tenant_id=${tenantId}; Path=/; SameSite=Lax; Max-Age=31536000`;
+
+      await resetPassword({ email, newPassword: data.newPassword, token });
       router.replace('/auth/login?reset=1');
     } catch (err) {
       const { code } = mapAuthClientError(err);
@@ -97,7 +109,7 @@ function TokenModeForm({
         <PasswordInput
           id="rp-password"
           autoComplete="new-password"
-          placeholder="At least 8 characters"
+          placeholder="At least 15 characters"
           aria-describedby={errors.newPassword ? 'rp-password-error' : undefined}
           aria-invalid={!!errors.newPassword}
           className="border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.05)] text-white placeholder:text-[rgba(255,255,255,0.3)] focus-visible:ring-[#ff6224]/50"
@@ -142,7 +154,7 @@ function TokenModeForm({
  * Reset password page — OTP mode form.
  *
  * @param email    - Email address of the account being reset.
- * @param tenantId - Tenant identifier scoping the reset.
+ * @param tenantId - Tenant slug or CUID from the URL — resolved and sent via the X-Tenant-Id header.
  */
 function OtpModeForm({ email, tenantId }: { email: string; tenantId: string }) {
   const router = useRouter();
@@ -164,7 +176,15 @@ function OtpModeForm({ email, tenantId }: { email: string; tenantId: string }) {
   const onSubmit = async (data: ResetPasswordOtpFormValues) => {
     setIsSubmitting(true);
     try {
-      await resetPassword({ email, tenantId, newPassword: data.newPassword, otp: data.otp });
+      // The link is built by the email provider from the `tenantId` the library
+      // hands it — `Tenant.id`, never the slug — so it goes into the cookie as
+      // it stands, for `tenantAwareFetch` to send as X-Tenant-Id. Running it
+      // through the slug lookup would ask the server to translate an id, which
+      // answers 404 for any deployment whose ids are not also slugs. The body
+      // carries no tenantId: the API's `tenantIdResolver` refuses it.
+      document.cookie = `tenant_id=${tenantId}; Path=/; SameSite=Lax; Max-Age=31536000`;
+
+      await resetPassword({ email, newPassword: data.newPassword, otp: data.otp });
       router.replace('/auth/login?reset=1');
     } catch (err) {
       const { code } = mapAuthClientError(err);
@@ -205,7 +225,7 @@ function OtpModeForm({ email, tenantId }: { email: string; tenantId: string }) {
         <PasswordInput
           id="rp-otp-password"
           autoComplete="new-password"
-          placeholder="At least 8 characters"
+          placeholder="At least 15 characters"
           aria-describedby={errors.newPassword ? 'rp-otp-password-error' : undefined}
           aria-invalid={!!errors.newPassword}
           className="border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.05)] text-white placeholder:text-[rgba(255,255,255,0.3)] focus-visible:ring-[#ff6224]/50"

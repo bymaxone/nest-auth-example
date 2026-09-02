@@ -24,7 +24,7 @@ export type LoginFormValues = z.infer<typeof loginSchema>;
 export const registerSchema = z.object({
   email: z.email('Enter a valid email address.'),
   name: z.string().min(2, 'Name must be at least 2 characters.').max(100),
-  password: z.string().min(8, 'Password must be at least 8 characters.').max(128),
+  password: z.string().min(15, 'Password must be at least 15 characters.').max(128),
   tenantId: z.string().min(1, 'Please select a workspace.'),
 });
 
@@ -56,7 +56,7 @@ export type ForgotPasswordFormValues = z.infer<typeof forgotPasswordSchema>;
  */
 export const resetPasswordTokenSchema = z
   .object({
-    newPassword: z.string().min(8, 'Password must be at least 8 characters.').max(128),
+    newPassword: z.string().min(15, 'Password must be at least 15 characters.').max(128),
     confirmPassword: z.string().min(1, 'Please confirm your password.'),
   })
   .refine((data) => data.newPassword === data.confirmPassword, {
@@ -74,7 +74,7 @@ export type ResetPasswordTokenFormValues = z.infer<typeof resetPasswordTokenSche
 export const resetPasswordOtpSchema = z
   .object({
     otp: z.string().min(4, 'Enter the reset code.').max(8),
-    newPassword: z.string().min(8, 'Password must be at least 8 characters.').max(128),
+    newPassword: z.string().min(15, 'Password must be at least 15 characters.').max(128),
     confirmPassword: z.string().min(1, 'Please confirm your password.'),
   })
   .refine((data) => data.newPassword === data.confirmPassword, {
@@ -107,7 +107,7 @@ export type MfaChallengeFormValues = z.infer<typeof mfaChallengeSchema>;
 export const acceptInvitationSchema = z
   .object({
     name: z.string().min(2, 'Name must be at least 2 characters.').max(100),
-    password: z.string().min(8, 'Password must be at least 8 characters.').max(128),
+    password: z.string().min(15, 'Password must be at least 15 characters.').max(128),
     confirmPassword: z.string().min(1, 'Please confirm your password.'),
   })
   .refine((data) => data.password === data.confirmPassword, {

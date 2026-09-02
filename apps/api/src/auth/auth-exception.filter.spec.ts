@@ -15,9 +15,13 @@
  * @see apps/api/src/auth/auth-exception.filter.ts
  */
 
-import { HttpStatus } from '@nestjs/common';
 import { jest } from '@jest/globals';
-import { AuthException, AUTH_ERROR_CODES, AUTH_ERROR_MESSAGES } from '@bymax-one/nest-auth';
+import {
+  AuthException,
+  AUTH_ERROR_CODES,
+  AUTH_ERROR_MESSAGES,
+  AUTH_ERROR_STATUS,
+} from '@bymax-one/nest-auth';
 import type { AuthErrorCode } from '@bymax-one/nest-auth';
 import { AuthExceptionFilter } from './auth-exception.filter.js';
 
@@ -94,11 +98,14 @@ describe('AuthExceptionFilter', () => {
   it('uses the status code from the exception when it is not 401', () => {
     // Ensures that non-default status codes (e.g. 403, 429) are propagated
     // to the response rather than being overridden with a hardcoded 401.
-    const exception = new AuthException(AUTH_ERROR_CODES.FORBIDDEN, HttpStatus.FORBIDDEN);
+    // The status is a property of the code — AuthException derives it from
+    // the AUTH_ERROR_STATUS map, so the assertion pins the map value too.
+    const exception = new AuthException(AUTH_ERROR_CODES.FORBIDDEN);
     const { host, getLastBody } = makeHost();
 
     filter.catch(exception, host);
 
+    expect(getLastBody()?.statusCode).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.FORBIDDEN]);
     expect(getLastBody()?.statusCode).toBe(403);
   });
 

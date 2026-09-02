@@ -21,8 +21,8 @@ process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0
 // Verify process.env was set BEFORE imports are processed
 
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { createAuthValidationPipe } from '@bymax-one/nest-auth';
+import { Test, type TestingModule } from '@nestjs/testing';
 import { WsAdapter } from '@nestjs/platform-ws';
 import cookieParser from 'cookie-parser';
 import * as supertest from 'supertest';
@@ -30,13 +30,20 @@ import type { Agent } from 'supertest';
 import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
+import { resetAuthRateLimits } from './helpers/throttle.js';
+
+/**
+ * Testing module handle, kept at module scope so rate-limit counters can be
+ * reset between tests. Assigned in `beforeAll`.
+ */
+let moduleRef: TestingModule;
 
 describe('Debug env vars', () => {
   let app: INestApplication;
   let agent: Agent;
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
 
     const prisma = moduleRef.get<PrismaService>(PrismaService);
     await prisma.$executeRaw`
@@ -49,7 +56,7 @@ describe('Debug env vars', () => {
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+      createAuthValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
     );
     app.useGlobalFilters(new AuthExceptionFilter());
     app.useWebSocketAdapter(new WsAdapter(app));
@@ -61,6 +68,12 @@ describe('Debug env vars', () => {
   afterAll(async () => {
     await app.close();
   }, 60000);
+
+  beforeEach(async () => {
+    // Clear both rate limiters so register counters left by earlier spec files
+    // in a sequential run cannot answer this suite's register with a 429.
+    await resetAuthRateLimits(moduleRef);
+  });
 
   // Protects: environment variables are correctly injected before any module is imported.
   it('env vars are correct', () => {
@@ -74,7 +87,7 @@ describe('Debug env vars', () => {
       .post('/api/auth/register')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password: 'P@ssw0rd12345', name: 'Debug User', tenantId: 'acme' });
+      .send({ email, password: 'Str0ngUniqu3Passw0rd!', name: 'Debug User' });
     expect(res.status).toBeLessThan(500);
   }, 15000);
 });

@@ -8,7 +8,12 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { TENANT_OPTIONS, DEFAULT_TENANT_SLUG, resolveDefaultTenantSlug } from './tenants';
+import {
+  TENANT_OPTIONS,
+  DEFAULT_TENANT_SLUG,
+  isKnownTenantSlug,
+  resolveDefaultTenantSlug,
+} from './tenants';
 
 describe('TENANT_OPTIONS', () => {
   it('is non-empty', () => {
@@ -78,5 +83,23 @@ describe('resolveDefaultTenantSlug', () => {
      * surfaces a clear `TenantNotFoundError` if it is ever attempted.
      */
     expect(resolveDefaultTenantSlug('does-not-exist')).toBe(DEFAULT_TENANT_SLUG);
+  });
+});
+
+describe('isKnownTenantSlug', () => {
+  it('accepts a slug the picker offers and rejects anything else', () => {
+    /*
+     * Scenario: `?tenantId=` arrives as a slug from links the app builds and as
+     * `Tenant.id` from links the library mails. The login page translates the
+     * second form and holds its submit button while it does, so this predicate
+     * decides both. A shape test for a CUID would look equivalent and is not:
+     * `Tenant.id` defaults to `cuid()` but nothing enforces it, and this repo's
+     * own e2e stack seeds readable ids like `'acme'`.
+     * Protects: both arms, including the null guard.
+     */
+    expect(isKnownTenantSlug('acme')).toBe(true);
+    expect(isKnownTenantSlug('globex')).toBe(true);
+    expect(isKnownTenantSlug('cmo60aidg00017jf2voxw88ug')).toBe(false);
+    expect(isKnownTenantSlug(null)).toBe(false);
   });
 });

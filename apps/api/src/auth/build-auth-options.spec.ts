@@ -10,7 +10,9 @@
  *   - OAuth vars absent → `options.oauth` key is absent entirely
  *   - Production + PUBLIC_DOMAIN → `options.cookies.resolveDomains` resolves correctly
  *   - Non-production → `options.cookies` key is absent entirely
- *   - `tenantIdResolver`: valid header / empty-string header / missing header
+ *   - `tenantIdResolver`: header primary / tenant_id cookie fallback / refusals
+ *   - Rate limiting: enabled with clientIpSource='peer' (default) / disabled
+ *     via AUTH_THROTTLE_DISABLED=true (string-form comparison — live process.env)
  *
  * No I/O, no NestJS module bootstrap — the function is instantiated directly.
  *
@@ -30,23 +32,25 @@ import { buildAuthOptions } from './auth.config.js';
  *
  * @param overrides - Key → value pairs that replace the defaults for this test.
  */
-function makeConfig(overrides: Record<string, string | undefined> = {}) {
-  const defaults: Record<string, string> = {
+function makeConfig(overrides: Record<string, string | boolean | undefined> = {}) {
+  const defaults: Record<string, string | boolean> = {
     JWT_SECRET: 'test-jwt-secret-value-that-is-long-enough-for-the-schema',
     MFA_ENCRYPTION_KEY: Buffer.alloc(32).fill('k').toString('base64'),
     PASSWORD_RESET_METHOD: 'token',
     NODE_ENV: 'test',
+    WEB_ORIGIN: 'http://localhost:3000',
+    REDIS_NAMESPACE: 'nest-auth-example',
   };
 
-  const merged: Record<string, string | undefined> = { ...defaults, ...overrides };
+  const merged: Record<string, string | boolean | undefined> = { ...defaults, ...overrides };
 
   return {
-    getOrThrow: jest.fn((key: string): string => {
+    getOrThrow: jest.fn((key: string): string | boolean => {
       const val = merged[key];
       if (val === undefined) throw new Error(`Missing required config key: ${key}`);
       return val;
     }),
-    get: jest.fn((key: string): string | undefined => merged[key]),
+    get: jest.fn((key: string): string | boolean | undefined => merged[key]),
   };
 }
 
@@ -55,8 +59,11 @@ function makeConfig(overrides: Record<string, string | undefined> = {}) {
  *
  * @param headers - Header key → value map for the request.
  */
-function makeRequest(headers: Record<string, string | undefined>): Request {
-  return { headers } as unknown as Request;
+function makeRequest(
+  headers: Record<string, string | undefined>,
+  cookies?: Record<string, string>,
+): Request {
+  return { headers, cookies: cookies ?? {} } as unknown as Request;
 }
 
 // ─── Suite ────────────────────────────────────────────────────────────────────
@@ -75,14 +82,27 @@ describe('buildAuthOptions', () => {
       expect(options.jwt.secret).toBe('test-jwt-secret-value-that-is-long-enough-for-the-schema');
       expect(options.jwt.accessExpiresIn).toBe('15m');
       expect(options.jwt.refreshExpiresInDays).toBe(7);
+      // Hard cap on total session age (lib v1.4.x): no refresh chain can outlive
+      // 30 days regardless of activity.
+      expect(options.jwt.absoluteSessionLifetimeDays).toBe(30);
+      // Explicit environment declaration — the library defaults to 'production'
+      // (fail-secure) and never sniffs NODE_ENV.
+      expect(options.environment).toBe('test');
       // mfa, sessions, bruteForce, passwordReset, emailVerification are typed as
       // optional in BymaxAuthModuleOptions but buildAuthOptions always sets them.
       // We use optional chaining + toBeDefined() to prove presence without casting.
       expect(options.mfa).toBeDefined();
       expect(options.mfa?.issuer).toBe('nest-auth-example');
+      // Accept one 30 s TOTP step of clock drift on either side.
+      expect(options.mfa?.totpWindow).toBe(1);
       expect(options.sessions).toBeDefined();
       expect(options.sessions?.enabled).toBe(true);
-      expect(options.sessions?.evictionStrategy).toBe('fifo');
+      // NIST-aligned password floor plus deployment-specific blocklist words that
+      // feed the offline CommonPasswordChecker.
+      expect(options.password).toEqual({
+        minLength: 15,
+        blocklist: ['nest-auth-example', 'bymax'],
+      });
       expect(options.bruteForce).toBeDefined();
       expect(options.bruteForce?.maxAttempts).toBe(5);
       expect(options.passwordReset).toBeDefined();
@@ -297,8 +317,8 @@ describe('buildAuthOptions', () => {
 
   describe('tenantIdResolver', () => {
     it('returns the x-tenant-id header value when a non-empty string is provided', () => {
-      // Multi-tenancy contract: the resolver reads ONLY from the header and returns
-      // the raw value without any transformation or fallback.
+      // Multi-tenancy contract: the header is the primary source and is returned
+      // raw, without transformation — even when a cookie is also present.
       const config = makeConfig();
 
       const options = buildAuthOptions(config as never);
@@ -310,7 +330,34 @@ describe('buildAuthOptions', () => {
       expect(options.tenantIdResolver?.(req)).toBe('tenant-cuid-001');
     });
 
-    it('throws when x-tenant-id header is an empty string', () => {
+    it('prefers the header over the tenant_id cookie when both are present', () => {
+      // The header wins: fetch()-based calls always send it, and a stale cookie
+      // from a previous workspace must never override an explicit header.
+      const config = makeConfig();
+
+      const options = buildAuthOptions(config as never);
+      const resolver = options.tenantIdResolver;
+      expect(resolver).toBeDefined();
+      const req = makeRequest({ 'x-tenant-id': 'tenant-header' }, { tenant_id: 'tenant-cookie' });
+
+      expect(resolver?.(req)).toBe('tenant-header');
+    });
+
+    it('falls back to the tenant_id cookie when the header is absent', () => {
+      // Top-level navigations (OAuth initiate/callback GETs) cannot carry a
+      // custom header — the pages set the tenant_id cookie before navigating
+      // and the resolver reads it as the fallback source.
+      const config = makeConfig();
+
+      const options = buildAuthOptions(config as never);
+      const resolver = options.tenantIdResolver;
+      expect(resolver).toBeDefined();
+      const req = makeRequest({}, { tenant_id: 'tenant-cuid-cookie' });
+
+      expect(resolver?.(req)).toBe('tenant-cuid-cookie');
+    });
+
+    it('throws when x-tenant-id header is an empty string and no cookie is set', () => {
       // An empty-string header is treated as absent — the caller must send a real
       // tenant ID. Empty values must never silently resolve to an unexpected tenant.
       const config = makeConfig();
@@ -321,12 +368,14 @@ describe('buildAuthOptions', () => {
       const req = makeRequest({ 'x-tenant-id': '' });
 
       // Wrap in arrow to avoid "cannot invoke possibly undefined" without assertions.
-      expect(() => resolver?.(req)).toThrow('Missing or invalid x-tenant-id header');
+      expect(() => resolver?.(req)).toThrow(
+        'Missing tenant: no X-Tenant-Id header and no tenant_id cookie',
+      );
     });
 
-    it('throws when x-tenant-id header is entirely absent', () => {
-      // A missing header is a hard error — tenant-less requests must never be
-      // silently routed to any tenant, preventing cross-tenant data leakage.
+    it('throws when both the header and the tenant_id cookie are absent', () => {
+      // A tenant-less request is a hard error — it must never be silently
+      // routed to any tenant, preventing cross-tenant data leakage.
       const config = makeConfig();
 
       const options = buildAuthOptions(config as never);
@@ -334,7 +383,24 @@ describe('buildAuthOptions', () => {
       expect(resolver).toBeDefined();
       const req = makeRequest({});
 
-      expect(() => resolver?.(req)).toThrow('Missing or invalid x-tenant-id header');
+      expect(() => resolver?.(req)).toThrow(
+        'Missing tenant: no X-Tenant-Id header and no tenant_id cookie',
+      );
+    });
+
+    it('ignores an empty-string tenant_id cookie', () => {
+      // An empty cookie value is as good as no cookie — the request must be
+      // refused rather than resolved to an empty tenant id.
+      const config = makeConfig();
+
+      const options = buildAuthOptions(config as never);
+      const resolver = options.tenantIdResolver;
+      expect(resolver).toBeDefined();
+      const req = makeRequest({}, { tenant_id: '' });
+
+      expect(() => resolver?.(req)).toThrow(
+        'Missing tenant: no X-Tenant-Id header and no tenant_id cookie',
+      );
     });
 
     it('throws when x-tenant-id is a string array (multi-value header)', () => {
@@ -351,7 +417,9 @@ describe('buildAuthOptions', () => {
         'x-tenant-id': ['acme', 'evil'] as unknown as string,
       });
 
-      expect(() => resolver?.(req)).toThrow('Missing or invalid x-tenant-id header');
+      expect(() => resolver?.(req)).toThrow(
+        'Missing tenant: no X-Tenant-Id header and no tenant_id cookie',
+      );
     });
   });
 
@@ -502,6 +570,9 @@ describe('buildAuthOptions', () => {
 
       expect(options.cookies?.refreshCookiePath).toBe('/api/auth');
       expect(options.cookies?.mfaTempCookiePath).toBe('/api/auth/mfa');
+      // TrustedOriginGuard allowlist — cookie-authenticated write requests must
+      // carry an Origin/Referer from this list (CSRF defence in depth).
+      expect(options.cookies?.trustedOrigins).toEqual(['http://localhost:3000']);
     });
 
     it('sets the same two cookie paths in the production + PUBLIC_DOMAIN branch (alongside resolveDomains)', () => {
@@ -524,9 +595,73 @@ describe('buildAuthOptions', () => {
 
       expect(options.cookies?.refreshCookiePath).toBe('/api/auth');
       expect(options.cookies?.mfaTempCookiePath).toBe('/api/auth/mfa');
+      // The trusted-origin allowlist must survive on the production branch too —
+      // both cookie literals are built independently in the factory.
+      expect(options.cookies?.trustedOrigins).toEqual(['http://localhost:3000']);
       // resolveDomains must also be present on this branch — proves the
       // production code path was genuinely exercised, not the default fallback.
       expect(typeof options.cookies?.resolveDomains).toBe('function');
+    });
+  });
+
+  // ── Rate limiting ──────────────────────────────────────────────────────────
+
+  describe('rateLimit', () => {
+    it('enables the library rate limiter with clientIpSource="peer" by default', () => {
+      /*
+       * Scenario: without AUTH_THROTTLE_DISABLED, the per-IP limiter must be
+       * armed and charge the socket peer address — correct when clients reach
+       * the API directly (dev, e2e). Behind a terminating reverse proxy the
+       * deployment switches to 'trusted-proxy' plus Express `trust proxy`;
+       * pinning 'peer' here catches an accidental flip that would make every
+       * client share the proxy's bucket.
+       */
+      const config = makeConfig();
+
+      const options = buildAuthOptions(config as never);
+
+      expect(options.rateLimit).toEqual({ enabled: true, clientIpSource: 'peer' });
+    });
+
+    it("disables the rate limiter when AUTH_THROTTLE_DISABLED is the string 'true'", () => {
+      /*
+       * Scenario: load-test and e2e tooling hammer the auth routes far past
+       * any sane per-IP budget. The app's ConfigService returns LIVE
+       * process.env STRINGS (config.module.ts skips the validate transform),
+       * so the factory must recognise the string form — 'true' turns the
+       * limiter fully off ({ enabled: false }) so suites stay deterministic.
+       */
+      const config = makeConfig({ AUTH_THROTTLE_DISABLED: 'true' });
+
+      const options = buildAuthOptions(config as never);
+
+      expect(options.rateLimit).toEqual({ enabled: false });
+    });
+
+    it('also accepts the Zod-coerced boolean true (defensive both-forms handling)', () => {
+      /*
+       * Scenario: if the config wiring ever adopts the schema's transform,
+       * ConfigService would return a real boolean. String(true) === 'true',
+       * so the factory disables the limiter under either representation —
+       * the flag can never silently stop working after a config refactor.
+       */
+      const config = makeConfig({ AUTH_THROTTLE_DISABLED: true });
+
+      const options = buildAuthOptions(config as never);
+
+      expect(options.rateLimit).toEqual({ enabled: false });
+    });
+
+    it("keeps the rate limiter enabled for any value other than 'true'", () => {
+      /*
+       * Scenario: 'false', '1', 'yes', or garbage must NOT turn off a
+       * security control — only the exact string/boolean true form does.
+       */
+      const config = makeConfig({ AUTH_THROTTLE_DISABLED: '1' });
+
+      const options = buildAuthOptions(config as never);
+
+      expect(options.rateLimit).toEqual({ enabled: true, clientIpSource: 'peer' });
     });
   });
 
@@ -545,5 +680,29 @@ describe('buildAuthOptions', () => {
       expect(options.blockedStatuses).toContain('INACTIVE');
       expect(options.blockedStatuses).toContain('SUSPENDED');
     });
+  });
+  it('keys the rate limiter on the socket peer when no proxy is declared', () => {
+    /*
+     * Scenario: TRUSTED_PROXY_HOPS=0 means the API is reached directly, so the
+     * peer address IS the client and no forwarded header may be trusted.
+     * Protects: the default IP source — reading a forwarded chain here would
+     * let any client spoof its address past the limiter.
+     */
+    const options = buildAuthOptions(makeConfig({ TRUSTED_PROXY_HOPS: '0' }) as never);
+
+    expect(options.rateLimit).toEqual({ enabled: true, clientIpSource: 'peer' });
+  });
+
+  it('keys the rate limiter on the forwarded chain once a proxy is declared', () => {
+    /*
+     * Scenario: behind the Next.js rewrite the socket peer is the web server,
+     * so `peer` would charge every browser to one bucket and let a single
+     * user's failed logins lock out everyone.
+     * Protects: the switch to 'trusted-proxy', which only makes sense paired
+     * with the Express `trust proxy` main.ts derives from the same variable.
+     */
+    const options = buildAuthOptions(makeConfig({ TRUSTED_PROXY_HOPS: '1' }) as never);
+
+    expect(options.rateLimit).toEqual({ enabled: true, clientIpSource: 'trusted-proxy' });
   });
 });

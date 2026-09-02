@@ -42,11 +42,9 @@ process.env['JWT_SECRET'] =
 process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0=';
 
 import { execSync } from 'child_process';
-import { randomBytes, scrypt as nodeScrypt } from 'node:crypto';
-import { promisify } from 'node:util';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { createAuthValidationPipe } from '@bymax-one/nest-auth';
+import { Test, type TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import * as supertest from 'supertest';
 import type { Agent } from 'supertest';
@@ -55,26 +53,8 @@ import { PlatformRole, UserStatus, Role } from '@prisma/client';
 import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-
-// scrypt matches the library's PasswordService format: scrypt:{salt_hex}:{derived_hex}
-// Parameters mirror the library defaults (costFactor=32768, blockSize=8, parallelization=1).
-const _scrypt = promisify(nodeScrypt) as (
-  password: string | Buffer,
-  salt: string | Buffer,
-  keylen: number,
-  options: { N: number; r: number; p: number; maxmem: number },
-) => Promise<Buffer>;
-
-async function hashPasswordForTest(plain: string): Promise<string> {
-  const salt = randomBytes(16);
-  const derived = await _scrypt(plain, salt, 64, {
-    N: 32768,
-    r: 8,
-    p: 1,
-    maxmem: 64 * 1024 * 1024,
-  });
-  return `scrypt:${salt.toString('hex')}:${derived.toString('hex')}`;
-}
+import { resetAuthRateLimits } from './helpers/throttle.js';
+import { hashPasswordForTest } from './helpers/password.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -84,7 +64,7 @@ const PLATFORM_PASSWORD = 'PlatformPassw0rd!';
 const SUPPORT_EMAIL = 'platform-support@example.dev';
 const SUPPORT_PASSWORD = 'SupportPassw0rd!';
 const DASHBOARD_EMAIL = 'dashboard-isolation@example.test';
-const DASHBOARD_PASSWORD = 'P@ssw0rd12345';
+const DASHBOARD_PASSWORD = 'Str0ngUniqu3Passw0rd!';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -104,6 +84,12 @@ async function truncateTables(prisma: PrismaService): Promise<void> {
 }
 
 // ─── Suite ───────────────────────────────────────────────────────────────────
+
+/**
+ * Testing module handle, kept at module scope so rate-limit counters can be
+ * reset between tests. Assigned in `beforeAll`.
+ */
+let moduleRef: TestingModule;
 
 describe('Platform isolation — platform token cannot access dashboard routes and vice versa', () => {
   let app: INestApplication;
@@ -132,7 +118,7 @@ describe('Platform isolation — platform token cannot access dashboard routes a
       stdio: 'pipe',
     });
 
-    const moduleRef = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
@@ -195,7 +181,7 @@ describe('Platform isolation — platform token cannot access dashboard routes a
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({
+      createAuthValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
@@ -205,6 +191,11 @@ describe('Platform isolation — platform token cannot access dashboard routes a
     app.useGlobalFilters(new AuthExceptionFilter());
     app.useWebSocketAdapter(new WsAdapter(app));
     await app.init();
+
+    // Clear both rate limiters (in-memory ThrottlerGuard + the library's
+    // Redis-backed per-IP counters) BEFORE the three logins below — counters
+    // left behind by earlier spec files in a sequential run share this IP.
+    await resetAuthRateLimits(moduleRef);
 
     // Log in the platform admin once — extract the bearer token for subsequent requests.
     // Platform auth is bearer-only (no cookies); the access token must be sent via
@@ -237,7 +228,7 @@ describe('Platform isolation — platform token cannot access dashboard routes a
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', TENANT_ID)
-      .send({ email: DASHBOARD_EMAIL, password: DASHBOARD_PASSWORD, tenantId: TENANT_ID });
+      .send({ email: DASHBOARD_EMAIL, password: DASHBOARD_PASSWORD });
 
     // A successful dashboard login must return 200 with tenant cookies.
     expect(dashLogin.status).toBe(200);
@@ -246,6 +237,12 @@ describe('Platform isolation — platform token cannot access dashboard routes a
   afterAll(async () => {
     await truncateTables(prisma);
     await app.close();
+  });
+
+  beforeEach(async () => {
+    // Clear both rate limiters so the login-heavy delivery-mechanism test and
+    // any counters inherited from earlier spec files never surface a 429 here.
+    await resetAuthRateLimits(moduleRef);
   });
 
   // ─── Cross-context rejection tests ────────────────────────────────────────
@@ -340,7 +337,7 @@ describe('Platform isolation — platform token cannot access dashboard routes a
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', TENANT_ID)
-      .send({ email: DASHBOARD_EMAIL, password: DASHBOARD_PASSWORD, tenantId: TENANT_ID });
+      .send({ email: DASHBOARD_EMAIL, password: DASHBOARD_PASSWORD });
 
     const platformCookies = (platformLogin.headers['set-cookie'] as string[] | undefined) ?? [];
     const dashCookies = (dashLogin.headers['set-cookie'] as string[] | undefined) ?? [];

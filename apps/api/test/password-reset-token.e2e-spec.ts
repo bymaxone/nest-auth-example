@@ -39,8 +39,12 @@ process.env['MFA_ENCRYPTION_KEY'] = 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVzLW9rPT0
 
 import { execSync } from 'child_process';
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import {
+  AUTH_ERROR_CODES,
+  AUTH_ERROR_STATUS,
+  createAuthValidationPipe,
+} from '@bymax-one/nest-auth';
+import { Test, type TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import * as supertest from 'supertest';
 import type { Agent } from 'supertest';
@@ -48,6 +52,7 @@ import type { Agent } from 'supertest';
 import { AppModule } from '../src/app.module.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
+import { resetAuthRateLimits } from './helpers/throttle.js';
 import {
   clearMailpit,
   waitForEmail,
@@ -94,7 +99,7 @@ async function registerAndVerify(
     .post('/api/auth/register')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', 'acme')
-    .send({ email, password, name: 'Reset Test User', tenantId: 'acme' });
+    .send({ email, password, name: 'Reset Test User' });
 
   expect(registerRes.status).toBe(201);
 
@@ -106,7 +111,7 @@ async function registerAndVerify(
     .post('/api/auth/verify-email')
     .set('Content-Type', 'application/json')
     .set('X-Tenant-Id', 'acme')
-    .send({ email, otp, tenantId: 'acme' });
+    .send({ email, otp });
 
   expect(verifyRes.status).toBe(204);
 
@@ -114,6 +119,12 @@ async function registerAndVerify(
 }
 
 // ─── Suite ───────────────────────────────────────────────────────────────────
+
+/**
+ * Testing module handle, kept at module scope so rate-limit counters can be
+ * reset between tests. Assigned in `beforeAll`.
+ */
+let moduleRef: TestingModule;
 
 describe('Password reset (token mode) — forgot-password → reset link → login', () => {
   let app: INestApplication;
@@ -127,7 +138,7 @@ describe('Password reset (token mode) — forgot-password → reset link → log
       stdio: 'pipe',
     });
 
-    const moduleRef = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
@@ -145,7 +156,7 @@ describe('Password reset (token mode) — forgot-password → reset link → log
     app.use(cookieParser());
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({
+      createAuthValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
@@ -162,6 +173,10 @@ describe('Password reset (token mode) — forgot-password → reset link → log
   });
 
   beforeEach(async () => {
+    // Clear both rate limiters (in-memory ThrottlerGuard + the library's
+    // Redis-backed per-IP counters) so auth-route limits never bleed across
+    // tests or spec files in a sequential run.
+    await resetAuthRateLimits(moduleRef);
     // Clear accumulated email and user data before every individual test.
     await clearMailpit();
     await truncateTables(prisma);
@@ -174,7 +189,7 @@ describe('Password reset (token mode) — forgot-password → reset link → log
     // email containing a reset link to the user's address. This proves the
     // forgot-password endpoint is wired and the email adapter is working.
     const email = uniqueEmail('reset-tok');
-    const password = 'P@ssw0rd12345';
+    const password = 'Str0ngUniqu3Passw0rd!';
     await registerAndVerify(app.getHttpServer(), email, password);
 
     // Clear Mailpit so the verification OTP does not match the reset-link assertion.
@@ -185,7 +200,7 @@ describe('Password reset (token mode) — forgot-password → reset link → log
       .post('/api/auth/password/forgot-password')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, tenantId: 'acme' });
+      .send({ email });
 
     expect(forgotRes.status).toBe(200);
 
@@ -205,8 +220,8 @@ describe('Password reset (token mode) — forgot-password → reset link → log
     // extracts the token from the email URL, posts the new password, then logs in
     // with the new credentials. The old password must no longer work.
     const email = uniqueEmail('reset-full');
-    const oldPassword = 'P@ssw0rd12345';
-    const newPassword = 'N3wP@ssword!99';
+    const oldPassword = 'Str0ngUniqu3Passw0rd!';
+    const newPassword = 'N3wStr0ngP@ssw0rd!42';
 
     await registerAndVerify(app.getHttpServer(), email, oldPassword);
 
@@ -219,7 +234,7 @@ describe('Password reset (token mode) — forgot-password → reset link → log
       .post('/api/auth/password/forgot-password')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, tenantId: 'acme' });
+      .send({ email });
 
     expect(forgotRes.status).toBe(200);
 
@@ -236,7 +251,7 @@ describe('Password reset (token mode) — forgot-password → reset link → log
       .post('/api/auth/password/reset-password')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ token, newPassword, email, tenantId: 'acme' });
+      .send({ token, newPassword, email });
 
     expect(resetRes.status).toBe(204);
 
@@ -246,7 +261,7 @@ describe('Password reset (token mode) — forgot-password → reset link → log
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password: newPassword, tenantId: 'acme' });
+      .send({ email, password: newPassword });
 
     expect(loginRes.status).toBe(200);
 
@@ -256,7 +271,7 @@ describe('Password reset (token mode) — forgot-password → reset link → log
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email, password: oldPassword, tenantId: 'acme' });
+      .send({ email, password: oldPassword });
 
     expect(oldLoginRes.status).toBe(401);
   });
@@ -274,7 +289,7 @@ describe('Password reset (token mode) — forgot-password → reset link → log
       .post('/api/auth/password/forgot-password')
       .set('Content-Type', 'application/json')
       .set('X-Tenant-Id', 'acme')
-      .send({ email: unknownEmail, tenantId: 'acme' });
+      .send({ email: unknownEmail });
 
     // Anti-enumeration: response must be identical to a successful request.
     expect(res.status).toBe(200);
@@ -282,10 +297,12 @@ describe('Password reset (token mode) — forgot-password → reset link → log
 
   // ─── Test 4 — Invalid token ───────────────────────────────────────────────
 
-  it('invalid/expired token returns 4xx', async () => {
-    // Scenario: submitting a fake or expired token to reset-password must result
-    // in a client-error (4xx) response, never a 5xx or silent success. This
-    // ensures the token is properly validated server-side.
+  it('invalid/expired token returns 400 auth.password_reset_token_invalid', async () => {
+    // Scenario: submitting a fake or expired token to reset-password answers
+    // 400 `auth.password_reset_token_invalid` — since lib v1.4.1 the expired
+    // case is folded into the same code (PASSWORD_RESET_TOKEN_EXPIRED was
+    // removed) so callers cannot distinguish a token that once existed from
+    // one that never did.
     const fakeToken = 'a'.repeat(64); // syntactically plausible but not in the DB
 
     const res = await supertest
@@ -295,12 +312,14 @@ describe('Password reset (token mode) — forgot-password → reset link → log
       .set('X-Tenant-Id', 'acme')
       .send({
         token: fakeToken,
-        newPassword: 'N3wP@ssword!99',
+        newPassword: 'N3wStr0ngP@ssw0rd!42',
         email: 'test@example.test',
-        tenantId: 'acme',
       });
 
-    expect(res.status).toBeGreaterThanOrEqual(400);
-    expect(res.status).toBeLessThan(500);
+    expect(res.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.PASSWORD_RESET_TOKEN_INVALID]);
+    expect(res.body).toMatchObject({
+      code: AUTH_ERROR_CODES.PASSWORD_RESET_TOKEN_INVALID,
+      statusCode: 400,
+    });
   });
 });

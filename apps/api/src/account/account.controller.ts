@@ -11,9 +11,29 @@
  * @see docs/guidelines/nest-auth-guidelines.md
  */
 
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Inject,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { AuthService, CurrentUser, SkipMfa, TokenDeliveryService } from '@bymax-one/nest-auth';
+import {
+  AUTH_THROTTLE_CONFIGS,
+  AuthRateLimit,
+  AuthRateLimitGuard,
+  AuthService,
+  ChangePasswordDto,
+  CurrentUser,
+  SkipMfa,
+  TokenDeliveryService,
+} from '@bymax-one/nest-auth';
 import type {
   BearerAuthResponse,
   BothAuthResponse,
@@ -23,8 +43,9 @@ import type {
 
 import { AccountService } from './account.service.js';
 import type { MfaStatusInfo, WorkspaceInfo } from './account.service.js';
-import { ChangePasswordDto } from './dto/change-password.dto.js';
+
 import { SwitchWorkspaceDto } from './dto/switch-workspace.dto.js';
+import { USER_CONNECTION_PORT, type UserConnectionPort } from '../realtime/user-connection.port.js';
 
 /**
  * Handles `/api/account` routes for the currently authenticated user.
@@ -42,13 +63,24 @@ export class AccountController {
     // on top of `issueTokensForUserId` + `deliverAuthResponse`.
     private readonly authService: AuthService,
     private readonly tokenDelivery: TokenDeliveryService,
+    @Inject(USER_CONNECTION_PORT)
+    private readonly userConnections: UserConnectionPort,
   ) {}
 
   /**
    * Changes the authenticated user's password.
    *
-   * Verifies `currentPassword` against the stored scrypt hash before replacing
-   * it with a hash of `newPassword`. Returns `204 No Content` on success.
+   * Returns `204 No Content` on success.
+   *
+   * Reference pattern only: the library ships its own
+   * `POST /api/auth/password/change` route, which the web app uses. This
+   * endpoint stays as an example of an app-owned route composed over a library
+   * service — `AccountService` delegates the whole credential operation to
+   * `PasswordResetService.changePassword`, so hash format, the configured
+   * minimum length, breach checking and the session consequences of a rotation
+   * remain the library's. It previously verified and wrote the hash itself,
+   * which broke outright when the hash format changed; a reference app should
+   * not teach that shape.
    *
    * POST /api/account/change-password
    *
@@ -57,11 +89,41 @@ export class AccountController {
    */
   @Post('change-password')
   @HttpCode(HttpStatus.NO_CONTENT)
+  // App routes can reuse the library's per-IP limiter: `@AuthRateLimit` names
+  // the same window the library enforces on its own POST /auth/password/change,
+  // and `AuthRateLimitGuard` charges it (refusals answer `auth.too_many_requests`
+  // with a Retry-After header). Inert when `rateLimit.enabled` is false.
+  @UseGuards(AuthRateLimitGuard)
+  @AuthRateLimit(AUTH_THROTTLE_CONFIGS.changePassword)
   changePassword(
     @Body() dto: ChangePasswordDto,
     @CurrentUser() user: DashboardJwtPayload,
   ): Promise<void> {
     return this.accountService.changePassword(user.sub, user.tenantId, dto);
+  }
+
+  /**
+   * Closes the caller's live realtime connections.
+   *
+   * The library's bulk revocation (`POST /auth/sessions/revoke-all`) ends every
+   * other session's HTTP credentials, but the notifications gateway
+   * authenticates a socket once — at connect — and never revalidates it. A
+   * device signed out that way therefore keeps receiving notifications on its
+   * already-open socket, on a session the user believes is gone.
+   *
+   * The library exposes no hook on that route, so the app orchestrates it: the
+   * web client calls this immediately after the bulk revoke, while it still
+   * holds a valid credential. Closing sockets for the caller's own user id is
+   * all it can do, which is exactly the scope of "sign out everywhere".
+   *
+   * POST /api/account/realtime/disconnect
+   *
+   * @param user - Authenticated user injected by `@CurrentUser()`.
+   */
+  @Post('realtime/disconnect')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  disconnectRealtime(@CurrentUser() user: DashboardJwtPayload): void {
+    this.userConnections.disconnectUser(user.sub);
   }
 
   /**
@@ -169,7 +231,14 @@ export class AccountController {
     // verbatim so the frontend can route the user through the MFA challenge.
     const ip = req.ip ?? '';
     const userAgent = String(req.headers['user-agent'] ?? '');
-    const result = await this.authService.issueTokensForUserId(targetUserId, ip, userAgent);
+    // Since lib v1.4.4 the tenant travels with the user id on every dashboard
+    // call — the tokens are minted for the DESTINATION workspace.
+    const result = await this.authService.issueTokensForUserId(
+      targetUserId,
+      dto.tenantId,
+      ip,
+      userAgent,
+    );
 
     // Step 3: deliver via the lib's canonical cookie writer. Sets the same
     // attribute set the password-login path uses (httpOnly, secure, sameSite,
