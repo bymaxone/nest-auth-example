@@ -32,7 +32,6 @@
 
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
 import { Catch, HttpException, HttpStatus, Logger } from '@nestjs/common';
-import { ThrottlerException } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import {
   AuthException,
@@ -61,6 +60,7 @@ interface AuthEnvelope {
  * @returns `true` when body already carries the envelope shape.
  */
 function isAuthEnvelope(body: unknown): body is AuthEnvelope {
+  // Stryker disable next-line ConditionalExpression: dropping the `typeof` conjunct is an equivalent mutant. For a non-object, non-null body the mutant falls through to `body['error']`, which on a primitive yields `undefined`, and the envelope guard on the next line rejects that — the same `false` the conjunct returns directly. Distinguishing them needs a value that is not `typeof 'object'` yet carries an `error` object with a string `code`, which `exception.getResponse()` cannot produce: Nest returns the string or object the exception was constructed with. The behaviour this clause exists for — a string body, and a null body — is pinned by "rejects a non-object body rather than reading a code out of it" and "answers when the response body is null".
   if (typeof body !== 'object' || body === null) return false;
   const envelope = (body as Record<string, unknown>)['error'];
   if (typeof envelope !== 'object' || envelope === null) return false;
@@ -85,6 +85,8 @@ function isAuthEnvelope(body: unknown): body is AuthEnvelope {
 const STATUS_TO_CODE: Partial<Record<number, AuthErrorCode>> = {
   [HttpStatus.UNAUTHORIZED]: AUTH_ERROR_CODES.TOKEN_INVALID,
   [HttpStatus.FORBIDDEN]: AUTH_ERROR_CODES.FORBIDDEN,
+  // Covers `ThrottlerException` too: it is an `HttpException` carrying 429,
+  // so it lands here and produces the same envelope a dedicated branch did.
   [HttpStatus.TOO_MANY_REQUESTS]: AUTH_ERROR_CODES.TOO_MANY_REQUESTS,
 };
 
@@ -180,8 +182,10 @@ export class AuthExceptionFilter implements ExceptionFilter {
    *   value a driver interpolated into its own `Error.message` — the connection
    *   URL a failed Prisma or ioredis call quotes back, most of all. Naming the
    *   values here is what lets them be stripped from that message. Defaults to
-   *   none so a test can construct the filter directly.
+   *   none so the e2e suites, which hold no secrets worth scrubbing, can
+   *   construct the filter with no arguments.
    */
+  // Stryker disable next-line ArrayDeclaration: an equivalent mutant. The default only ever reaches `describeError` as the list of strings to strip, so seeding it with `["Stryker was here"]` changes a response or a log line only if a thrown message contains that literal — nothing produces one. The behaviour that matters, redaction when secrets ARE supplied, is pinned by "strips a configured secret from the logged message".
   constructor(private readonly secrets: readonly string[] = []) {}
 
   /**
@@ -205,11 +209,6 @@ export class AuthExceptionFilter implements ExceptionFilter {
         `AuthException body shape mismatch — using fallback envelope. status=${exception.getStatus()}`,
       );
       this.send(response, exception.getStatus(), AUTH_ERROR_CODES.TOKEN_INVALID, null);
-      return;
-    }
-
-    if (exception instanceof ThrottlerException) {
-      this.send(response, HttpStatus.TOO_MANY_REQUESTS, AUTH_ERROR_CODES.TOO_MANY_REQUESTS, null);
       return;
     }
 

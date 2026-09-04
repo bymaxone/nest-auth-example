@@ -313,6 +313,113 @@ describe('AuthExceptionFilter', () => {
     expect(JSON.stringify(getBody())).not.toContain('plain text body');
   });
 
+  /**
+   * Scenario: an exception whose response body is `null`. `typeof null` is
+   * `'object'`, so the null check is the only thing standing between the guard
+   * and a property read on null.
+   * Rule: the filter answers instead of throwing. A crash inside the handler
+   * that exists to stop crashes escaping would turn a handled error into an
+   * unhandled one.
+   */
+  it('answers when the response body is null', () => {
+    const { host, getStatus, getBody } = makeHost();
+
+    filter.catch(new HttpException(null as unknown as string, HttpStatus.BAD_GATEWAY), host);
+
+    expect(getStatus()).toBe(HttpStatus.BAD_GATEWAY);
+    expect(getBody()?.error.code).toBe(AUTH_ERROR_CODES.INTERNAL);
+  });
+
+  /**
+   * Scenario: a body carrying `error: null` — the shape a partially-populated
+   * envelope would have.
+   * Rule: same reasoning one level down. The envelope null check is what keeps
+   * the `code` read off a null, and the response falls through to the status
+   * mapping rather than crashing.
+   */
+  it('answers when the envelope itself is null', () => {
+    const { host, getStatus, getBody } = makeHost();
+
+    filter.catch(new HttpException({ error: null }, HttpStatus.FORBIDDEN), host);
+
+    expect(getStatus()).toBe(HttpStatus.FORBIDDEN);
+    expect(getBody()?.error.code).toBe(AUTH_ERROR_CODES.FORBIDDEN);
+  });
+
+  /**
+   * Scenario: an envelope-shaped body whose `code` is not a string.
+   * Rule: it is not treated as an envelope. Passing it through would put a
+   * non-string code on the wire, which `createAuthClient` cannot map — the very
+   * failure the envelope contract exists to prevent.
+   */
+  it('does not treat a non-string code as an envelope', () => {
+    const { host, getStatus, getBody } = makeHost();
+
+    filter.catch(new HttpException({ error: { code: 42 } }, HttpStatus.FORBIDDEN), host);
+
+    expect(getStatus()).toBe(HttpStatus.FORBIDDEN);
+    expect(getBody()?.error.code).toBe(AUTH_ERROR_CODES.FORBIDDEN);
+  });
+
+  /**
+   * Scenario: a server-side failure that already speaks the envelope.
+   * Rule: it passes through with its own code. Only bodies the filter cannot
+   * read are suppressed at 5xx — an envelope was written by this application or
+   * the library, so there is nothing in it to withhold.
+   */
+  it('passes a server-status envelope through instead of suppressing it', () => {
+    const { host, getStatus, getBody } = makeHost();
+    const envelope = {
+      error: { code: AUTH_ERROR_CODES.INTERNAL, message: 'upstream refused', details: null },
+    };
+
+    filter.catch(new HttpException(envelope, HttpStatus.SERVICE_UNAVAILABLE), host);
+
+    expect(getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE);
+    expect(getBody()).toEqual(envelope);
+  });
+
+  /**
+   * Scenario: a plain `HttpException` at exactly 500 — the boundary between
+   * "client error, answer its own body" and "server fault, suppress it".
+   * Rule: 500 is a server fault. Pinning the boundary itself is what stops it
+   * drifting by one and letting a server message reach the caller.
+   */
+  it('suppresses the body at exactly 500', () => {
+    const { host, getStatus, getBody } = makeHost();
+
+    filter.catch(new HttpException('internal detail at postgres://u:p@host/db', 500), host);
+
+    expect(getStatus()).toBe(500);
+    expect(getBody()?.error.code).toBe(AUTH_ERROR_CODES.INTERNAL);
+    expect(JSON.stringify(getBody())).not.toContain('postgres://');
+  });
+
+  /**
+   * Scenario: the library's own exception arrives with a body that is not the
+   * envelope — the version-drift path.
+   * Rule: the warning names the mismatch and the status. A blank line would
+   * leave an operator with a fallback envelope on the wire and nothing in the
+   * logs saying the library shape had changed.
+   */
+  it('names the shape mismatch and status in the drift warning', () => {
+    const { host } = makeHost();
+    const warn = jest.spyOn(filter['logger'], 'warn').mockImplementation(() => undefined);
+
+    filter.catch(new HttpException({ nope: true }, HttpStatus.UNAUTHORIZED), host);
+    // The library path is what logs; drive it with a real AuthException whose
+    // body has drifted.
+    warn.mockClear();
+    const drifted = new AuthException(AUTH_ERROR_CODES.INVALID_CREDENTIALS);
+    jest.spyOn(drifted, 'getResponse').mockReturnValue({ unexpected: true });
+
+    filter.catch(drifted, host);
+
+    const message = String((warn.mock.calls as unknown as Array<[string]>)[0]?.[0]);
+    expect(message).toContain('shape mismatch');
+    expect(message).toContain(String(HttpStatus.UNAUTHORIZED));
+  });
+
   // ── Unknown throwables ─────────────────────────────────────────────────────
 
   /**
@@ -401,6 +508,60 @@ describe('AuthExceptionFilter', () => {
     const entry = (error.mock.calls as unknown as Array<[Record<string, unknown>]>)[0]?.[0];
     expect(entry?.['tenantId']).toBeUndefined();
     expect(entry?.['tenantIdUnverified']).toHaveLength(64);
+  });
+
+  /**
+   * Scenario: the JWT carries an empty `tenantId`.
+   * Rule: an empty string is not a tenant, so the log falls back to the header
+   * rather than recording a blank field that reads as "no tenant known" while
+   * actually meaning "the claim was empty".
+   */
+  it('falls back to the header when the JWT tenant is an empty string', () => {
+    const { host } = makeHost({
+      id: 'req-9',
+      headers: { 'x-tenant-id': 'acme' },
+      user: { tenantId: '' },
+    });
+    const error = jest.spyOn(filter['logger'], 'error').mockImplementation(() => undefined);
+
+    filter.catch(new Error('boom'), host);
+
+    const entry = (error.mock.calls as unknown as Array<[Record<string, unknown>]>)[0]?.[0];
+    expect(entry?.['tenantId']).toBeUndefined();
+    expect(entry?.['tenantIdUnverified']).toBe('acme');
+  });
+
+  /**
+   * Scenario: the header is present but empty.
+   * Rule: neither tenant field is recorded. An empty header is no more a tenant
+   * than an absent one, and emitting the key would suggest a value was found.
+   */
+  it('records no tenant when the header is an empty string', () => {
+    const { host } = makeHost({ id: 'req-10', headers: { 'x-tenant-id': '' } });
+    const error = jest.spyOn(filter['logger'], 'error').mockImplementation(() => undefined);
+
+    filter.catch(new Error('boom'), host);
+
+    const entry = (error.mock.calls as unknown as Array<[Record<string, unknown>]>)[0]?.[0];
+    expect(entry?.['tenantId']).toBeUndefined();
+    expect(entry?.['tenantIdUnverified']).toBeUndefined();
+    expect(entry?.['requestId']).toBe('req-10');
+  });
+
+  /**
+   * Scenario: no tenant is available from either source, but the request id is.
+   * Rule: the request id is still recorded. It is the identifier that ties the
+   * line to its request, so dropping it along with the tenant would leave the
+   * entry uncorrelatable — the exact gap this correlation exists to close.
+   */
+  it('keeps the request id when no tenant can be determined', () => {
+    const { host } = makeHost({ id: 'req-11', headers: {} });
+    const error = jest.spyOn(filter['logger'], 'error').mockImplementation(() => undefined);
+
+    filter.catch(new Error('boom'), host);
+
+    const entry = (error.mock.calls as unknown as Array<[Record<string, unknown>]>)[0]?.[0];
+    expect(entry?.['requestId']).toBe('req-11');
   });
 
   /**
