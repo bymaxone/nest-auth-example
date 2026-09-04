@@ -228,6 +228,51 @@ describe('AuthExceptionFilter', () => {
     expect(JSON.stringify(getBody())).not.toContain('secret');
   });
 
+  /**
+   * Scenario: an exception built from a bare string, so `getResponse()` hands the
+   * filter a string rather than an object.
+   * Rule: the envelope guard rejects a non-object outright instead of indexing
+   * into it, and the validation reader finds no field array to report.
+   */
+  it('answers a string-bodied bad request without inventing details', () => {
+    const { host, getStatus, getBody } = makeHost();
+
+    filter.catch(new HttpException('plain text body', HttpStatus.BAD_REQUEST), host);
+
+    expect(getStatus()).toBe(HttpStatus.BAD_REQUEST);
+    expect(getBody()?.error.code).toBe(AUTH_ERROR_CODES.VALIDATION);
+    expect(getBody()?.error.details).toBeNull();
+  });
+
+  /**
+   * Scenario: a string-bodied exception on a status with no code of its own.
+   * Rule: the non-object body is rejected by the envelope guard and the status
+   * falls through to the internal code — the response never carries the string.
+   */
+  it('rejects a non-object body rather than reading a code out of it', () => {
+    const { host, getStatus, getBody } = makeHost();
+
+    filter.catch(new HttpException('plain text body', HttpStatus.BAD_GATEWAY), host);
+
+    expect(getStatus()).toBe(HttpStatus.BAD_GATEWAY);
+    expect(getBody()?.error.code).toBe(AUTH_ERROR_CODES.INTERNAL);
+    expect(JSON.stringify(getBody())).not.toContain('plain text body');
+  });
+
+  /**
+   * Scenario: a validation body whose `message` array holds no strings.
+   * Rule: `details` stays null. Serialising whatever the array happened to hold
+   * is how a non-string value would reach the caller unchecked.
+   */
+  it('reports no details when the validation array holds no strings', () => {
+    const { host, getBody } = makeHost();
+
+    filter.catch(new BadRequestException({ message: [42, { field: 'email' }] }), host);
+
+    expect(getBody()?.error.code).toBe(AUTH_ERROR_CODES.VALIDATION);
+    expect(getBody()?.error.details).toBeNull();
+  });
+
   // ── Unknown throwables ─────────────────────────────────────────────────────
 
   /**

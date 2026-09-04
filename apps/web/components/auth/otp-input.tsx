@@ -146,11 +146,8 @@ export function OtpInput({ length, value, onChange, digitLabel = 'Digit' }: OtpI
     const pasted = digitsOnly.slice(0, length);
 
     // A paste replaces from the start and keeps whatever sat beyond it.
-    const slots = toSlots(valueRef.current);
-    for (let i = 0; i < pasted.length; i += 1) {
-      slots[i] = pasted[i] ?? '';
-    }
-    commit(slots);
+    const kept = toSlots(valueRef.current).slice(pasted.length);
+    commit([...pasted, ...kept]);
     focus(Math.min(pasted.length, length - 1));
   };
 
@@ -158,7 +155,7 @@ export function OtpInput({ length, value, onChange, digitLabel = 'Digit' }: OtpI
 
   return (
     <div className="flex justify-center gap-2" role="group" aria-label="One-time code input">
-      {Array.from({ length }, (_unused, i) => (
+      {slots.map((digit, i) => (
         <input
           key={i}
           ref={(el) => {
@@ -168,7 +165,7 @@ export function OtpInput({ length, value, onChange, digitLabel = 'Digit' }: OtpI
           inputMode="numeric"
           autoComplete={i === 0 ? 'one-time-code' : 'off'}
           maxLength={1}
-          value={slots[i] ?? ''}
+          value={digit}
           onChange={(e) => handleChange(i, e.target.value)}
           onKeyDown={(e) => handleKeyDown(i, e)}
           onPaste={i === 0 ? handlePaste : undefined}

@@ -2,7 +2,7 @@
  * @fileoverview Unit tests for the `PlatformUsersTable` component.
  *
  * Verifies loading, empty, and populated states, the optimistic status toggle,
- * and self-suspension prevention.
+ * self-suspension prevention, and the administrative MFA reset.
  *
  * @module components/platform/platform-users-table.test
  */
@@ -17,15 +17,12 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 vi.mock('@/lib/auth-client', () => ({
   listPlatformUsers: vi.fn(),
   platformUpdateUserStatus: vi.fn(),
+  platformResetUserMfa: vi.fn(),
   mapAuthClientError: vi.fn().mockReturnValue({ code: 'UNKNOWN', message: 'Error' }),
 }));
 
 vi.mock('@/lib/platform-auth', () => ({
   getPlatformAdmin: vi.fn(),
-}));
-
-vi.mock('@/lib/auth-errors', () => ({
-  translateAuthError: vi.fn().mockReturnValue('Error'),
 }));
 
 vi.mock('sonner', () => ({
@@ -34,7 +31,12 @@ vi.mock('sonner', () => ({
 
 // ── Typed imports after mocks ─────────────────────────────────────────────────
 
-import { listPlatformUsers, platformUpdateUserStatus, mapAuthClientError } from '@/lib/auth-client';
+import {
+  listPlatformUsers,
+  platformUpdateUserStatus,
+  platformResetUserMfa,
+  mapAuthClientError,
+} from '@/lib/auth-client';
 import { getPlatformAdmin } from '@/lib/platform-auth';
 import type { PlatformUserInfo } from '@/lib/auth-client';
 import { PlatformUsersTable } from './platform-users-table.js';
@@ -570,16 +572,14 @@ describe('PlatformUsersTable in-flight toggle', () => {
 // ── UNKNOWN error code → empty string forwarded to translateAuthError ────────
 
 describe('PlatformUsersTable UNKNOWN error normalisation', () => {
-  it('forwards an EMPTY string to translateAuthError when mapAuthClientError returns UNKNOWN (load path)', async () => {
+  it('toasts the mapped message when the code is UNKNOWN (load path)', async () => {
     /*
-     * Scenario: the UNKNOWN error code is the lib's "I do not have a more
-     * specific reason" sentinel. The component normalises it to the empty
-     * string before handing it to translateAuthError so the user sees the
-     * generic fallback copy rather than the literal "UNKNOWN" code. Pinning
-     * the empty-string arg specifically defends the `code === 'UNKNOWN' ? ''
-     * : code` ternary in the load() catch — without this assertion, a
-     * regression returning the literal string `code` to translateAuthError
-     * would slip through silently.
+     * Scenario: UNKNOWN is the client's "no more specific reason" sentinel, so
+     * the code carries nothing a user can read. The message that comes back
+     * beside it does, and that is what reaches the toast — translating the
+     * sentinel code instead would show the generic sentence even when the
+     * mapper had something better, such as the connection-failure line.
+     * Protects: the toast argument is the mapped message, never the code.
      */
     vi.mocked(mapAuthClientError).mockImplementation(() => ({
       code: 'UNKNOWN',
@@ -594,11 +594,11 @@ describe('PlatformUsersTable UNKNOWN error normalisation', () => {
     });
   });
 
-  it('forwards an EMPTY string to translateAuthError when mapAuthClientError returns UNKNOWN (toggle path)', async () => {
+  it('toasts the mapped message when the code is UNKNOWN (toggle path)', async () => {
     /*
-     * Scenario: same UNKNOWN-normalisation contract on the handleToggle
-     * catch branch. Pinned independently so a future refactor cannot
-     * branch the normalisation per code-path.
+     * Scenario: the same contract on the handleToggle catch branch. Pinned
+     * independently so a refactor cannot start reporting errors differently
+     * depending on which code path raised them.
      */
     vi.mocked(mapAuthClientError).mockImplementation(() => ({
       code: 'UNKNOWN',
@@ -618,6 +618,103 @@ describe('PlatformUsersTable UNKNOWN error normalisation', () => {
     const { toast } = await import('sonner');
     await waitFor(() => {
       expect(vi.mocked(toast).error).toHaveBeenCalledWith('Generic');
+    });
+  });
+});
+
+// ── Administrative MFA reset ──────────────────────────────────────────────────
+
+describe('PlatformUsersTable MFA reset', () => {
+  /** The roster with Alice enrolled in MFA, so the reset control is offered. */
+  const usersWithMfa: PlatformUserInfo[] = [
+    { ...mockUsers[0]!, mfaEnabled: true },
+    { ...mockUsers[1]! },
+  ];
+
+  it('offers the reset only for a user who has a factor to clear', async () => {
+    /*
+     * Scenario: two users, one enrolled in MFA and one not.
+     * Protects: exactly one control is rendered. Offering it on an account
+     * with no factor is an action that cannot do anything, on the one screen
+     * where a mis-click affects somebody else's ability to sign in.
+     */
+    vi.mocked(listPlatformUsers).mockResolvedValue(usersWithMfa);
+
+    render(<PlatformUsersTable tenantId="tenant-1" />);
+    await waitFor(() => expect(screen.getByText('Alice')).toBeDefined());
+
+    expect(screen.getAllByRole('button', { name: /reset 2fa/i })).toHaveLength(1);
+  });
+
+  it('clears the factor and updates the row from the response', async () => {
+    /*
+     * Scenario: the admin clears the factor for a user who lost both their
+     * authenticator and their recovery codes.
+     * Protects: the target user id reaches the API, and the row is rewritten
+     * from what came back rather than from an assumption — so the control
+     * disappears only because the server confirmed the factor is gone.
+     */
+    vi.mocked(listPlatformUsers).mockResolvedValue(usersWithMfa);
+    vi.mocked(platformResetUserMfa).mockResolvedValue({ ...usersWithMfa[0]!, mfaEnabled: false });
+
+    render(<PlatformUsersTable tenantId="tenant-1" />);
+    await waitFor(() => expect(screen.getByText('Alice')).toBeDefined());
+
+    fireEvent.click(screen.getByRole('button', { name: /reset 2fa/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /reset 2fa/i })).toBeNull();
+    });
+    expect(vi.mocked(platformResetUserMfa)).toHaveBeenCalledWith('u1');
+
+    const { toast } = await import('sonner');
+    expect(vi.mocked(toast).success).toHaveBeenCalledWith(
+      expect.stringContaining('alice@example.com'),
+    );
+  });
+
+  it('leaves the row untouched and reports the failure when the reset is refused', async () => {
+    /*
+     * Scenario: the API refuses — a SUPPORT admin hitting a SUPER_ADMIN-only
+     * route, or the request failing outright.
+     * Protects: the control stays, because the factor is still there. Removing
+     * it optimistically would tell the admin the account is recoverable when
+     * it is not, and the mistake is only discovered by the locked-out user.
+     */
+    vi.mocked(mapAuthClientError).mockReturnValue({ code: 'auth.forbidden', message: 'Forbidden' });
+    vi.mocked(listPlatformUsers).mockResolvedValue(usersWithMfa);
+    vi.mocked(platformResetUserMfa).mockRejectedValue(new Error('nope'));
+
+    render(<PlatformUsersTable tenantId="tenant-1" />);
+    await waitFor(() => expect(screen.getByText('Alice')).toBeDefined());
+
+    fireEvent.click(screen.getByRole('button', { name: /reset 2fa/i }));
+
+    const { toast } = await import('sonner');
+    await waitFor(() => {
+      expect(vi.mocked(toast).error).toHaveBeenCalledWith('Forbidden');
+    });
+    expect(screen.getByRole('button', { name: /reset 2fa/i })).toBeDefined();
+  });
+
+  it('disables the control while the reset is in flight', async () => {
+    /*
+     * Scenario: the admin clicks while the request is still open.
+     * Protects: the button is disabled until it settles, so the reset cannot
+     * be fired twice — the second call would clear a factor the user has just
+     * started re-enrolling.
+     */
+    vi.mocked(listPlatformUsers).mockResolvedValue(usersWithMfa);
+    vi.mocked(platformResetUserMfa).mockReturnValue(new Promise(() => undefined));
+
+    render(<PlatformUsersTable tenantId="tenant-1" />);
+    await waitFor(() => expect(screen.getByText('Alice')).toBeDefined());
+
+    fireEvent.click(screen.getByRole('button', { name: /reset 2fa/i }));
+
+    await waitFor(() => {
+      const button = screen.getByRole('button', { name: '…' });
+      expect((button as HTMLButtonElement).disabled).toBe(true);
     });
   });
 });

@@ -7,6 +7,8 @@
  * - Table rows render session data when sessions are present.
  * - The revoke button is hidden for the current session.
  * - Clicking revoke calls revokeSession with the correct sessionHash.
+ * - The concurrency cap is stated when the policy loads, and its absence is
+ *   tolerated when it does not.
  *
  * @module components/dashboard/sessions-table.test
  */
@@ -221,6 +223,43 @@ describe('SessionsTable states', () => {
 });
 
 // ── Verbatim toast + Current badge + per-row revoking + time fallbacks ──────
+
+describe('SessionsTable session cap', () => {
+  it('states how many of the allowed sessions are in use', async () => {
+    /*
+     * Scenario: signing in past the cap signs the oldest device out. That is
+     * the library's FIFO eviction working as designed, but on a screen that
+     * does not mention a limit it reads as sessions vanishing on their own.
+     * Protects: the cap line renders with both the live count and the limit.
+     */
+    vi.mocked(listSessions).mockResolvedValue(mockSessions);
+    render(<SessionsTable />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/2 of 5 sessions in use/i)).toBeDefined();
+    });
+  });
+
+  it('still renders the table when the policy request fails', async () => {
+    /*
+     * Scenario: the policy endpoint is unreachable while the session list
+     * itself resolves.
+     * Protects: the failure is swallowed rather than propagated. The list is
+     * the useful part of the screen — losing it, or raising an error toast,
+     * over a missing caption would be a worse outcome than omitting the caption.
+     */
+    vi.mocked(listSessions).mockResolvedValue(mockSessions);
+    vi.mocked(getSessionPolicy).mockRejectedValue(new Error('unreachable'));
+
+    render(<SessionsTable />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Chrome on macOS')).toBeDefined();
+    });
+    expect(screen.queryByText(/sessions in use/i)).toBeNull();
+    expect(vi.mocked(handleAuthClientError)).not.toHaveBeenCalled();
+  });
+});
 
 describe('SessionsTable verbatim copy + per-row revoking + time format', () => {
   it('toasts the verbatim "Session revoked." message after a successful revoke', async () => {

@@ -12,7 +12,7 @@
 // @vitest-environment jsdom
 
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { RecoveryCodesModal } from './recovery-codes-modal.js';
 
 vi.mock('sonner', () => ({
@@ -87,6 +87,37 @@ describe('RecoveryCodesModal copying', () => {
 
     await screen.findByRole('button', { name: /copied/i });
     expect(writeText).toHaveBeenCalledWith(CODES.join('\n'));
+  });
+
+  it('returns the button to its idle label after the confirmation elapses', async () => {
+    /*
+     * Scenario: the "Copied" state is a confirmation, not a terminal state. It
+     * has to time out so a second copy is obviously available.
+     * Protects: the timeout callback restores the idle label. Left unfired, the
+     * button reads "Copied" forever and a user who wants to copy again has no
+     * signal that clicking will do anything.
+     */
+    vi.useFakeTimers();
+    try {
+      const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+
+      render(<RecoveryCodesModal open codes={CODES} onClose={vi.fn()} />);
+      fireEvent.click(screen.getByRole('button', { name: /copy codes/i }));
+
+      // Let the clipboard promise settle so the confirmation is on screen.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByRole('button', { name: /copied/i })).toBeDefined();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(screen.getByRole('button', { name: /copy codes/i })).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('reports a refused clipboard instead of failing silently', async () => {

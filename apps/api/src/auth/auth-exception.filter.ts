@@ -180,9 +180,8 @@ export class AuthExceptionFilter implements ExceptionFilter {
     code: AuthErrorCode,
     details: Record<string, unknown> | null,
   ): void {
-    // AUTH_ERROR_MESSAGES is keyed by code; the lookup is total for every value
-    // of AuthErrorCode, and the fallback covers a code added by a newer library.
-    const message = (AUTH_ERROR_MESSAGES as Record<string, string | undefined>)[code] ?? code;
-    response.status(status).json({ error: { code, message, details } });
+    // AUTH_ERROR_MESSAGES is `Readonly<Record<AuthErrorCode, string>>` — a mapped
+    // type over the full code union, so the lookup is total and needs no fallback.
+    response.status(status).json({ error: { code, message: AUTH_ERROR_MESSAGES[code], details } });
   }
 }

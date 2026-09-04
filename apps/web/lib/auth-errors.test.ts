@@ -8,13 +8,15 @@
  * - The internal `AUTH_ERROR_MESSAGES` map covers every key in
  *   `AUTH_ERROR_CODES` (exhaustiveness guard — compile-time via `satisfies`,
  *   runtime via this test).
+ * - `readAuthErrorCode` reads a code out of either error envelope the API
+ *   may answer with, and reports none rather than guessing.
  *
  * @module lib/auth-errors.test
  */
 
 import { describe, it, expect } from 'vitest';
 import { AUTH_ERROR_CODES } from '@bymax-one/nest-auth/shared';
-import { translateAuthError } from './auth-errors.js';
+import { readAuthErrorCode, translateAuthError } from './auth-errors.js';
 
 // ── Exhaustiveness check ──────────────────────────────────────────────────────
 
@@ -153,5 +155,85 @@ describe('translateAuthError', () => {
      */
     const result = translateAuthError('');
     expect(result).toBe('An unexpected error occurred. Please try again.');
+  });
+});
+
+// ── Envelope reading ──────────────────────────────────────────────────────────
+
+describe('readAuthErrorCode', () => {
+  it('reads the code out of the nested library envelope', () => {
+    /*
+     * Scenario: the API answers the shape the library emits,
+     * `{ error: { code, message, details } }`.
+     * Protects: the nested envelope is the current contract — failing to read
+     * it is what makes every form show its generic fallback sentence.
+     */
+    const body = { error: { code: 'auth.invalid_credentials', message: 'no', details: null } };
+    expect(readAuthErrorCode(body)).toBe('auth.invalid_credentials');
+  });
+
+  it('reads a top-level code from the older flat body', () => {
+    /*
+     * Scenario: the page is talking to a deployment that has not picked up the
+     * envelope change yet.
+     * Protects: a rollout where web and api are briefly on different versions
+     * still shows the specific message rather than the fallback.
+     */
+    const body = { code: 'auth.token_expired', message: 'expired', statusCode: 401 };
+    expect(readAuthErrorCode(body)).toBe('auth.token_expired');
+  });
+
+  it('prefers the nested code when a body carries both', () => {
+    /*
+     * Scenario: a body that satisfies both shapes at once.
+     * Protects: the nested envelope wins, so the current contract is never
+     * shadowed by a leftover top-level field.
+     */
+    const body = { code: 'auth.internal', error: { code: 'auth.forbidden' } };
+    expect(readAuthErrorCode(body)).toBe('auth.forbidden');
+  });
+
+  it('falls through to the flat code when the envelope carries none', () => {
+    /*
+     * Scenario: `error` is present but is a bare string, the way some proxies
+     * and framework defaults answer.
+     * Protects: a non-conforming `error` field does not swallow a usable
+     * top-level code.
+     */
+    const body = { error: 'Bad Request', code: 'auth.validation' };
+    expect(readAuthErrorCode(body)).toBe('auth.validation');
+  });
+
+  it('reports no code when the envelope holds a non-string code', () => {
+    /*
+     * Scenario: `error.code` is a number.
+     * Protects: only a string is returned, so a caller can pass the result
+     * straight to `translateAuthError` without a type check of its own.
+     */
+    expect(readAuthErrorCode({ error: { code: 500 } })).toBe('');
+  });
+
+  it.each([
+    ['a non-object body', 'auth.invalid_credentials'],
+    ['null', null],
+    ['undefined', undefined],
+    ['a number', 42],
+  ])('reports no code for %s', (_label, body) => {
+    /*
+     * Scenario: the response was not JSON, or parsing produced something that
+     * is not an object at all.
+     * Protects: the reader never indexes into a non-object, so a malformed
+     * response degrades to the generic message instead of throwing inside the
+     * error path — where a throw would replace the real failure.
+     */
+    expect(readAuthErrorCode(body)).toBe('');
+  });
+
+  it('reports no code when the body is an object with neither shape', () => {
+    /*
+     * Scenario: a well-formed JSON body that simply carries no error code.
+     * Protects: nothing is invented; the caller gets the generic message.
+     */
+    expect(readAuthErrorCode({ detail: 'something went wrong' })).toBe('');
   });
 });
