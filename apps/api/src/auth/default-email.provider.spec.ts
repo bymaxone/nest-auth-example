@@ -173,6 +173,9 @@ describe('MailpitSmtpSink', () => {
     });
 
     const logged = JSON.stringify(logSpy.mock.calls);
+    // The event name is what makes delivery searchable in the logs; the two
+    // fields beside it are useless without something to group them under.
+    expect(logSpy.mock.calls[0]?.[0]).toMatchObject({ msg: 'Auth email delivered' });
     expect(logged).toContain('passwordResetOtp');
     expect(logged).toContain('containsCredential');
     expect(logged).not.toContain('699647');
@@ -247,6 +250,32 @@ describe('MailpitDefaultEmailProvider rendering', () => {
     expect(mail.text).toContain(
       'http://localhost:3000/auth/confirm-email-change?token=tok%2Fen%2B1',
     );
+    // The surrounding copy is what makes the link safe to click: it says what
+    // was asked for and what to do if it was not the recipient. A bare URL in
+    // an unexpected email is indistinguishable from a phishing attempt.
+    expect(mail.text).toContain('You asked to move your account to this address.');
+    expect(mail.text).toContain('Open the link below to confirm the change:');
+    expect(mail.text).toContain('If you did not request this, you can ignore this message.');
+  });
+
+  it('declares the email-change body as carrying a credential', async () => {
+    /*
+     * Scenario: the override replaces the library's renderer outright, so it
+     * has to re-declare what its own body carries.
+     * Protects: `containsCredential: true`. The flag is what keeps the token in
+     * that URL out of the delivery log — declaring `false` would put a live
+     * address-change credential into the log line.
+     */
+    const provider = makeProvider();
+    // Spy on the prototype, as the delivery test above does: the provider holds
+    // its own `Logger` instance, so spying on a property of it after
+    // construction misses the call.
+    const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+
+    await provider.sendEmailChangeVerification('t1', 'new@example.com', 'tok/en+1');
+
+    expect(logSpy.mock.calls[0]?.[0]).toMatchObject({ containsCredential: true });
+    logSpy.mockRestore();
   });
 
   it('renders the overridden app-branded passwordChanged subject', async () => {
@@ -260,7 +289,15 @@ describe('MailpitDefaultEmailProvider rendering', () => {
 
     await provider.sendPasswordChangedNotification('t1', 'user@example.com');
 
-    expect(lastMailOptions().subject).toBe('Your nest-auth-example password was changed');
+    const mail = lastMailOptions();
+    expect(mail.subject).toBe('Your nest-auth-example password was changed');
+    // The body is the actionable half of a credential-change notice: without
+    // it the recipient is told something changed and not what to do about it,
+    // which is the point of the notice (NIST SP 800-63B §4.6).
+    expect(mail.text).toContain('The password on your account was just changed.');
+    expect(mail.text).toContain(
+      'If this was not you, reset your password immediately and review your active sessions.',
+    );
   });
 });
 

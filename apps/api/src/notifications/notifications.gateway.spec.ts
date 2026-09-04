@@ -876,6 +876,22 @@ describe('NotificationsGateway', () => {
 
   // ── Ticket corroborated by the access-token cookie ─────────────────────────
 
+  /**
+   * Spies on the gateway's warn channel.
+   *
+   * The refusal reason is the only record of WHY an upgrade was rejected — the
+   * socket close carries a single generic code for every cause — so each refusal
+   * path asserts the reason it emits.
+   *
+   * @param gateway - The gateway under test.
+   * @returns The spy, for asserting the payload.
+   */
+  function spyOnWarn(gateway: NotificationsGateway): jest.SpiedFunction<(m: unknown) => void> {
+    return jest
+      .spyOn((gateway as unknown as { logger: { warn: (m: unknown) => void } }).logger, 'warn')
+      .mockImplementation(() => undefined);
+  }
+
   describe('ticket path — credential required alongside the ticket', () => {
     it('refuses a ticket when the upgrade also carries a revoked access token', async () => {
       /*
@@ -890,6 +906,7 @@ describe('NotificationsGateway', () => {
        */
       const { gateway } = makeGateway(VALID_PAYLOAD, true);
       const client = makeSocket();
+      const warn = spyOnWarn(gateway);
       const req = {
         headers: { cookie: 'access_token=revoked-token' },
         url: '/ws/notifications?ticket=tkt-stale',
@@ -898,6 +915,7 @@ describe('NotificationsGateway', () => {
       await gateway.handleConnection(client as never, req);
 
       expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+      expect(warn).toHaveBeenCalledWith({ msg: 'ws:ticket_refused', reason: 'session_revoked' });
       expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
     });
 
@@ -912,6 +930,7 @@ describe('NotificationsGateway', () => {
        */
       const { gateway } = makeGateway(VALID_PAYLOAD, true);
       const client = makeSocket();
+      const warn = spyOnWarn(gateway);
       const req = {
         headers: { authorization: 'Bearer revoked-token' },
         url: '/ws/notifications?ticket=tkt-bearer',
@@ -920,6 +939,11 @@ describe('NotificationsGateway', () => {
       await gateway.handleConnection(client as never, req);
 
       expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+      // `session_revoked`, not `no_credential`: the reason is what proves the
+      // header was read at all. A gateway that ignored it would refuse this
+      // upgrade too, for the wrong cause, and the close code alone cannot tell
+      // the two apart.
+      expect(warn).toHaveBeenCalledWith({ msg: 'ws:ticket_refused', reason: 'session_revoked' });
       expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
     });
 
@@ -935,6 +959,7 @@ describe('NotificationsGateway', () => {
        */
       const { gateway } = makeGateway({ ...VALID_PAYLOAD, sub: 'user-999' });
       const client = makeSocket();
+      const warn = spyOnWarn(gateway);
       const req = {
         headers: { cookie: 'access_token=other-users-token' },
         url: '/ws/notifications?ticket=tkt-borrowed',
@@ -943,6 +968,10 @@ describe('NotificationsGateway', () => {
       await gateway.handleConnection(client as never, req);
 
       expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+      expect(warn).toHaveBeenCalledWith({
+        msg: 'ws:ticket_refused',
+        reason: 'credential_mismatch',
+      });
       expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
     });
 
@@ -1003,11 +1032,13 @@ describe('NotificationsGateway', () => {
        */
       const { gateway } = makeGateway();
       const client = makeSocket();
+      const warn = spyOnWarn(gateway);
       const req = { headers: {}, url: '/ws/notifications?ticket=tkt-bare' };
 
       await gateway.handleConnection(client as never, req);
 
       expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+      expect(warn).toHaveBeenCalledWith({ msg: 'ws:ticket_refused', reason: 'no_credential' });
       expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
     });
 
@@ -1023,6 +1054,7 @@ describe('NotificationsGateway', () => {
        */
       const { gateway } = makeGateway(new Error('jwt expired'));
       const client = makeSocket();
+      const warn = spyOnWarn(gateway);
       const req = {
         headers: { cookie: 'access_token=expired-token' },
         url: '/ws/notifications?ticket=tkt-expired-cookie',
@@ -1031,6 +1063,7 @@ describe('NotificationsGateway', () => {
       await gateway.handleConnection(client as never, req);
 
       expect(client.close).toHaveBeenCalledWith(4401, 'Unauthorized');
+      expect(warn).toHaveBeenCalledWith({ msg: 'ws:ticket_refused', reason: 'credential_invalid' });
       expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
     });
   });
@@ -1060,6 +1093,9 @@ describe('NotificationsGateway', () => {
           }),
       );
       const client = makeSocket();
+      const log = jest
+        .spyOn((gateway as unknown as { logger: { log: (m: unknown) => void } }).logger, 'log')
+        .mockImplementation(() => undefined);
       const req = {
         headers: { cookie: 'access_token=live-token' },
         url: '/ws/notifications?ticket=tkt-race',
@@ -1072,8 +1108,54 @@ describe('NotificationsGateway', () => {
       await connecting;
 
       expect(client.close).toHaveBeenCalledWith(4403, 'Account suspended');
+      expect(log).toHaveBeenCalledWith({
+        msg: 'ws:admission_refused',
+        userId: 'user-001',
+        reason: 'disconnect_raced',
+      });
       // Never registered: a notification has nowhere to go.
       expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
+    });
+
+    it('refuses admission when the disconnect lands on the same millisecond', async () => {
+      /*
+       * Scenario: the forced disconnect is stamped at exactly the instant the
+       * admission started — the boundary of the comparison.
+       * Protects: the check is `>=`, not `>`. On a fast machine the two
+       * timestamps land on the same millisecond routinely, and a strict `>`
+       * would admit the socket the revocation was meant to keep out precisely
+       * when the race is tightest.
+       */
+      // `performance.now()`, not `Date.now()` — admission timestamps are
+      // monotonic, and freezing the wall clock would leave the two values as
+      // far apart as they were.
+      const frozen = 1_234.5;
+      const now = jest.spyOn(performance, 'now').mockReturnValue(frozen);
+      try {
+        const { gateway, wsTickets } = makeGateway();
+        let releaseRedeem: (snapshot: WsTicketSnapshot) => void = () => undefined;
+        wsTickets.redeem.mockImplementation(
+          () =>
+            new Promise<WsTicketSnapshot>((resolve) => {
+              releaseRedeem = resolve;
+            }),
+        );
+        const client = makeSocket();
+        const req = {
+          headers: { cookie: 'access_token=live-token' },
+          url: '/ws/notifications?ticket=tkt-same-ms',
+        };
+
+        const connecting = gateway.handleConnection(client as never, req);
+        gateway.disconnectUser('user-001');
+        releaseRedeem(VALID_SNAPSHOT);
+        await connecting;
+
+        expect(client.close).toHaveBeenCalledWith(4403, 'Account suspended');
+        expect(gateway.emitNewNotification('user-001', { title: 't', body: 'b' })).toBe(0);
+      } finally {
+        now.mockRestore();
+      }
     });
 
     it('refuses a Bearer connection when the user is disconnected while the revocation lookup is in flight', async () => {

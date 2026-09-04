@@ -607,7 +607,14 @@ describe('PlatformService', () => {
         .mockResolvedValueOnce(null);
       auditLogCreate.mockResolvedValue({});
 
-      await expect(service.resetUserMfa(...ARGS)).rejects.toBeInstanceOf(NotFoundException);
+      // Asserted on one rejection rather than two: the `mockResolvedValueOnce`
+      // pair above describes a single call, so a second invocation would take a
+      // different path and prove nothing about this one. The message names the
+      // id, which is what distinguishes this guard from the first not-found in
+      // a log.
+      await expect(service.resetUserMfa(...ARGS)).rejects.toThrow(
+        new NotFoundException("User 'user-1' not found"),
+      );
       expect(resetMfa).toHaveBeenCalled();
     });
 

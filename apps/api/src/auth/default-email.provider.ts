@@ -174,6 +174,7 @@ function buildMessageOverrides(webOrigin: string): Partial<AuthEmailCatalogue> {
         `Open the link below to confirm the change:\n\n` +
         `${webOrigin}/auth/confirm-email-change?token=${encodeURIComponent(token)}\n\n` +
         `If you did not request this, you can ignore this message.`,
+      // Stryker disable next-line BooleanLiteral: an equivalent mutant, by the library's documented semantics. `AuthEmailMessage.containsCredential` is OR-ed with the kind's own baseline — "a renderer cannot make that baseline weaker" — and `emailChangeVerification` already carries a credential by baseline, so `false` here reaches the sink as `true` regardless. The flag is stated anyway because an override replaces the renderer outright and should declare what its own body carries; that the sink is told `true` is pinned by "declares the email-change body as carrying a credential".
       containsCredential: true,
     }),
     /** App-branded subject for the credential-change notice (NIST SP 800-63B §4.6). */

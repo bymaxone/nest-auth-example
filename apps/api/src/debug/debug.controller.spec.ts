@@ -94,6 +94,11 @@ describe('DebugController', () => {
     ];
     expect(firstCall[0].email).toBe('user@example.com');
     expect(firstCall[0]).not.toHaveProperty('tenantId');
+    // The password must be a value no account can hold, so the replay cannot
+    // accidentally succeed and log the caller in instead of locking them out.
+    // An empty string is exactly the kind of value a real account might have
+    // been seeded with in a broken fixture.
+    expect(firstCall[0].password).toMatch(/^debug-lockout-[0-9a-f-]{36}$/);
     expect(result).toEqual({ locked: true, retryAfterSeconds: 900 });
   });
 
@@ -141,9 +146,19 @@ describe('DebugController', () => {
     await expect(
       controller.lockoutStatus({ email: 'user@example.com' }, makeRequest({})),
     ).rejects.toThrow(ForbiddenException);
+    await expect(controller.unlock({ email: 'user@example.com' }, makeRequest({}))).rejects.toThrow(
+      'X-Tenant-Id header is required',
+    );
+  });
+
+  // Scenario: the header is present but empty. An empty string is not a tenant,
+  // and treating it as one would let a request through with `tenantId: ''`,
+  // which scopes every query to nothing rather than being refused outright.
+  it('refuses an empty X-Tenant-Id header', async () => {
+    process.env['NODE_ENV'] = 'test';
     await expect(
-      controller.unlock({ email: 'user@example.com' }, makeRequest({})),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+      controller.lockout({ email: 'user@example.com' }, makeRequest({ 'x-tenant-id': '' })),
+    ).rejects.toThrow('X-Tenant-Id header is required');
   });
 
   // Scenario: in production every handler refuses outright — the debug surface
@@ -159,6 +174,11 @@ describe('DebugController', () => {
     await expect(
       controller.unlock({ email: 'user@example.com' }, reqWithTenant()),
     ).rejects.toBeInstanceOf(ForbiddenException);
+    // The refusal message is deliberately bare: naming the endpoint or the
+    // reason would confirm the debug surface exists to whoever probed it.
+    await expect(
+      controller.lockout({ email: 'user@example.com' }, reqWithTenant()),
+    ).rejects.toThrow('Not available');
     expect(login).not.toHaveBeenCalled();
     expect(unlockAccount).not.toHaveBeenCalled();
   });

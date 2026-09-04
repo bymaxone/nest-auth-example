@@ -764,6 +764,9 @@ describe('AppAuthHooks', () => {
 
       expect(JSON.stringify(logged)).not.toContain('hunter2');
       expect(JSON.stringify(logged)).toContain('Error');
+      // The event name is what makes the line findable; an empty `msg` would
+      // leave a log entry nobody can search for.
+      expect(logged[0]).toMatchObject({ msg: 'Activation after email verification failed' });
     });
 
     it('describes a non-Error rejection by its type', async () => {
