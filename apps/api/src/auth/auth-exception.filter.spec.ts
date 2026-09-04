@@ -18,6 +18,7 @@
 import { jest } from '@jest/globals';
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   HttpException,
   HttpStatus,
@@ -44,7 +45,7 @@ interface EnvelopeBody {
  *
  * @returns The fake host plus helpers reading the status and body last written.
  */
-function makeHost(): {
+function makeHost(request: Record<string, unknown> = { id: 'req-1', tenantId: 'acme' }): {
   host: Parameters<AuthExceptionFilter['catch']>[1];
   getStatus: () => number | undefined;
   getBody: () => EnvelopeBody | undefined;
@@ -57,6 +58,8 @@ function makeHost(): {
   const host = {
     switchToHttp: jest.fn(() => ({
       getResponse: jest.fn(() => ({ status: statusMock })),
+      // The filter reads the request for correlation ids on the unhandled path.
+      getRequest: jest.fn(() => request),
     })),
   } as unknown as Parameters<AuthExceptionFilter['catch']>[1];
 
@@ -189,7 +192,6 @@ describe('AuthExceptionFilter', () => {
   it.each([
     [new UnauthorizedException(), HttpStatus.UNAUTHORIZED, AUTH_ERROR_CODES.TOKEN_INVALID],
     [new ForbiddenException(), HttpStatus.FORBIDDEN, AUTH_ERROR_CODES.FORBIDDEN],
-    [new NotFoundException(), HttpStatus.NOT_FOUND, AUTH_ERROR_CODES.INTERNAL],
   ])('maps %# to its matching auth code', (exception, status, code) => {
     const { host, getStatus, getBody } = makeHost();
 
@@ -197,6 +199,58 @@ describe('AuthExceptionFilter', () => {
 
     expect(getStatus()).toBe(status);
     expect(getBody()?.error.code).toBe(code);
+  });
+
+  /**
+   * Scenario: a service reports a missing row — `ProjectsService.delete` and
+   * `PlatformService` both do.
+   * Rule: the framework's own body is answered, untouched. `AUTH_ERROR_CODES` is
+   * an authentication vocabulary and no member of it describes a missing
+   * project, so folding this onto one would tell the frontend that an ordinary
+   * 404 was a server fault and replace the service's message with the
+   * internal-error sentence.
+   */
+  it('leaves a not-found alone rather than calling it an auth failure', () => {
+    const { host, getStatus, getBody } = makeHost();
+
+    filter.catch(new NotFoundException("Project 'p-1' not found"), host);
+
+    expect(getStatus()).toBe(HttpStatus.NOT_FOUND);
+    expect(JSON.stringify(getBody())).toContain("Project 'p-1' not found");
+    expect(JSON.stringify(getBody())).not.toContain(AUTH_ERROR_CODES.INTERNAL);
+  });
+
+  /**
+   * Scenario: a duplicate tenant slug — `TenantsService.create` throws this.
+   * Rule: same as above for any unmapped client error. The conflict reaches the
+   * caller as a conflict, with the reason the service wrote.
+   */
+  it('leaves a conflict alone and keeps the reason', () => {
+    const { host, getStatus, getBody } = makeHost();
+
+    filter.catch(new ConflictException("Tenant slug 'acme' is already taken"), host);
+
+    expect(getStatus()).toBe(HttpStatus.CONFLICT);
+    expect(JSON.stringify(getBody())).toContain('already taken');
+  });
+
+  /**
+   * Scenario: a server-side `HttpException` on an unmapped 5xx status.
+   * Rule: unlike a client error, this one IS suppressed. The message belongs to
+   * whatever failed and may quote its own configuration, so the generic internal
+   * envelope is answered and nothing is echoed.
+   */
+  it('suppresses the body of an unmapped server error', () => {
+    const { host, getStatus, getBody } = makeHost();
+
+    filter.catch(
+      new HttpException('upstream at postgres://u:p@host/db failed', HttpStatus.BAD_GATEWAY),
+      host,
+    );
+
+    expect(getStatus()).toBe(HttpStatus.BAD_GATEWAY);
+    expect(getBody()?.error.code).toBe(AUTH_ERROR_CODES.INTERNAL);
+    expect(JSON.stringify(getBody())).not.toContain('postgres://');
   });
 
   /**
@@ -310,11 +364,55 @@ describe('AuthExceptionFilter', () => {
 
     filterWithSecrets.catch(new Error(`connect ECONNREFUSED ${secret}`), host);
 
-    const logged = String((error.mock.calls as unknown as Array<[string]>)[0]?.[0]);
+    // Serialise the whole log object — the description is a field on it, not the
+    // message, so stringifying only the first argument would compare against
+    // "[object Object]" and pass no matter what the entry held.
+    const entry = (error.mock.calls as unknown as Array<[Record<string, unknown>]>)[0]?.[0];
+    const logged = JSON.stringify(entry);
     expect(logged).not.toContain('hunter2');
     expect(logged).not.toContain(secret);
-    expect(logged).toContain('auth.unhandled_exception');
+    expect(entry).toMatchObject({ msg: 'auth.unhandled_exception' });
     expect(JSON.stringify(getBody())).not.toContain('hunter2');
+  });
+
+  /**
+   * Scenario: an unhandled exception on a request that carries correlation ids.
+   * Rule: the log line names the event, and carries the request and tenant ids
+   * alongside it. The logger module attaches those through `customProps`, which
+   * covers the request logger but not the `Logger` a filter holds — so without
+   * reading them here this would be the one line that cannot be tied back to the
+   * request that produced it.
+   */
+  it('logs the event name with the request and tenant ids', () => {
+    const { host } = makeHost({ id: 'req-42', tenantId: 'globex' });
+    const error = jest.spyOn(filter['logger'], 'error').mockImplementation(() => undefined);
+
+    filter.catch(new Error('boom'), host);
+
+    const entry = (error.mock.calls as unknown as Array<[Record<string, unknown>]>)[0]?.[0];
+    expect(entry).toMatchObject({
+      msg: 'auth.unhandled_exception',
+      requestId: 'req-42',
+      tenantId: 'globex',
+    });
+    expect(typeof entry?.['error']).toBe('string');
+  });
+
+  /**
+   * Scenario: the request carries neither id — an early failure, or a call that
+   * never reached the tenant resolver.
+   * Rule: the filter still answers and still logs. Correlation is best-effort;
+   * losing it must not turn a handled 500 into an unhandled crash inside the
+   * handler that exists to catch crashes.
+   */
+  it('still answers when the request carries no correlation ids', () => {
+    const { host, getStatus, getBody } = makeHost({});
+    jest.spyOn(filter['logger'], 'error').mockImplementation(() => undefined);
+
+    filter.catch(new Error('boom'), host);
+
+    expect(getStatus()).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+    expect(getBody()?.error.code).toBe(AUTH_ERROR_CODES.INTERNAL);
   });
 
   /**

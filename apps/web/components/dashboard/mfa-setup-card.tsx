@@ -8,7 +8,17 @@
  *   2. Card shows QR code + manual secret entry field
  *   3. User enters TOTP code → `POST /auth/mfa/verify-enable`
  *   4. On success, recovery codes from step 1 are shown in `RecoveryCodesModal`
- *   5. On modal dismiss, `onEnabled()` is called to re-fetch the MFA state
+ *   5. On modal dismiss, `onEnabled()` reports the enrolment and the card
+ *      redirects to the login screen
+ *
+ * Step 5 is terminal. Enabling a second factor invalidates every session, this
+ * one included, so the card leaves for `/auth/login?reason=mfa_enabled` rather
+ * than staying on a page whose next request would 401. `onEnabled` therefore
+ * announces the enrolment; it must not be used to re-fetch session state. A
+ * refresh there races the redirect — it 401s, the provider's `onSessionExpired`
+ * pushes `?reason=session_expired`, and being async that push lands last, so the
+ * user who just secured their account is told their session expired. The
+ * security page passes a handler that deliberately does nothing for this reason.
  *
  * Recovery codes are returned by `setup`, not by `verify-enable`. They are
  * stored in component state and cleared once the modal is dismissed.
@@ -41,7 +51,13 @@ const verifySchema = z.object({
 type VerifyValues = z.infer<typeof verifySchema>;
 
 interface MfaSetupCardProps {
-  /** Called after MFA is successfully enabled so the parent can refresh state. */
+  /**
+   * Called once MFA is enabled, as the recovery-codes modal is dismissed.
+   *
+   * Announces the enrolment; it is not a cue to re-read session state. The card
+   * redirects immediately afterwards because enabling a factor invalidates every
+   * session — see the file header for why refreshing here loses the race.
+   */
   onEnabled: () => void;
   /**
    * Whether the account has a local password.
@@ -59,7 +75,8 @@ interface MfaSetupCardProps {
  *
  * Renders a "Set up" button initially. On click, calls the setup endpoint
  * and renders a QR code plus a verification form. On verify success, shows
- * the recovery codes modal before calling `onEnabled`.
+ * the recovery codes modal, then calls `onEnabled` and redirects to the login
+ * screen.
  *
  * @param onEnabled - Callback invoked once MFA is successfully enabled.
  */

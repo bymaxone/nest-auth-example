@@ -15,11 +15,16 @@
  * has for that code. Emitting a flat `{ code, message, statusCode }` body is the
  * mistake that produces that symptom.
  *
- * Framework exceptions are folded into the same envelope with a meaningful code
- * rather than a blanket internal error, so a rate-limit rejection or a failed DTO
- * validation still reaches the user as itself. Thrown values that are not
- * exceptions answer a generic internal error: that is the one path where a stack
- * detail or a connection string could otherwise reach a response body.
+ * Framework exceptions whose status maps onto an auth code — a rate-limit
+ * rejection, a failed DTO validation, a guard's refusal — are folded into the
+ * same envelope so they reach the user as themselves. Those that do not map keep
+ * their own body: a 404 for a missing project is not an authentication failure,
+ * and describing it with an auth code would report an ordinary missing resource
+ * as a server fault.
+ *
+ * Server faults and thrown values that are not exceptions answer a generic
+ * internal error. That is the one path where a stack detail or a connection
+ * string could otherwise reach a response body, so nothing from them is echoed.
  *
  * @layer auth
  * @see docs/guidelines/security-privacy-guidelines.md
@@ -28,7 +33,7 @@
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
 import { Catch, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import {
   AuthException,
   AUTH_ERROR_CODES,
@@ -76,16 +81,20 @@ const STATUS_TO_CODE: Partial<Record<number, AuthErrorCode>> = {
 };
 
 /**
- * Maps an HTTP status to the closest auth error code.
+ * Maps an HTTP status to the auth error code that describes it, if any.
  *
- * Anything unrecognised becomes an internal error, which is also the only
- * branch whose message is suppressed.
+ * Deliberately partial. `AUTH_ERROR_CODES` is an authentication vocabulary, and
+ * most framework exceptions are not authentication failures: a missing project
+ * is a 404 and a duplicate tenant slug is a 409, neither of which any auth code
+ * describes. Forcing them onto one would tell the frontend that an ordinary
+ * missing resource was a server fault, and replace the message the service
+ * wrote with the internal-error sentence.
  *
  * @param status - HTTP status carried by the exception.
- * @returns The auth error code that best describes the status.
+ * @returns The matching auth error code, or `undefined` when none applies.
  */
-function codeForStatus(status: number): AuthErrorCode {
-  return STATUS_TO_CODE[status] ?? AUTH_ERROR_CODES.INTERNAL;
+function codeForStatus(status: number): AuthErrorCode | undefined {
+  return STATUS_TO_CODE[status];
 }
 
 /**
@@ -103,6 +112,32 @@ function readValidationDetails(body: unknown): Record<string, unknown> | null {
   if (!Array.isArray(message)) return null;
   const fields = message.filter((entry): entry is string => typeof entry === 'string');
   return fields.length > 0 ? { fields } : null;
+}
+
+/**
+ * Lowest status that denotes a server fault rather than a client error.
+ *
+ * Widened to `number` deliberately: `exception.getStatus()` returns a plain
+ * number, and comparing that against an `HttpStatus` member directly is an
+ * unsafe enum comparison.
+ */
+const SERVER_ERROR_THRESHOLD: number = HttpStatus.INTERNAL_SERVER_ERROR;
+
+/**
+ * Correlation identifiers carried by the request, for the log line.
+ *
+ * `requestId` is attached by pino-http and `tenantId` by the request pipeline
+ * from `X-Tenant-Id`. The logger module puts both on every line it writes
+ * itself, through `customProps` — but that applies to the request logger, not to
+ * the `Logger` instance a filter holds, so an exception logged here would
+ * otherwise be the one line in the file that cannot be tied to its request.
+ *
+ * @param request - The Express request the failure happened on.
+ * @returns The identifiers that are present, for spreading into the log object.
+ */
+function correlationOf(request: Request): { requestId?: unknown; tenantId?: unknown } {
+  const carrier = request as Request & { id?: unknown; tenantId?: unknown };
+  return { requestId: carrier.id, tenantId: carrier.tenantId };
 }
 
 /**
@@ -133,7 +168,8 @@ export class AuthExceptionFilter implements ExceptionFilter {
    * @param host - NestJS arguments host (HTTP context).
    */
   catch(exception: unknown, host: ArgumentsHost): void {
-    const response = host.switchToHttp().getResponse<Response>();
+    const http = host.switchToHttp();
+    const response = http.getResponse<Response>();
 
     if (exception instanceof AuthException) {
       const body: unknown = exception.getResponse();
@@ -165,8 +201,24 @@ export class AuthExceptionFilter implements ExceptionFilter {
       }
 
       const code = codeForStatus(status);
-      const details = code === AUTH_ERROR_CODES.VALIDATION ? readValidationDetails(body) : null;
-      this.send(response, status, code, details);
+      if (code !== undefined) {
+        const details = code === AUTH_ERROR_CODES.VALIDATION ? readValidationDetails(body) : null;
+        this.send(response, status, code, details);
+        return;
+      }
+
+      // No auth code describes this status. A client error carries information
+      // the caller needs and this application wrote — "Project 'x' not found",
+      // "Tenant slug 'y' is already taken" — so its own body is answered
+      // unchanged. The client's third body shape reads the message from it.
+      if (status < SERVER_ERROR_THRESHOLD) {
+        response.status(status).json(body);
+        return;
+      }
+
+      // A server fault, on the other hand, is never echoed: the message belongs
+      // to whatever failed and may quote its own configuration.
+      this.send(response, status, AUTH_ERROR_CODES.INTERNAL, null);
       return;
     }
 
@@ -177,8 +229,13 @@ export class AuthExceptionFilter implements ExceptionFilter {
     // this path that can carry a credential the logger's redact paths cannot
     // see. `describeError` strips the configured secrets out of it, caps the
     // length, and collapses newlines so a CR/LF in a remote's words cannot
-    // forge a second log record.
-    this.logger.error(`auth.unhandled_exception: ${describeError(exception, this.secrets)}`);
+    // forge a second log record. It goes in its own field rather than in `msg`,
+    // so the event name stays groupable and the request ids sit beside it.
+    this.logger.error({
+      msg: 'auth.unhandled_exception',
+      ...correlationOf(http.getRequest<Request>()),
+      error: describeError(exception, this.secrets),
+    });
     this.send(response, HttpStatus.INTERNAL_SERVER_ERROR, AUTH_ERROR_CODES.INTERNAL, null);
   }
 

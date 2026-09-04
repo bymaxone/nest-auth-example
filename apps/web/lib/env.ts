@@ -9,11 +9,11 @@
  * cause only visible in the console. Server code (route handlers,
  * `lib/require-auth.ts`) is where this belongs.
  *
- * A client component that needs a `NEXT_PUBLIC_` value reads
- * `process.env.NEXT_PUBLIC_…` directly, as the login, register and
- * forgot-password screens do; Next inlines those expressions at build time.
- * Declaring the variable here as well is still worthwhile — it is what makes a
- * malformed value fail the server at boot rather than silently reaching a page.
+ * A client component that needs a `NEXT_PUBLIC_` value imports `publicEnv` from
+ * `lib/env.public`, which declares those keys and nothing else and so validates
+ * in the browser too. The public schema below is that same module's, merged in,
+ * so each public variable is declared exactly once and the server still refuses
+ * to boot on a malformed value.
  *
  * Throws at module load with a human-readable error if any required variable
  * is missing or malformed — the app refuses to serve until the config is fixed.
