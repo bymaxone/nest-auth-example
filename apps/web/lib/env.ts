@@ -1,12 +1,19 @@
 /**
  * @fileoverview Validated, frozen environment configuration for apps/web.
  *
- * All process.env reads in apps/web MUST go through this module. Direct
- * `process.env.FOO` access anywhere else is a lint error (no-process-env rule).
+ * **Server-only. Never import this from a client component.** The schema
+ * requires `INTERNAL_API_URL` and `AUTH_JWT_SECRET_FOR_PROXY`, which are not
+ * `NEXT_PUBLIC_` and therefore absent from the browser bundle. Parsing fails
+ * there, and because the parse runs at module load the import throws while the
+ * component tree is being built — the page renders as blank, with the real
+ * cause only visible in the console. Server code (route handlers,
+ * `lib/require-auth.ts`) is where this belongs.
  *
- * NEXT_PUBLIC_* variables are exposed to the browser bundle by Next.js at
- * build time. All other variables are server-only — never reference them in
- * client components or they will be undefined (and Next.js will warn).
+ * A client component that needs a `NEXT_PUBLIC_` value reads
+ * `process.env.NEXT_PUBLIC_…` directly, as the login, register and
+ * forgot-password screens do; Next inlines those expressions at build time.
+ * Declaring the variable here as well is still worthwhile — it is what makes a
+ * malformed value fail the server at boot rather than silently reaching a page.
  *
  * Throws at module load with a human-readable error if any required variable
  * is missing or malformed — the app refuses to serve until the config is fixed.

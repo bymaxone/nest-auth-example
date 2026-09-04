@@ -42,7 +42,6 @@ import {
   TenantNotFoundError,
 } from '@/lib/auth-client';
 import { TENANT_OPTIONS, resolveDefaultTenantSlug } from '@/lib/tenants';
-import { env } from '@/lib/env';
 
 /**
  * Inner form — wrapped in `<Suspense>` by the default export so the page can be
@@ -61,6 +60,16 @@ function ForgotPasswordForm() {
   // Captured on submit so the code-entry link can carry the same tenant the
   // request was made against.
   const [resolvedTenantId, setResolvedTenantId] = useState<string | null>(null);
+
+  /*
+   * Read straight from `process.env`, the way the login and register pages read
+   * their own `NEXT_PUBLIC_` flag, rather than through `lib/env`. That module is
+   * server-only: its schema requires `INTERNAL_API_URL` and
+   * `AUTH_JWT_SECRET_FOR_PROXY`, neither of which exists in the browser, so
+   * importing it from a client component throws while the module loads and takes
+   * the whole page down with it. Next inlines this expression at build time.
+   */
+  const isOtpMode = process.env.NEXT_PUBLIC_PASSWORD_RESET_MODE === 'otp';
 
   const {
     register,
@@ -132,7 +141,7 @@ function ForgotPasswordForm() {
         {/* In code mode the email carries a numeric code and no link, so this
             screen is the only way through to the form that accepts it. Without
             the route the flow dead-ends here. */}
-        {env.NEXT_PUBLIC_PASSWORD_RESET_MODE === 'otp' && (
+        {isOtpMode && (
           <Button asChild size="lg">
             <Link
               href={{
