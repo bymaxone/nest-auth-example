@@ -42,6 +42,7 @@ import {
   TenantNotFoundError,
 } from '@/lib/auth-client';
 import { TENANT_OPTIONS, resolveDefaultTenantSlug } from '@/lib/tenants';
+import { publicEnv } from '@/lib/env.public';
 
 /**
  * Inner form — wrapped in `<Suspense>` by the default export so the page can be
@@ -66,15 +67,10 @@ function ForgotPasswordForm() {
   // request was made against.
   const [resolvedTenantId, setResolvedTenantId] = useState<string | null>(null);
 
-  /*
-   * Read straight from `process.env`, the way the login and register pages read
-   * their own `NEXT_PUBLIC_` flag, rather than through `lib/env`. That module is
-   * server-only: its schema requires `INTERNAL_API_URL` and
-   * `AUTH_JWT_SECRET_FOR_PROXY`, neither of which exists in the browser, so
-   * importing it from a client component throws while the module loads and takes
-   * the whole page down with it. Next inlines this expression at build time.
-   */
-  const isOtpMode = process.env.NEXT_PUBLIC_PASSWORD_RESET_MODE === 'otp';
+  // `lib/env.public` rather than `lib/env`: the latter is server-only and throws
+  // in the browser, taking the page down with it. Both validate the same public
+  // keys from one schema.
+  const isOtpMode = publicEnv.NEXT_PUBLIC_PASSWORD_RESET_MODE === 'otp';
 
   const {
     register,

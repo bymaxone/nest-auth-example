@@ -2,8 +2,9 @@ import { WsAdapter } from '@nestjs/platform-ws';
 /**
  * @file sessions-list-revoke.e2e-spec.ts
  * @description End-to-end spec for session listing and revocation:
- * listing active sessions, revoking a single session by sessionHash, and
- * revoking all sessions at once via POST /api/auth/sessions/revoke-all.
+ * listing active sessions, revoking a single session by sessionHash,
+ * revoking all sessions at once via POST /api/auth/sessions/revoke-all, and
+ * reading the concurrency cap from GET /api/account/session-policy.
  *
  *
  * Requires `docker-compose.test.yml` services to be running (Postgres at 55432,
@@ -45,6 +46,7 @@ import * as supertest from 'supertest';
 import type { Agent } from 'supertest';
 
 import { AppModule } from '../src/app.module.js';
+import { MAX_SESSIONS_PER_USER } from '../src/auth/auth.constants.js';
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { clearMailpit, waitForEmail, extractOtpFromHtml } from './helpers/mailpit.js';
@@ -224,6 +226,47 @@ describe('Sessions — list, single-session revocation, revoke-all', () => {
   });
 
   // ─── Test 2: Revoke single session ───────────────────────────────────────
+
+  it('GET /api/account/session-policy serves the enforced cap to an authenticated caller', async () => {
+    // Scenario: the sessions screen asks the API what the concurrency cap is
+    // rather than hardcoding it. Exercised through the real module so route
+    // registration, the global guards and @SkipMfa are covered — a unit test on
+    // the controller method proves none of those. Asserting against the constant
+    // rather than a literal is what keeps the number on screen and the number
+    // the auth module enforces from drifting apart. Protects FCM #14.
+    const email = uniqueEmail('session-policy');
+    const password = 'Str0ngUniqu3Passw0rd!';
+    const httpServer = app.getHttpServer();
+
+    const agent = await registerVerifyLogin(
+      httpServer,
+      email,
+      password,
+      'Policy User',
+      'TestBrowser-Policy',
+    );
+    await clearMailpit();
+
+    const res = await agent.get('/api/account/session-policy').set('X-Tenant-Id', 'acme');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ maxSessions: MAX_SESSIONS_PER_USER });
+  });
+
+  it('GET /api/account/session-policy refuses an unauthenticated caller', async () => {
+    // Scenario: the route carries @SkipMfa, which waives the second factor only —
+    // it must not waive authentication. Pinning the refusal here is what keeps a
+    // future decorator change from quietly making the endpoint public, and the
+    // body shape is asserted too because the whole API now answers in the
+    // library envelope rather than a flat body.
+    const res = await supertest
+      .agent(app.getHttpServer())
+      .get('/api/account/session-policy')
+      .set('X-Tenant-Id', 'acme');
+
+    expect(res.status).toBe(401);
+    expect(res.body).toMatchObject({ error: { code: expect.any(String) } });
+  });
 
   it('DELETE /api/auth/sessions/:sessionHash revokes a single session', async () => {
     // Scenario: two separate logins produce two sessions. Revoking one session

@@ -178,12 +178,13 @@ nest-auth-example/
 │       │   │   ├── silent-refresh/route.ts
 │       │   │   ├── client-refresh/route.ts
 │       │   │   └── logout/route.ts
-│       │   ├── layout.tsx            # wraps with <AuthProvider>
+│       │   ├── layout.tsx            # HTML shell + <Toaster>; NO <AuthProvider>
 │       │   └── page.tsx              # landing
 │       ├── proxy.ts                  # createAuthProxy()
 │       ├── lib/
 │       │   ├── auth-client.ts        # createAuthClient()
-│       │   └── env.ts
+│       │   ├── env.ts                # server-only config
+│       │   └── env.public.ts         # NEXT_PUBLIC_* config, browser-safe
 │       ├── components/
 │       │   ├── auth/                 # forms, MFA QR, OTP input
 │       │   └── ui/                   # shadcn primitives

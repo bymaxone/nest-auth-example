@@ -21,8 +21,16 @@
 
 import { z } from 'zod';
 
-/** Zod schema for every env var consumed by apps/web. */
-const envSchema = z.object({
+import { publicEnvSchema } from './env.public';
+
+/**
+ * Zod schema for the server-only variables.
+ *
+ * The `NEXT_PUBLIC_*` keys live in `lib/env.public.ts` and are merged in below,
+ * so each public variable is declared exactly once and the browser can validate
+ * the same shape without these server-only fields.
+ */
+const serverEnvSchema = z.object({
   // ── Server-only ────────────────────────────────────────────────────────────
   /**
    * Internal URL the Next.js server uses to proxy /api/* requests to NestJS.
@@ -38,43 +46,10 @@ const envSchema = z.object({
    * Minimum 32 characters to meet entropy requirements.
    */
   AUTH_JWT_SECRET_FOR_PROXY: z.string().min(32),
-
-  // ── Public (NEXT_PUBLIC_*) ─────────────────────────────────────────────────
-  /**
-   * Base URL for API calls made from the browser (same-origin /api proxy).
-   * Typically http://localhost:3000/api in development, /api in production.
-   */
-  NEXT_PUBLIC_API_URL: z.string().url(),
-
-  /**
-   * WebSocket base URL for the browser WS client.
-   * Must be same-origin (e.g. `ws://localhost:3000` in dev) so that the
-   * HttpOnly access_token cookie is automatically forwarded on the WS upgrade
-   * request. Next.js proxies `/ws/:path*` to the NestJS gateway.
-   * Use `wss://` in production when the app is served over HTTPS.
-   */
-  NEXT_PUBLIC_WS_URL: z.string().url(),
-
-  /**
-   * Feature flag: enable the Google OAuth login button.
-   * Requires the API to be configured with GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET.
-   */
-  NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED: z
-    .enum(['true', 'false'])
-    .transform((v) => v === 'true')
-    .default(false),
-
-  /**
-   * How the API delivers a password reset — must match the API's
-   * `PASSWORD_RESET_METHOD`.
-   *
-   * `token` mails a link that lands on the reset page with everything it needs.
-   * `otp` mails a numeric code and nothing else, so the request screen has to
-   * offer a way into the code-entry screen; without knowing the mode it dead-ends
-   * on "check your inbox" and the user has nowhere to go.
-   */
-  NEXT_PUBLIC_PASSWORD_RESET_MODE: z.enum(['token', 'otp']).default('token'),
 });
+
+/** Zod schema for every env var consumed by apps/web, public keys included. */
+const envSchema = serverEnvSchema.merge(publicEnvSchema);
 
 /** Public type of the validated, frozen env object. */
 export type Env = Readonly<z.infer<typeof envSchema>>;
