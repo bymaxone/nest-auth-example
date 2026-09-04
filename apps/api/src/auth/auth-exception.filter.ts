@@ -70,11 +70,19 @@ function isAuthEnvelope(body: unknown): body is AuthEnvelope {
 /**
  * The auth error code that best describes each HTTP status.
  *
- * Used for framework exceptions that carry no code of their own — a validation
- * failure, a missing route, a guard that threw `ForbiddenException`.
+ * Used for framework exceptions that carry no code of their own — chiefly a
+ * guard that threw `UnauthorizedException` or `ForbiddenException`, which the
+ * frontend routes on (an invalid token sends the user back to sign in).
+ *
+ * 400 is deliberately absent. `createAuthValidationPipe` is mounted globally and
+ * its `exceptionFactory` already answers DTO failures with `auth.validation` and
+ * the per-field list under `error.details`, so a real validation failure arrives
+ * carrying the envelope and never reaches this map. What a 400 reaching here
+ * actually is, then, is a business rule — `AccountService.findSwitchTarget`
+ * reporting "You are already signed in to this workspace" — and relabelling that
+ * as `auth.validation` replaced its sentence with "some fields are invalid".
  */
 const STATUS_TO_CODE: Partial<Record<number, AuthErrorCode>> = {
-  [HttpStatus.BAD_REQUEST]: AUTH_ERROR_CODES.VALIDATION,
   [HttpStatus.UNAUTHORIZED]: AUTH_ERROR_CODES.TOKEN_INVALID,
   [HttpStatus.FORBIDDEN]: AUTH_ERROR_CODES.FORBIDDEN,
   [HttpStatus.TOO_MANY_REQUESTS]: AUTH_ERROR_CODES.TOO_MANY_REQUESTS,
@@ -98,23 +106,6 @@ function codeForStatus(status: number): AuthErrorCode | undefined {
 }
 
 /**
- * Reads the per-field messages a `ValidationPipe` failure carries.
- *
- * The pipe puts them under `message` as an array of strings. They are written by
- * this application's DTOs, never by a caller, so they are safe to return.
- *
- * @param body - Raw value from `exception.getResponse()`.
- * @returns The field messages, or `null` when the body carries none.
- */
-function readValidationDetails(body: unknown): Record<string, unknown> | null {
-  if (typeof body !== 'object' || body === null) return null;
-  const message = (body as Record<string, unknown>)['message'];
-  if (!Array.isArray(message)) return null;
-  const fields = message.filter((entry): entry is string => typeof entry === 'string');
-  return fields.length > 0 ? { fields } : null;
-}
-
-/**
  * Lowest status that denotes a server fault rather than a client error.
  *
  * Widened to `number` deliberately: `exception.getStatus()` returns a plain
@@ -123,21 +114,53 @@ function readValidationDetails(body: unknown): Record<string, unknown> | null {
  */
 const SERVER_ERROR_THRESHOLD: number = HttpStatus.INTERNAL_SERVER_ERROR;
 
+/** Longest tenant identifier accepted into a log line from a request header. */
+const MAX_LOGGED_TENANT_LENGTH = 64;
+
 /**
  * Correlation identifiers carried by the request, for the log line.
  *
- * `requestId` is attached by pino-http and `tenantId` by the request pipeline
- * from `X-Tenant-Id`. The logger module puts both on every line it writes
- * itself, through `customProps` — but that applies to the request logger, not to
- * the `Logger` instance a filter holds, so an exception logged here would
- * otherwise be the one line in the file that cannot be tied to its request.
+ * `requestId` is attached by pino-http. The tenant is read from the JWT the
+ * guard verified, and only falls back to the `X-Tenant-Id` header when the
+ * request never reached a guard — an unauthenticated route, or a failure before
+ * authentication. Nothing in the application assigns `request.tenantId`, so
+ * reading that property yields `undefined` on every request.
+ *
+ * The header value is caller-supplied, so it is length-capped: a log field is
+ * not a place to echo an unbounded string a client chose. It is also marked as
+ * unverified, because on that path it is a claim rather than a fact.
+ *
+ * The logger module puts correlation on every line it writes itself through
+ * `customProps`, but that applies to the request logger, not to the `Logger`
+ * instance a filter holds — so an exception logged here would otherwise be the
+ * one line in the file that cannot be tied to its request.
  *
  * @param request - The Express request the failure happened on.
  * @returns The identifiers that are present, for spreading into the log object.
  */
-function correlationOf(request: Request): { requestId?: unknown; tenantId?: unknown } {
-  const carrier = request as Request & { id?: unknown; tenantId?: unknown };
-  return { requestId: carrier.id, tenantId: carrier.tenantId };
+function correlationOf(request: Request): {
+  requestId?: unknown;
+  tenantId?: string;
+  tenantIdUnverified?: string;
+} {
+  const carrier = request as Request & { id?: unknown; user?: { tenantId?: unknown } };
+  const requestId = carrier.id;
+
+  const authenticatedTenant = carrier.user?.tenantId;
+  if (typeof authenticatedTenant === 'string' && authenticatedTenant.length > 0) {
+    return { requestId, tenantId: authenticatedTenant };
+  }
+
+  // `headers` is always present on a real Express request, but this filter is
+  // the last line of defence — reading through an absent bag here would crash
+  // inside the handler that exists to keep crashes from escaping.
+  const header = request.headers?.['x-tenant-id'];
+  const claimed = Array.isArray(header) ? header[0] : header;
+  if (typeof claimed === 'string' && claimed.length > 0) {
+    return { requestId, tenantIdUnverified: claimed.slice(0, MAX_LOGGED_TENANT_LENGTH) };
+  }
+
+  return { requestId };
 }
 
 /**
@@ -202,8 +225,7 @@ export class AuthExceptionFilter implements ExceptionFilter {
 
       const code = codeForStatus(status);
       if (code !== undefined) {
-        const details = code === AUTH_ERROR_CODES.VALIDATION ? readValidationDetails(body) : null;
-        this.send(response, status, code, details);
+        this.send(response, status, code, null);
         return;
       }
 

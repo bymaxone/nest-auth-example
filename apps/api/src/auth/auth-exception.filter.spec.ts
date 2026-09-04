@@ -45,7 +45,9 @@ interface EnvelopeBody {
  *
  * @returns The fake host plus helpers reading the status and body last written.
  */
-function makeHost(request: Record<string, unknown> = { id: 'req-1', tenantId: 'acme' }): {
+function makeHost(
+  request: Record<string, unknown> = { id: 'req-1', headers: {}, user: { tenantId: 'acme' } },
+): {
   host: Parameters<AuthExceptionFilter['catch']>[1];
   getStatus: () => number | undefined;
   getBody: () => EnvelopeBody | undefined;
@@ -158,31 +160,45 @@ describe('AuthExceptionFilter', () => {
   });
 
   /**
-   * Scenario: a DTO fails validation.
-   * Rule: the per-field messages survive as structured detail, so a form can point
-   * at the field instead of only showing a sentence.
+   * Scenario: a service enforces a business rule with a plain
+   * `BadRequestException` — `AccountService.findSwitchTarget` reports "You are
+   * already signed in to this workspace" that way.
+   * Rule: the sentence survives. A real DTO failure never reaches this branch:
+   * `createAuthValidationPipe` is mounted globally and its `exceptionFactory`
+   * already answers those in the library envelope with `auth.validation` and the
+   * per-field list. Mapping 400 onto that code would therefore only ever relabel
+   * a business rule, replacing its explanation with "some fields are invalid".
    */
-  it('carries validation field messages through as details', () => {
+  it('keeps the message of a business bad request', () => {
     const { host, getStatus, getBody } = makeHost();
 
-    filter.catch(new BadRequestException({ message: ['email must be an email'] }), host);
+    filter.catch(new BadRequestException('You are already signed in to this workspace.'), host);
 
     expect(getStatus()).toBe(HttpStatus.BAD_REQUEST);
-    expect(getBody()?.error.code).toBe(AUTH_ERROR_CODES.VALIDATION);
-    expect(getBody()?.error.details).toEqual({ fields: ['email must be an email'] });
+    expect(JSON.stringify(getBody())).toContain('already signed in');
+    expect(JSON.stringify(getBody())).not.toContain(AUTH_ERROR_CODES.VALIDATION);
   });
 
   /**
-   * Scenario: a bad request that carries no field array.
-   * Rule: still a validation error, with no invented detail.
+   * Scenario: a DTO failure as the global pipe actually produces it.
+   * Rule: it already carries the envelope, so it passes through untouched with
+   * its per-field details intact — which is why the filter needs no validation
+   * mapping of its own.
    */
-  it('answers a bare bad request with a validation code and no details', () => {
-    const { host, getBody } = makeHost();
+  it('passes a pipe validation failure through with its field details', () => {
+    const { host, getStatus, getBody } = makeHost();
+    const envelope = {
+      error: {
+        code: AUTH_ERROR_CODES.VALIDATION,
+        message: 'Validation failed',
+        details: { fields: [{ field: 'email', message: 'must be an email' }] },
+      },
+    };
 
-    filter.catch(new BadRequestException('nope'), host);
+    filter.catch(new BadRequestException(envelope), host);
 
-    expect(getBody()?.error.code).toBe(AUTH_ERROR_CODES.VALIDATION);
-    expect(getBody()?.error.details).toBeNull();
+    expect(getStatus()).toBe(HttpStatus.BAD_REQUEST);
+    expect(getBody()).toEqual(envelope);
   });
 
   /**
@@ -273,29 +289,13 @@ describe('AuthExceptionFilter', () => {
    * Rule: the catalogue message is written, never the thrown one, so a driver
    * error cannot put a connection string in a response body.
    */
-  it('never writes the thrown message for a framework exception', () => {
+  it('never writes the thrown message for a mapped framework exception', () => {
     const { host, getBody } = makeHost();
 
-    filter.catch(new BadRequestException('postgres://user:secret@host/db'), host);
+    filter.catch(new ForbiddenException('postgres://user:secret@host/db'), host);
 
-    expect(getBody()?.error.message).toBe(AUTH_ERROR_MESSAGES[AUTH_ERROR_CODES.VALIDATION]);
+    expect(getBody()?.error.message).toBe(AUTH_ERROR_MESSAGES[AUTH_ERROR_CODES.FORBIDDEN]);
     expect(JSON.stringify(getBody())).not.toContain('secret');
-  });
-
-  /**
-   * Scenario: an exception built from a bare string, so `getResponse()` hands the
-   * filter a string rather than an object.
-   * Rule: the envelope guard rejects a non-object outright instead of indexing
-   * into it, and the validation reader finds no field array to report.
-   */
-  it('answers a string-bodied bad request without inventing details', () => {
-    const { host, getStatus, getBody } = makeHost();
-
-    filter.catch(new HttpException('plain text body', HttpStatus.BAD_REQUEST), host);
-
-    expect(getStatus()).toBe(HttpStatus.BAD_REQUEST);
-    expect(getBody()?.error.code).toBe(AUTH_ERROR_CODES.VALIDATION);
-    expect(getBody()?.error.details).toBeNull();
   });
 
   /**
@@ -311,20 +311,6 @@ describe('AuthExceptionFilter', () => {
     expect(getStatus()).toBe(HttpStatus.BAD_GATEWAY);
     expect(getBody()?.error.code).toBe(AUTH_ERROR_CODES.INTERNAL);
     expect(JSON.stringify(getBody())).not.toContain('plain text body');
-  });
-
-  /**
-   * Scenario: a validation body whose `message` array holds no strings.
-   * Rule: `details` stays null. Serialising whatever the array happened to hold
-   * is how a non-string value would reach the caller unchecked.
-   */
-  it('reports no details when the validation array holds no strings', () => {
-    const { host, getBody } = makeHost();
-
-    filter.catch(new BadRequestException({ message: [42, { field: 'email' }] }), host);
-
-    expect(getBody()?.error.code).toBe(AUTH_ERROR_CODES.VALIDATION);
-    expect(getBody()?.error.details).toBeNull();
   });
 
   // ── Unknown throwables ─────────────────────────────────────────────────────
@@ -384,7 +370,7 @@ describe('AuthExceptionFilter', () => {
    * request that produced it.
    */
   it('logs the event name with the request and tenant ids', () => {
-    const { host } = makeHost({ id: 'req-42', tenantId: 'globex' });
+    const { host } = makeHost({ id: 'req-42', headers: {}, user: { tenantId: 'globex' } });
     const error = jest.spyOn(filter['logger'], 'error').mockImplementation(() => undefined);
 
     filter.catch(new Error('boom'), host);
@@ -396,6 +382,41 @@ describe('AuthExceptionFilter', () => {
       tenantId: 'globex',
     });
     expect(typeof entry?.['error']).toBe('string');
+  });
+
+  /**
+   * Scenario: the failure happened before any guard ran, so there is no verified
+   * JWT — only the tenant the caller claimed in `X-Tenant-Id`.
+   * Rule: it is logged under a separate `tenantIdUnverified` key and capped in
+   * length. On this path the value is a claim rather than a fact, and a log
+   * field is not a place to echo an unbounded string the caller chose.
+   */
+  it('records an unverified tenant separately and caps its length', () => {
+    const longClaim = 'x'.repeat(200);
+    const { host } = makeHost({ id: 'req-7', headers: { 'x-tenant-id': longClaim } });
+    const error = jest.spyOn(filter['logger'], 'error').mockImplementation(() => undefined);
+
+    filter.catch(new Error('boom'), host);
+
+    const entry = (error.mock.calls as unknown as Array<[Record<string, unknown>]>)[0]?.[0];
+    expect(entry?.['tenantId']).toBeUndefined();
+    expect(entry?.['tenantIdUnverified']).toHaveLength(64);
+  });
+
+  /**
+   * Scenario: a proxy sent the header more than once, so Express hands over an
+   * array.
+   * Rule: the first value is taken rather than serialising the array, so the
+   * field keeps one shape whatever the caller sent.
+   */
+  it('takes the first value when the tenant header is repeated', () => {
+    const { host } = makeHost({ id: 'req-8', headers: { 'x-tenant-id': ['acme', 'globex'] } });
+    const error = jest.spyOn(filter['logger'], 'error').mockImplementation(() => undefined);
+
+    filter.catch(new Error('boom'), host);
+
+    const entry = (error.mock.calls as unknown as Array<[Record<string, unknown>]>)[0]?.[0];
+    expect(entry?.['tenantIdUnverified']).toBe('acme');
   });
 
   /**
