@@ -155,10 +155,25 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-  // Maps every AuthException from @bymax-one/nest-auth to { code, message, statusCode }
-  // so the frontend error-code map (apps/web/lib/auth-errors.ts) has a deterministic
-  // response envelope. Must be registered before the app starts listening.
-  app.useGlobalFilters(new AuthExceptionFilter());
+  // Answers every failure in the library envelope, `{ error: { code, message,
+  // details } }` — the shape `createAuthClient` parses, so the frontend error
+  // map (apps/web/lib/auth-errors.ts) reads a code rather than falling back to
+  // its generic sentence. Must be registered before the app starts listening.
+  //
+  // The configured secrets are handed over so the filter can strip them from an
+  // unhandled driver error's own message before logging it; Pino's redact paths
+  // match structured fields and never reach an interpolated string. `filter`
+  // drops the ones this deployment has not set.
+  const loggableSecrets = [
+    config.get<string>('DATABASE_URL'),
+    config.get<string>('REDIS_URL'),
+    config.get<string>('JWT_SECRET'),
+    config.get<string>('MFA_ENCRYPTION_KEY'),
+    config.get<string>('RESEND_API_KEY'),
+    config.get<string>('OAUTH_GOOGLE_CLIENT_SECRET'),
+  ].filter((value): value is string => typeof value === 'string' && value.length > 0);
+
+  app.useGlobalFilters(new AuthExceptionFilter(loggableSecrets));
 
   app.enableShutdownHooks();
 

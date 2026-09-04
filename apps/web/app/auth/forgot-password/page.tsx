@@ -57,6 +57,11 @@ function ForgotPasswordForm() {
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  // Whether the API actually accepted the request. Distinct from `submitted`,
+  // which is shown even on failure so the response time cannot be used to tell a
+  // registered address from an unregistered one. Only a request the API took can
+  // have produced a code, so only this gates the route into the code-entry form.
+  const [codeIssued, setCodeIssued] = useState(false);
   // Captured on submit so the code-entry link can carry the same tenant the
   // request was made against.
   const [resolvedTenantId, setResolvedTenantId] = useState<string | null>(null);
@@ -97,6 +102,7 @@ function ForgotPasswordForm() {
       // `tenantIdResolver`. The tenant travels exclusively via the
       // X-Tenant-Id header injected from the `tenant_id` cookie set above.
       await authClient.forgotPassword(data.email);
+      setCodeIssued(true);
       // Always show the generic confirmation — the server never leaks user existence
       setSubmitted(true);
     } catch (err) {
@@ -140,8 +146,13 @@ function ForgotPasswordForm() {
 
         {/* In code mode the email carries a numeric code and no link, so this
             screen is the only way through to the form that accepts it. Without
-            the route the flow dead-ends here. */}
-        {isOtpMode && (
+            the route the flow dead-ends here.
+
+            Gated on the request having been accepted: a rate-limited or failed
+            request never sent a code, and this screen is shown for those too.
+            Offering the route there would replace the form the user could have
+            retried with a code form they have nothing to type into. */}
+        {isOtpMode && codeIssued && (
           <Button asChild size="lg">
             <Link
               href={{

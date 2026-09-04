@@ -293,6 +293,31 @@ describe('AuthExceptionFilter', () => {
   });
 
   /**
+   * Scenario: a driver failure whose own message quotes the connection URL it
+   * could not reach — the classic shape of a Prisma or ioredis error.
+   * Rule: the configured secret does not survive into the log line. The
+   * logger's `redact` paths match structured fields and cannot reach a value
+   * interpolated into `Error.message`, so naming the secrets is what removes
+   * them. Nothing reaches the response body either way.
+   */
+  it('strips a configured secret from the logged message', () => {
+    const secret = 'postgresql://api:hunter2@db.internal:5432/app';
+    const filterWithSecrets = new AuthExceptionFilter([secret]);
+    const { host, getBody } = makeHost();
+    const error = jest
+      .spyOn(filterWithSecrets['logger'], 'error')
+      .mockImplementation(() => undefined);
+
+    filterWithSecrets.catch(new Error(`connect ECONNREFUSED ${secret}`), host);
+
+    const logged = String((error.mock.calls as unknown as Array<[string]>)[0]?.[0]);
+    expect(logged).not.toContain('hunter2');
+    expect(logged).not.toContain(secret);
+    expect(logged).toContain('auth.unhandled_exception');
+    expect(JSON.stringify(getBody())).not.toContain('hunter2');
+  });
+
+  /**
    * Scenario: a rejected promise carrying a non-Error value.
    * Rule: the filter still answers, describing the value by type only.
    */

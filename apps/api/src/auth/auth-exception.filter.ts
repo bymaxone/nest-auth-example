@@ -29,7 +29,12 @@ import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
 import { Catch, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
 import type { Response } from 'express';
-import { AuthException, AUTH_ERROR_CODES, AUTH_ERROR_MESSAGES } from '@bymax-one/nest-auth';
+import {
+  AuthException,
+  AUTH_ERROR_CODES,
+  AUTH_ERROR_MESSAGES,
+  describeError,
+} from '@bymax-one/nest-auth';
 import type { AuthErrorCode } from '@bymax-one/nest-auth';
 
 /** The response body every failure is answered with. */
@@ -112,6 +117,16 @@ export class AuthExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(AuthExceptionFilter.name);
 
   /**
+   * @param secrets - Configured values that must never appear in a log line.
+   *   Pino's `redact` paths match structured fields, so they cannot reach a
+   *   value a driver interpolated into its own `Error.message` — the connection
+   *   URL a failed Prisma or ioredis call quotes back, most of all. Naming the
+   *   values here is what lets them be stripped from that message. Defaults to
+   *   none so a test can construct the filter directly.
+   */
+  constructor(private readonly secrets: readonly string[] = []) {}
+
+  /**
    * Writes `exception` to the response in the library envelope.
    *
    * @param exception - Whatever was thrown.
@@ -157,9 +172,13 @@ export class AuthExceptionFilter implements ExceptionFilter {
 
     // Not an HttpException: a bug, a driver failure, a rejected promise. The
     // cause is logged and never serialized.
-    this.logger.error(
-      `unhandled exception: ${exception instanceof Error ? exception.message : typeof exception}`,
-    );
+    //
+    // The message is written by whatever threw, so it is the one log line on
+    // this path that can carry a credential the logger's redact paths cannot
+    // see. `describeError` strips the configured secrets out of it, caps the
+    // length, and collapses newlines so a CR/LF in a remote's words cannot
+    // forge a second log record.
+    this.logger.error(`auth.unhandled_exception: ${describeError(exception, this.secrets)}`);
     this.send(response, HttpStatus.INTERNAL_SERVER_ERROR, AUTH_ERROR_CODES.INTERNAL, null);
   }
 
