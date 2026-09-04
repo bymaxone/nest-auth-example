@@ -315,7 +315,38 @@ describe('buildAuthOptions', () => {
 
   // ── tenantIdResolver ───────────────────────────────────────────────────────
 
+  describe('emailChange', () => {
+    it('gives the address-change token the same ten-minute window as a password reset', () => {
+      /*
+       * Scenario: the option block the email-change flow is configured from.
+       * Protects: both the block's presence and the computed window. The
+       * library falls back to its own default when the block is absent, so a
+       * dropped `emailChange` would silently change the TTL rather than fail —
+       * and 10 * 60 reads the same as 10 / 60 until the number is asserted.
+       */
+      const options = buildAuthOptions(makeConfig() as never);
+
+      expect(options.emailChange?.tokenTtlSeconds).toBe(600);
+    });
+  });
+
   describe('tenantIdResolver', () => {
+    it('reports the missing tenant when the request carries no parsed cookies', () => {
+      /*
+       * Scenario: `req.cookies` is absent entirely — the shape a request has
+       * before `cookie-parser` runs, or on a path that never mounts it.
+       * Protects: the optional chain on the cookie read. Without it this throws
+       * a TypeError from inside the resolver, which surfaces as an opaque 500
+       * instead of the missing-tenant error the caller can act on.
+       */
+      const options = buildAuthOptions(makeConfig() as never);
+      const req = { headers: {} } as unknown as Parameters<
+        NonNullable<typeof options.tenantIdResolver>
+      >[0];
+
+      expect(() => options.tenantIdResolver?.(req)).toThrow(/Missing tenant/);
+    });
+
     it('returns the x-tenant-id header value when a non-empty string is provided', () => {
       // Multi-tenancy contract: the header is the primary source and is returned
       // raw, without transformation — even when a cookie is also present.

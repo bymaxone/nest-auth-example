@@ -279,6 +279,8 @@ describe('envSchema — AUTH_THROTTLE_DISABLED', () => {
     if (!result.success) {
       const paths = result.error.issues.map((i) => i.path.join('.'));
       expect(paths).toContain('AUTH_THROTTLE_DISABLED');
+      const messages = result.error.issues.map((i) => i.message);
+      expect(messages).toContain('AUTH_THROTTLE_DISABLED=true is not allowed in production');
     }
   });
 
@@ -302,7 +304,26 @@ describe('envSchema — AUTH_THROTTLE_DISABLED', () => {
     if (!result.success) {
       const paths = result.error.issues.map((i) => i.path.join('.'));
       expect(paths).toContain('TRUSTED_PROXY_HOPS');
+      // The message is the only thing that tells an operator WHY the boot was
+      // refused; an empty one leaves them with a path and no remedy.
+      const messages = result.error.issues.map((i) => i.message);
+      expect(messages).toContain(
+        'TRUSTED_PROXY_HOPS must be at least 1 in production — the web server proxies /api/*',
+      );
     }
+  });
+
+  it('accepts the direct-connection hop count outside production', () => {
+    /*
+     * Scenario: development and test run the API directly, with no proxy in
+     * front, so zero hops is correct there.
+     * Protects: the refinement is gated on NODE_ENV. Without that gate every
+     * local boot and every e2e suite would be refused for a setting that is
+     * only wrong in production.
+     */
+    const result = envSchema.safeParse({ ...VALID_ENV, TRUSTED_PROXY_HOPS: 0 });
+
+    expect(result.success).toBe(true);
   });
 
   it('rejects turning the password breach checker off in a production environment', () => {

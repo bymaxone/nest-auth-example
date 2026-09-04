@@ -105,6 +105,7 @@ interface AuthenticatedSocket extends WebSocket {
  * @returns The ticket string, or undefined when absent/empty.
  */
 function extractTicket(url: string | undefined): string | undefined {
+  // Stryker disable next-line ConditionalExpression: the length check is an equivalent mutant. `new URL('', 'http://localhost')` is valid — it resolves to the base — so an empty url that skips this guard yields a URL with no query, `searchParams.get('ticket')` returns null, and the function answers undefined either way. The guard is kept as a cheap short-circuit that says an empty url carries no ticket without constructing one.
   if (typeof url !== 'string' || url.length === 0) {
     return undefined;
   }
@@ -112,8 +113,12 @@ function extractTicket(url: string | undefined): string | undefined {
     const ticket = new URL(url, 'http://localhost').searchParams.get('ticket');
     return ticket !== null && ticket.length > 0 ? ticket : undefined;
   } catch {
-    return undefined;
+    // A malformed URL carries no ticket. The fallback lives below rather than
+    // here so this arm holds no statement: `return undefined` inside it and the
+    // one after the block are indistinguishable, which leaves a mutant no test
+    // can kill.
   }
+  return undefined;
 }
 
 /**
