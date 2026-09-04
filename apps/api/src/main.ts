@@ -62,12 +62,6 @@ class LegacyRouteWarningFilter implements LoggerService {
 }
 
 /**
- * Bootstrap the NestJS application.
- *
- * Reads `API_PORT` and `WEB_ORIGIN` from `ConfigService<Env, true>` after the
- * application module is created so the Zod-validated values are always used.
- */
-/**
  * Narrows the HTTP adapter's underlying instance to an Express application.
  *
  * `getInstance()` is untyped, so this guard is what lets `trust proxy` be set
@@ -84,6 +78,12 @@ function isExpressApplication(value: unknown): value is Application {
   return isObjectLike && typeof (value as Application).set === 'function';
 }
 
+/**
+ * Bootstrap the NestJS application.
+ *
+ * Reads `API_PORT` and `WEB_ORIGIN` from `ConfigService<Env, true>` after the
+ * application module is created so the Zod-validated values are always used.
+ */
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, new ExpressAdapter(), {
     bufferLogs: true,

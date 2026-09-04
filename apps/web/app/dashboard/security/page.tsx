@@ -37,6 +37,12 @@ import { getMfaStatus } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 
+/** How many times the MFA-status request is attempted before giving up. */
+const STATUS_FETCH_ATTEMPTS = 3;
+
+/** Pause between status-request attempts, in milliseconds. */
+const STATUS_RETRY_DELAY_MS = 750;
+
 /**
  * Security settings page — toggles MFA based on the user's current state.
  *
@@ -50,12 +56,6 @@ import { Card } from '@/components/ui/card';
  * redirects to the login screen and there is no state left to re-read. See
  * `handleMfaEnabled`.
  */
-/** How many times the MFA-status request is attempted before giving up. */
-const STATUS_FETCH_ATTEMPTS = 3;
-
-/** Pause between status-request attempts, in milliseconds. */
-const STATUS_RETRY_DELAY_MS = 750;
-
 export default function SecurityPage() {
   const { user, status, refresh } = useSession();
   const searchParams = useSearchParams();
