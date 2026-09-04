@@ -338,9 +338,12 @@ describe('MfaSetupCard setup flow', () => {
 
   it('calls onEnabled after closing the recovery codes modal', async () => {
     /*
-     * Scenario: dismissing the RecoveryCodesModal (handleModalClose) must call
-     * the onEnabled prop so the parent re-fetches the MFA state.
+     * Scenario: dismissing the RecoveryCodesModal (handleModalClose) reports the
+     * enrolment to the parent.
      * Protects: handleModalClose calls onEnabled after clearing modal state.
+     * What the parent does with it is its own decision — the security page
+     * deliberately does not refresh here, because enabling MFA kills the session
+     * and the card is already redirecting to the login screen.
      */
     vi.mocked(mfaSetup).mockResolvedValue({
       secret: 'SECRET',

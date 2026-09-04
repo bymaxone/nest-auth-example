@@ -41,11 +41,14 @@ import { Card } from '@/components/ui/card';
  * Security settings page — toggles MFA based on the user's current state.
  *
  * `session.refresh()` re-issues `GET /api/auth/me` against the API and
- * updates the `AuthProvider` context with the persisted `mfaEnabled`
- * value. Because both `MfaSetupCard.onEnabled` and `MfaDisableCard.onDisabled`
- * fire AFTER the underlying API call resolves, the refetch picks up the
- * latest server-side state and the page swaps to the correct card on the
- * next render tick.
+ * updates the `AuthProvider` context with the persisted `mfaEnabled` value.
+ * `MfaDisableCard.onDisabled` fires AFTER the underlying API call resolves, so
+ * the refetch picks up the latest server-side state and the page swaps to the
+ * correct card on the next render tick.
+ *
+ * Enabling is not symmetric: it invalidates every session, so the card
+ * redirects to the login screen and there is no state left to re-read. See
+ * `handleMfaEnabled`.
  */
 /** How many times the MFA-status request is attempted before giving up. */
 const STATUS_FETCH_ATTEMPTS = 3;
@@ -116,6 +119,23 @@ export default function SecurityPage() {
   const handleToggle = useCallback(() => {
     void refresh();
   }, [refresh]);
+
+  /**
+   * Called once a second factor has been enabled.
+   *
+   * Deliberately does not refresh the session. Enabling MFA invalidates every
+   * session, this one included, and `MfaSetupCard` sends the user to the login
+   * screen with `?reason=mfa_enabled`. A refresh here would 401, the provider's
+   * `onSessionExpired` would push `?reason=session_expired`, and because the
+   * refresh is async that push lands *after* the card's `replace` — so the user
+   * who just secured their account would be told their session expired instead.
+   * There is also nothing to re-read: the card swap this would drive is on a
+   * page the user is already leaving.
+   */
+  const handleMfaEnabled = useCallback(() => {
+    // Intentionally empty. See above: the only correct action is to let the
+    // card's redirect stand.
+  }, []);
 
   /** Re-runs the status effect after its bounded attempts have been spent. */
   const handleStatusRetry = useCallback(() => {
@@ -200,7 +220,7 @@ export default function SecurityPage() {
         ) : hasPassword === null ? (
           <MfaStatusUnavailableCard onRetry={handleStatusRetry} />
         ) : (
-          <MfaSetupCard onEnabled={handleToggle} hasPassword={hasPassword} />
+          <MfaSetupCard onEnabled={handleMfaEnabled} hasPassword={hasPassword} />
         )}
       </div>
 
