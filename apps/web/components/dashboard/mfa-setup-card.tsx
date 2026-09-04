@@ -8,8 +8,8 @@
  *   2. Card shows QR code + manual secret entry field
  *   3. User enters TOTP code → `POST /auth/mfa/verify-enable`
  *   4. On success, recovery codes from step 1 are shown in `RecoveryCodesModal`
- *   5. On modal dismiss, `onEnabled()` reports the enrolment and the card
- *      redirects to the login screen
+ *   5. On modal dismiss, `onEnabled()` reports the enrolment, the card clears
+ *      this browser's auth cookies, and redirects to the login screen
  *
  * Step 5 is terminal. Enabling a second factor invalidates every session, this
  * one included, so the card leaves for `/auth/login?reason=mfa_enabled` rather
@@ -49,6 +49,14 @@ const verifySchema = z.object({
 });
 
 type VerifyValues = z.infer<typeof verifySchema>;
+
+/**
+ * Next.js route handler that clears this browser's auth cookies.
+ *
+ * A route handler rather than a backend path, so it is reached with a plain
+ * `fetch` instead of through `apiFetch`'s `/api`-relative pipeline.
+ */
+const LOGOUT_ROUTE = '/api/auth/logout';
 
 interface MfaSetupCardProps {
   /**
@@ -155,17 +163,36 @@ export function MfaSetupCard({ onEnabled, hasPassword = true }: MfaSetupCardProp
     }
   };
 
+  /**
+   * Ends this browser's session, then sends the user to sign in again.
+   *
+   * The library revoked the session server-side when the factor was enabled,
+   * but this browser still holds the `access_token` and `has_session` cookies.
+   * `proxy.ts` lists `/auth/login` under `publicRoutesRedirectIfAuthenticated`,
+   * so navigating there while those cookies are set bounces straight back to
+   * `/dashboard` — the success message is never seen, and the dashboard's next
+   * request 401s. Clearing the cookies first is what makes the destination
+   * reachable, and it also means the auth segment's `<AuthProvider>` mounts
+   * with no session to probe rather than one it will find revoked.
+   *
+   * The clear is allowed to fail: the session it targets is already gone, and
+   * stranding the user on a dead page would be worse than an uncleared cookie.
+   */
+  const endSessionAndRedirect = async (): Promise<void> => {
+    try {
+      await fetch(LOGOUT_ROUTE, { method: 'POST', credentials: 'include' });
+    } catch {
+      // Deliberately swallowed — see above.
+    }
+    router.replace('/auth/login?reason=mfa_enabled');
+  };
+
   const handleModalClose = () => {
     setShowModal(false);
     // Stryker disable next-line ArrayDeclaration: `setRecoveryCodes([])` clears the codes from React state so a re-render cannot leak them back into the DOM. A mutated `["Stryker"]` is observable only if the modal re-opens with the same `recoveryCodes` ref — but each enrolment cycle calls `setRecoveryCodes(result.recoveryCodes)` first, replacing the array.
     setRecoveryCodes([]);
     onEnabled();
-    // The library invalidates every session when a second factor is enabled, so
-    // this session is already dead. Leaving the user here means the next call
-    // 401s and the shell reports an expired session — which reads as a failure
-    // immediately after they secured their account. Send them to sign in with a
-    // message that says what actually happened.
-    router.replace('/auth/login?reason=mfa_enabled');
+    void endSessionAndRedirect();
   };
 
   // Guards extracted into named locals so per-clause Stryker disable directives

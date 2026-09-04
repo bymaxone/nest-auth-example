@@ -49,7 +49,7 @@ Cookies HttpOnly, `secure` derived from `NODE_ENV`, `SameSite=Lax`. CORS allowli
 
 ### No direct `process.env.*`
 
-Backend reads go through `ConfigService<Env, true>`; frontend reads through `lib/env.ts`. Typos become compile errors, not silent `undefined`. See [docs/guidelines/environment-guidelines.md](docs/guidelines/environment-guidelines.md).
+Backend reads go through `ConfigService<Env, true>`. Frontend server code reads through `lib/env.ts`; **client components read through `lib/env.public.ts`**, which declares only the `NEXT_PUBLIC_*` keys — `lib/env.ts` requires server-only keys and throws in the browser, blanking the page. Typos become compile errors, not silent `undefined`. See [docs/guidelines/environment-guidelines.md](docs/guidelines/environment-guidelines.md).
 
 ### No secrets in logs
 

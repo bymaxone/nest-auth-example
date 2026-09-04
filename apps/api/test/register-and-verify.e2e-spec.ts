@@ -241,10 +241,10 @@ describe('Register & Verify — register → OTP email → verify-email', () => 
     // X-Tenant-Id header, so since lib v1.4.2 any register body naming a
     // non-null `tenantId` is refused outright with 400 `auth.validation` —
     // a spoofed body tenant can no longer silently disagree with the header.
-    // The library names the offending field in `error.details`; the app's
-    // AuthExceptionFilter intentionally flattens the envelope to
-    // `{ code, message, statusCode }`, so the field-level detail is asserted
-    // in the library's own tests and the flattened envelope is pinned here.
+    // The library names the offending field in `error.details`, and the app's
+    // AuthExceptionFilter passes that envelope through unchanged, so the code
+    // and its nesting are pinned here while the field-level detail stays
+    // asserted in the library's own tests.
     const email = uniqueEmail('body-tenant');
 
     const res = await supertest

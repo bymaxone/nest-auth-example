@@ -83,7 +83,9 @@ See [docs/guidelines/security-privacy-guidelines.md](docs/guidelines/security-pr
 
 ### 7. No direct `process.env.*` or `console.*`
 
-- Env via `ConfigService<Env, true>` (api) or `lib/env.ts` (web).
+- Env via `ConfigService<Env, true>` (api), `lib/env.ts` (web server) or
+  `lib/env.public.ts` (web client — `lib/env.ts` requires server-only keys and
+  throws in the browser).
 - Logs via the injected Pino logger. No `console.log` / `console.error` anywhere in runtime code.
 
 ### 8. No banned patterns

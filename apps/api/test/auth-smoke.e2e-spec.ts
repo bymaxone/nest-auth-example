@@ -240,8 +240,10 @@ describe('Auth smoke — register → verify → login → /me → /projects →
   // ─── Error envelope ────────────────────────────────���──────────────────────
 
   it('returns the standard error envelope for invalid credentials', async () => {
-    // Scenario: AuthExceptionFilter maps AuthException to { code, message, statusCode }
-    // so the frontend auth-errors map can reliably translate error codes. Covers FCM #29.
+    // Scenario: AuthExceptionFilter answers in the library envelope,
+    // { error: { code, message, details } }, which is the shape
+    // `createAuthClient` parses — a flat top-level `code` is the one it cannot
+    // read, and every form would fall back to its generic sentence. Covers FCM #29.
     const res = await agent
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
