@@ -87,3 +87,37 @@ export function translateAuthError(code: string): string {
   }
   return 'An unexpected error occurred. Please try again.';
 }
+
+/**
+ * Shown when the request never reached the API — offline, DNS failure, the
+ * server not running. Distinct from a server-side refusal, because the action
+ * the user should take is different: retry, rather than correct their input.
+ */
+export const NETWORK_ERROR_MESSAGE =
+  'We could not reach the server. Check your connection and try again.';
+
+/**
+ * Reads the error code out of an API error body.
+ *
+ * The API answers in the library envelope, `{ error: { code, … } }`. The flat
+ * `{ code, … }` form is still accepted so a page keeps working against an older
+ * deployment during a rollout.
+ *
+ * Use this only where a page holds the parsed body itself; anything going
+ * through `authClient` already receives a normalised `AuthClientError`.
+ *
+ * @param body - Parsed JSON body of a non-2xx response.
+ * @returns The error code, or an empty string when the body carries none.
+ */
+export function readAuthErrorCode(body: unknown): string {
+  if (typeof body !== 'object' || body === null) return '';
+
+  const envelope = (body as Record<string, unknown>)['error'];
+  if (typeof envelope === 'object' && envelope !== null) {
+    const nested = (envelope as Record<string, unknown>)['code'];
+    if (typeof nested === 'string') return nested;
+  }
+
+  const flat = (body as Record<string, unknown>)['code'];
+  return typeof flat === 'string' ? flat : '';
+}

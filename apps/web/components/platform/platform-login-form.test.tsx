@@ -172,7 +172,7 @@ describe('PlatformLoginForm submission', () => {
     expect(mockReplace).not.toHaveBeenCalled();
   });
 
-  it('passes the non-UNKNOWN error code to translateAuthError', async () => {
+  it('toasts the mapped message for a recognised error code', async () => {
     /*
      * Scenario: when mapAuthClientError returns a code other than 'UNKNOWN' the
      * ternary `code === 'UNKNOWN' ? '' : code` must pass the actual code to
@@ -180,7 +180,6 @@ describe('PlatformLoginForm submission', () => {
      * Protects: line 80 — false branch of the UNKNOWN check in the catch block.
      */
     const { mapAuthClientError } = await import('@/lib/auth-client');
-    const { translateAuthError } = await import('@/lib/auth-errors');
 
     // Return a specific code (not 'UNKNOWN') from mapAuthClientError.
     vi.mocked(mapAuthClientError).mockReturnValueOnce({
@@ -199,9 +198,10 @@ describe('PlatformLoginForm submission', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /sign in to platform admin/i }));
 
+    const { toast } = await import('sonner');
     await waitFor(() => {
       // translateAuthError must be called with the actual code, not ''.
-      expect(translateAuthError).toHaveBeenCalledWith('auth.invalid_credentials');
+      expect(vi.mocked(toast).error).toHaveBeenCalledWith('Invalid credentials');
     });
   });
 
@@ -230,7 +230,7 @@ describe('PlatformLoginForm submission', () => {
     });
   });
 
-  it('passes the EMPTY string to translateAuthError when mapAuthClientError returns UNKNOWN', async () => {
+  it('toasts the mapped message when the error carries no known code', async () => {
     /*
      * Scenario: the UNKNOWN sentinel must be normalised to '' before
      * being passed to translateAuthError so the user sees the generic
@@ -238,7 +238,6 @@ describe('PlatformLoginForm submission', () => {
      * truthy arm of the `code === 'UNKNOWN' ? '' : code` ternary.
      */
     const { mapAuthClientError } = await import('@/lib/auth-client');
-    const { translateAuthError } = await import('@/lib/auth-errors');
     vi.mocked(mapAuthClientError).mockReturnValueOnce({
       code: 'UNKNOWN' as never,
       message: 'Generic',
@@ -255,8 +254,9 @@ describe('PlatformLoginForm submission', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /sign in to platform admin/i }));
 
+    const { toast } = await import('sonner');
     await waitFor(() => {
-      expect(translateAuthError).toHaveBeenCalledWith('');
+      expect(vi.mocked(toast).error).toHaveBeenCalledWith('Generic');
     });
   });
 

@@ -32,7 +32,7 @@
  */
 
 import { createAuthClient, createAuthFetch, AuthClientError } from '@bymax-one/nest-auth/client';
-import { translateAuthError } from './auth-errors';
+import { NETWORK_ERROR_MESSAGE, translateAuthError } from './auth-errors';
 import type {
   AuthClient,
   AuthClientConfig,
@@ -224,11 +224,14 @@ export function mapAuthClientError(error: unknown): {
       : { code, message };
   }
 
-  // Not an API error: a thrown `Error` here is ours (a network failure, a bug),
-  // never server-authored, so its message is safe to show.
+  // Not an API error: the request never produced a response, so this is a
+  // network failure, an aborted fetch or a bug in our own code. Those messages
+  // are developer-facing — "Failed to fetch" tells a user nothing and looks like
+  // a crash — so the caller gets the one sentence that names something they can
+  // act on. The original is still available on the caught value for debugging.
   return {
     code: 'UNKNOWN' as const,
-    message: error instanceof Error ? error.message : 'An unexpected error occurred.',
+    message: NETWORK_ERROR_MESSAGE,
   };
 }
 
@@ -545,12 +548,29 @@ export interface SessionInfo {
 
 // ── Session helpers ───────────────────────────────────────────────────────────
 
+/** Session limits the deployment enforces, from `GET /account/session-policy`. */
+export interface SessionPolicy {
+  /** Concurrent sessions kept per user before the oldest is evicted. */
+  maxSessions: number;
+}
+
 /**
  * Lists all active sessions for the authenticated user.
  *
  * @returns Array of `SessionInfo` sorted newest-first.
  */
 export const listSessions = (): Promise<SessionInfo[]> => apiFetch<SessionInfo[]>('/auth/sessions');
+
+/**
+ * Reads the concurrent-session cap the deployment enforces.
+ *
+ * Served from the same constant the auth module is configured with, so the
+ * number shown on the sessions screen cannot drift from the one enforced.
+ *
+ * @returns The session policy for the current deployment.
+ */
+export const getSessionPolicy = (): Promise<SessionPolicy> =>
+  apiFetch<SessionPolicy>('/account/session-policy');
 
 /**
  * Revokes a single session by its full SHA-256 session hash.
@@ -652,6 +672,7 @@ export {
   listPlatformTenants,
   listPlatformUsers,
   platformUpdateUserStatus,
+  platformResetUserMfa,
 } from './auth-client.platform';
 export type {
   PlatformTenantInfo,

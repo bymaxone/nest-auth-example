@@ -28,7 +28,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AuthClientError } from '@bymax-one/nest-auth/client';
-import { translateAuthError } from './auth-errors';
+import { NETWORK_ERROR_MESSAGE, translateAuthError } from './auth-errors';
 import type { RefreshOutcome } from '@bymax-one/nest-auth/client';
 
 // ── Mock @bymax-one/nest-auth/client ──────────────────────────────────────────
@@ -317,16 +317,19 @@ describe('mapAuthClientError', () => {
     expect(result.redirectTo).toBeUndefined();
   });
 
-  it('normalises a generic Error instance to code=UNKNOWN', () => {
+  it('normalises a generic Error instance to the network sentence', () => {
     /*
-     * Scenario: non-library errors (network failures, etc.) must be normalised
-     * to `code: UNKNOWN` with the error message preserved.
-     * Protects: graceful handling of non-AuthClientError Error instances.
+     * Scenario: the request never produced a response — offline, DNS failure,
+     * the API not running. The thrown text is developer-facing ("Failed to
+     * fetch") and reads like a crash, so the user gets the one sentence that
+     * names something they can act on.
+     * Protects: transport failures are reported as connection problems.
      */
-    const err = new Error('Network failure');
+    const err = new Error('Failed to fetch');
     const result = mapAuthClientError(err);
     expect(result.code).toBe('UNKNOWN');
-    expect(result.message).toBe('Network failure');
+    expect(result.message).toBe(NETWORK_ERROR_MESSAGE);
+    expect(result.message).not.toContain('Failed to fetch');
     expect(result.redirectTo).toBeUndefined();
   });
 
@@ -338,7 +341,7 @@ describe('mapAuthClientError', () => {
      */
     const result = mapAuthClientError('some string error');
     expect(result.code).toBe('UNKNOWN');
-    expect(result.message).toBe('An unexpected error occurred.');
+    expect(result.message).toBe(NETWORK_ERROR_MESSAGE);
   });
 
   it('normalises null to the generic message', () => {
@@ -349,7 +352,7 @@ describe('mapAuthClientError', () => {
      */
     const result = mapAuthClientError(null);
     expect(result.code).toBe('UNKNOWN');
-    expect(result.message).toBe('An unexpected error occurred.');
+    expect(result.message).toBe(NETWORK_ERROR_MESSAGE);
   });
 });
 
@@ -363,8 +366,8 @@ describe('handleAuthClientError', () => {
      * Protects: toast is always called with the correct message string.
      */
     const toast = { error: vi.fn() };
-    handleAuthClientError(new Error('Some error'), { toast });
-    expect(toast.error).toHaveBeenCalledWith('Some error');
+    handleAuthClientError(new Error('Failed to fetch'), { toast });
+    expect(toast.error).toHaveBeenCalledWith(NETWORK_ERROR_MESSAGE);
   });
 
   it('calls router.push when error has a redirectTo and router is provided', () => {

@@ -26,7 +26,7 @@ import { ConfigService } from '@nestjs/config';
 import type { BymaxAuthModuleOptions } from '@bymax-one/nest-auth';
 
 import type { Env } from '../config/env.schema.js';
-import { BLOCKED_USER_STATUSES } from './auth.constants.js';
+import { BLOCKED_USER_STATUSES, MAX_SESSIONS_PER_USER } from './auth.constants.js';
 
 /** Google OAuth credentials, present only when all three env vars are set. */
 interface GoogleOauthCredentials {
@@ -149,7 +149,7 @@ function buildAccountFlowOptions(
     // ── Sessions (Redis-backed, FIFO eviction) ────────────────────────────────
     sessions: {
       enabled: true,
-      defaultMaxSessions: 5,
+      defaultMaxSessions: MAX_SESSIONS_PER_USER,
     },
 
     // ── Brute-force protection ────────────────────────────────────────────────

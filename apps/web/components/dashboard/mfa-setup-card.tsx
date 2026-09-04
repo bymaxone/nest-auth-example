@@ -19,6 +19,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod/v4';
@@ -75,6 +76,8 @@ export function MfaSetupCard({ onEnabled, hasPassword = true }: MfaSetupCardProp
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState<string | null>(null);
 
+  const router = useRouter();
+
   const {
     control: formControl,
     handleSubmit,
@@ -127,6 +130,9 @@ export function MfaSetupCard({ onEnabled, hasPassword = true }: MfaSetupCardProp
       setShowModal(true);
     } catch (err) {
       handleAuthClientError(err, { toast });
+      // Clear the boxes so the user retypes rather than resubmitting the code
+      // that was just refused.
+      reset();
     } finally {
       setIsLoading(false);
     }
@@ -137,6 +143,12 @@ export function MfaSetupCard({ onEnabled, hasPassword = true }: MfaSetupCardProp
     // Stryker disable next-line ArrayDeclaration: `setRecoveryCodes([])` clears the codes from React state so a re-render cannot leak them back into the DOM. A mutated `["Stryker"]` is observable only if the modal re-opens with the same `recoveryCodes` ref — but each enrolment cycle calls `setRecoveryCodes(result.recoveryCodes)` first, replacing the array.
     setRecoveryCodes([]);
     onEnabled();
+    // The library invalidates every session when a second factor is enabled, so
+    // this session is already dead. Leaving the user here means the next call
+    // 401s and the shell reports an expired session — which reads as a failure
+    // immediately after they secured their account. Send them to sign in with a
+    // message that says what actually happened.
+    router.replace('/auth/login?reason=mfa_enabled');
   };
 
   // Guards extracted into named locals so per-clause Stryker disable directives
@@ -173,7 +185,7 @@ export function MfaSetupCard({ onEnabled, hasPassword = true }: MfaSetupCardProp
                 : 'Protect your account with a TOTP authenticator app (Google Authenticator, Authy, etc.).'}
             </p>
             {hasPassword && (
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label
                   htmlFor="mfa-setup-password"
                   className="text-xs text-[rgba(255,255,255,0.6)]"
@@ -222,7 +234,7 @@ export function MfaSetupCard({ onEnabled, hasPassword = true }: MfaSetupCardProp
             </div>
 
             {/* Manual entry fallback */}
-            <div className="space-y-1">
+            <div className="space-y-2">
               <Label className="text-xs text-[rgba(255,255,255,0.4)]">
                 Or enter the secret manually
               </Label>
@@ -236,7 +248,7 @@ export function MfaSetupCard({ onEnabled, hasPassword = true }: MfaSetupCardProp
             </div>
 
             <form onSubmit={(e) => void handleSubmit(onVerify)(e)} className="space-y-3">
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label className="text-xs text-[rgba(255,255,255,0.6)]">
                   Enter 6-digit code from authenticator
                 </Label>

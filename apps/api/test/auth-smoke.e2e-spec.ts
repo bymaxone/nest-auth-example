@@ -250,9 +250,10 @@ describe('Auth smoke — register → verify → login → /me → /projects →
 
     expect(res.status).toBe(401);
     expect(res.body).toMatchObject({
-      code: expect.stringMatching(/^auth\./),
-      message: expect.any(String),
-      statusCode: 401,
+      error: {
+        code: expect.stringMatching(/^auth\./),
+        message: expect.any(String),
+      },
     });
   });
 

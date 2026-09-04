@@ -318,8 +318,7 @@ describe('Password reset (token mode) — forgot-password → reset link → log
 
     expect(res.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.PASSWORD_RESET_TOKEN_INVALID]);
     expect(res.body).toMatchObject({
-      code: AUTH_ERROR_CODES.PASSWORD_RESET_TOKEN_INVALID,
-      statusCode: 400,
+      error: { code: AUTH_ERROR_CODES.PASSWORD_RESET_TOKEN_INVALID },
     });
   });
 });

@@ -10,6 +10,10 @@
 
 'use client';
 
+import { useState } from 'react';
+import { Check, Copy } from 'lucide-react';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -19,6 +23,9 @@ import {
   AlertDialogFooter,
   AlertDialogAction,
 } from '@/components/ui/alert-dialog';
+
+/** How long the "Copied" confirmation stays on the button, in milliseconds. */
+const COPIED_FEEDBACK_MS = 2000;
 
 interface RecoveryCodesModalProps {
   /** Whether the modal is visible. */
@@ -41,6 +48,25 @@ interface RecoveryCodesModalProps {
  * @param codes   - Array of recovery code strings.
  */
 export function RecoveryCodesModal({ open, onClose, codes }: RecoveryCodesModalProps) {
+  const [hasCopied, setHasCopied] = useState(false);
+
+  /**
+   * Copies every code to the clipboard, one per line.
+   *
+   * The clipboard API rejects when the document is not focused or permission is
+   * refused; the codes stay on screen either way, so the failure is reported and
+   * nothing is lost.
+   */
+  const handleCopy = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(codes.join('\n'));
+      setHasCopied(true);
+      window.setTimeout(() => setHasCopied(false), COPIED_FEEDBACK_MS);
+    } catch {
+      toast.error('Could not copy to the clipboard. Select the codes and copy them manually.');
+    }
+  };
+
   return (
     <AlertDialog open={open}>
       <AlertDialogContent className="max-w-md">
@@ -52,18 +78,34 @@ export function RecoveryCodesModal({ open, onClose, codes }: RecoveryCodesModalP
           </AlertDialogDescription>
         </AlertDialogHeader>
 
-        <div className="my-2 grid grid-cols-2 gap-2 rounded-lg border border-[rgba(255,255,255,0.08)] bg-[rgba(0,0,0,0.3)] p-4">
+        {/* `tracking-widest` on a code this long pushed it past its column and
+            wrapped mid-value, which is the worst possible moment to make a code
+            hard to read: it is shown exactly once. Normal tracking with
+            `whitespace-nowrap` keeps each code on one line. */}
+        <div className="my-2 grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-[rgba(255,255,255,0.08)] bg-[rgba(0,0,0,0.3)] p-4">
           {codes.map((code) => (
             <span
               key={code}
-              className="font-mono text-sm tracking-widest text-[rgba(255,255,255,0.85)]"
+              className="font-mono text-sm whitespace-nowrap text-[rgba(255,255,255,0.85)]"
             >
               {code}
             </span>
           ))}
         </div>
 
-        <AlertDialogFooter>
+        <AlertDialogFooter className="sm:justify-between">
+          {/* Copying is the whole point of the dialog — the codes are shown once
+              and transcribing them by hand is how people lose them. */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void handleCopy()}
+            className="gap-2"
+          >
+            {hasCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            {hasCopied ? 'Copied' : 'Copy codes'}
+          </Button>
           <AlertDialogAction variant="default" onClick={onClose}>
             I&apos;ve saved my codes
           </AlertDialogAction>

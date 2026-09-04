@@ -236,6 +236,22 @@ its non-sortable neighbours. Repeat `uppercase tracking-wider` on the inner butt
 
 8-pt rhythm: **4 / 8 / 12 / 16 / 24 / 32**.
 
+**Form fields carry `gap-2` (8px) between label and control, never `gap-1.5`.** Six pixels is off
+the rhythm and reads as the label being glued to the input. Two things produce that look together,
+so fixing one alone does not help:
+
+- the container gap, and
+- the label's line-height — `leading-none` removes the label's own line box, so its descenders sit
+  flush on the control below. `Label` sets `leading-snug`; do not override it back.
+
+Field group recipe: `flex flex-col gap-2` (or `space-y-2`) wrapping `<Label>` + control + error.
+`CardHeader` / `DialogHeader` keep `space-y-1.5` — a title and its description are one block, not a
+label and a control.
+
+**Controls on one row share a height.** A 36px square-cornered `<select>` beside a 48px pill
+`<Input>` is the mismatch this rule exists to prevent: pair `h-12 rounded-full px-5` controls with
+`size="lg"` buttons.
+
 | Element                                | Radius                                        |
 | -------------------------------------- | --------------------------------------------- |
 | Cards                                  | `rounded-[24px]` — write the length, see §1.4 |

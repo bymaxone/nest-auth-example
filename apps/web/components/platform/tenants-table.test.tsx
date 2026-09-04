@@ -191,7 +191,7 @@ describe('TenantsTable states', () => {
     expect(created.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('passes empty string to translateAuthError when the mapped code is UNKNOWN', async () => {
+  it('toasts the mapped message when the error carries no known code', async () => {
     /*
      * Scenario: when mapAuthClientError returns `code: 'UNKNOWN'` the
      * `code === 'UNKNOWN' ? '' : code` ternary must take the truthy arm and
@@ -204,19 +204,19 @@ describe('TenantsTable states', () => {
      * of the verbatim empty string.
      */
     const { mapAuthClientError } = await import('@/lib/auth-client');
-    const { translateAuthError } = await import('@/lib/auth-errors');
     vi.mocked(mapAuthClientError).mockReturnValue({
       code: 'UNKNOWN',
       message: 'Unknown error',
     });
     vi.mocked(listPlatformTenants).mockRejectedValue(new Error('Boom'));
     render(<TenantsTable />);
+    const { toast } = await import('sonner');
     await waitFor(() => {
-      expect(vi.mocked(translateAuthError)).toHaveBeenCalledWith('');
+      expect(vi.mocked(toast).error).toHaveBeenCalledWith('Unknown error');
     });
   });
 
-  it('passes the actual error code to translateAuthError when the mapped code is NOT UNKNOWN', async () => {
+  it('toasts the mapped message for a recognised error code', async () => {
     /*
      * Scenario: when mapAuthClientError returns a real error code (e.g.
      * `auth.forbidden`) the ternary must take the falsy arm and pass the
@@ -226,15 +226,15 @@ describe('TenantsTable states', () => {
      * code.
      */
     const { mapAuthClientError } = await import('@/lib/auth-client');
-    const { translateAuthError } = await import('@/lib/auth-errors');
     vi.mocked(mapAuthClientError).mockReturnValue({
       code: 'auth.forbidden',
       message: 'Forbidden',
     });
     vi.mocked(listPlatformTenants).mockRejectedValue(new Error('Forbidden'));
     render(<TenantsTable />);
+    const { toast } = await import('sonner');
     await waitFor(() => {
-      expect(vi.mocked(translateAuthError)).toHaveBeenCalledWith('auth.forbidden');
+      expect(vi.mocked(toast).error).toHaveBeenCalledWith('Forbidden');
     });
   });
 

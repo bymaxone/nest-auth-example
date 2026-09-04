@@ -28,8 +28,12 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { listPlatformUsers, platformUpdateUserStatus, mapAuthClientError } from '@/lib/auth-client';
-import { translateAuthError } from '@/lib/auth-errors';
+import {
+  listPlatformUsers,
+  platformUpdateUserStatus,
+  platformResetUserMfa,
+  mapAuthClientError,
+} from '@/lib/auth-client';
 import { getPlatformAdmin } from '@/lib/platform-auth';
 import type { PlatformUserInfo } from '@/lib/auth-client';
 
@@ -70,6 +74,7 @@ export function PlatformUsersTable({ tenantId }: PlatformUsersTableProps) {
   // Stryker disable next-line BooleanLiteral: initial `true` is a belt-and-suspenders flag — even if mutated to `false`, the `users.length === 0` empty-state guard later still renders the loading-equivalent empty paragraph until the fetch settles. The two guards cover overlapping failure modes (network-pending vs empty-response).
   const [isLoading, setIsLoading] = useState(true);
   const [toggling, setToggling] = useState<string | null>(null);
+  const [resettingMfa, setResettingMfa] = useState<string | null>(null);
 
   /** Current platform admin's ID — used to disable self-suspension. */
   const currentAdminId = getPlatformAdmin()?.id ?? null;
@@ -87,8 +92,8 @@ export function PlatformUsersTable({ tenantId }: PlatformUsersTableProps) {
       const data = await listPlatformUsers(tenantId);
       setUsers(data);
     } catch (err) {
-      const { code } = mapAuthClientError(err);
-      toast.error(translateAuthError(code === 'UNKNOWN' ? '' : code));
+      const { message } = mapAuthClientError(err);
+      toast.error(message);
     } finally {
       setIsLoading(false);
     }
@@ -121,13 +126,36 @@ export function PlatformUsersTable({ tenantId }: PlatformUsersTableProps) {
         // Stryker disable next-line EqualityOperator: per-row rollback selector. Same intermediate-state observability limit — the test fixture has one toggled row, and the rollback asserts on the final-state row label which is identical regardless of which subset of rows was rewritten.
         prev.map((u) => (u.id === user.id ? { ...u, status: previousStatus } : u)),
       );
-      const { code } = mapAuthClientError(err);
-      toast.error(translateAuthError(code === 'UNKNOWN' ? '' : code));
+      const { message } = mapAuthClientError(err);
+      toast.error(message);
       // Stryker disable BlockStatement: `setToggling(null)` clears the per-row pending flag. Removing the entire finally block leaves the button stuck on `…` after the toggle settles in production, but Vitest's synchronous render model resolves the post-toggle assertions before the next render flushes — so the per-row-isolation and disabled-state tests stay green for both the original and the empty-block mutant.
     } finally {
       setToggling(null);
     }
     // Stryker restore BlockStatement
+  };
+
+  /**
+   * Clears a user's second factor.
+   *
+   * The recovery path for someone who has lost both their authenticator and
+   * their recovery codes: without it an administrator's only options are to
+   * leave the account unreachable or to delete it.
+   *
+   * @param user - The row whose factor is being cleared.
+   */
+  const handleResetMfa = async (user: PlatformUserInfo) => {
+    setResettingMfa(user.id);
+    try {
+      const updated = await platformResetUserMfa(user.id);
+      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+      toast.success(`Two-factor authentication cleared for ${updated.email}.`);
+    } catch (err) {
+      const { message } = mapAuthClientError(err);
+      toast.error(message);
+    } finally {
+      setResettingMfa(null);
+    }
   };
 
   if (isLoading) {
@@ -165,6 +193,7 @@ export function PlatformUsersTable({ tenantId }: PlatformUsersTableProps) {
               const isSelf = user.id === currentAdminId;
               const isSuspended = user.status === 'SUSPENDED';
               const isToggling = toggling === user.id;
+              const isResettingMfa = resettingMfa === user.id;
               const statusStyle = STATUS_STYLES[user.status] ?? STATUS_STYLES['INACTIVE'];
               // Stryker disable next-line StringLiteral: the self-row button text alternates between "Unsuspend" (when the admin's own account is SUSPENDED) and "Suspend". The truthy branch is pinned by the existing SUSPENDED-self test; the falsy branch ("Suspend") cannot be observed in the default test fixture because the seeded admin is ACTIVE, and the disabled button is found by querying `role=button` + `disabled` rather than by label.
               const selfButtonLabel = isSuspended ? 'Unsuspend' : 'Suspend';
@@ -174,8 +203,18 @@ export function PlatformUsersTable({ tenantId }: PlatformUsersTableProps) {
                   key={user.id}
                   className="border-[rgba(239,68,68,0.1)] hover:bg-[rgba(239,68,68,0.03)]"
                 >
-                  <TableCell className="font-medium text-red-100">{user.name}</TableCell>
-                  <TableCell className="font-mono text-xs text-red-300">{user.email}</TableCell>
+                  <TableCell
+                    className="max-w-[200px] truncate font-medium text-red-100"
+                    title={user.name}
+                  >
+                    {user.name}
+                  </TableCell>
+                  <TableCell
+                    className="max-w-[260px] truncate font-mono text-xs text-red-300"
+                    title={user.email}
+                  >
+                    {user.email}
+                  </TableCell>
                   <TableCell>
                     <span className="rounded border border-[rgba(239,68,68,0.2)] bg-[rgba(239,68,68,0.08)] px-2 py-0.5 font-mono text-[10px] font-semibold tracking-wide text-red-300 uppercase">
                       {user.role}
@@ -227,6 +266,18 @@ export function PlatformUsersTable({ tenantId }: PlatformUsersTableProps) {
                         onClick={() => void handleToggle(user)}
                       >
                         {isToggling ? '…' : isSuspended ? 'Unsuspend' : 'Suspend'}
+                      </Button>
+                    )}
+                    {/* Only offered where there is a factor to clear. */}
+                    {user.mfaEnabled && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={isResettingMfa}
+                        className="text-red-300 hover:bg-[rgba(239,68,68,0.1)] hover:text-red-200"
+                        onClick={() => void handleResetMfa(user)}
+                      >
+                        {isResettingMfa ? '…' : 'Reset 2FA'}
                       </Button>
                     )}
                   </TableCell>

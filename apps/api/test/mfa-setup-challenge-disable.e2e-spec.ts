@@ -299,7 +299,7 @@ describe('MFA lifecycle — setup → verify-enable → challenge → disable', 
       .send({ password: 'Wr0ngPassword!Wr0ng' });
 
     expect(wrongRes.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.INVALID_CREDENTIALS]);
-    expect(wrongRes.body).toMatchObject({ code: AUTH_ERROR_CODES.INVALID_CREDENTIALS });
+    expect(wrongRes.body).toMatchObject({ error: { code: AUTH_ERROR_CODES.INVALID_CREDENTIALS } });
 
     const missingRes = await agent
       .post('/api/auth/mfa/setup')
@@ -308,7 +308,9 @@ describe('MFA lifecycle — setup → verify-enable → challenge → disable', 
       .send({});
 
     expect(missingRes.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.INVALID_CREDENTIALS]);
-    expect(missingRes.body).toMatchObject({ code: AUTH_ERROR_CODES.INVALID_CREDENTIALS });
+    expect(missingRes.body).toMatchObject({
+      error: { code: AUTH_ERROR_CODES.INVALID_CREDENTIALS },
+    });
   });
 
   // ─── Test 2 — verify-enable ───────────────────────────────────────────────

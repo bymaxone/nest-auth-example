@@ -232,8 +232,7 @@ describe('Register & Verify — register → OTP email → verify-email', () => 
 
     expect(secondRes.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.EMAIL_ALREADY_EXISTS]);
     expect(secondRes.body).toMatchObject({
-      code: AUTH_ERROR_CODES.EMAIL_ALREADY_EXISTS,
-      statusCode: 409,
+      error: { code: AUTH_ERROR_CODES.EMAIL_ALREADY_EXISTS },
     });
   });
 
@@ -257,8 +256,7 @@ describe('Register & Verify — register → OTP email → verify-email', () => 
 
     expect(res.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.VALIDATION]);
     expect(res.body).toMatchObject({
-      code: AUTH_ERROR_CODES.VALIDATION,
-      statusCode: 400,
+      error: { code: AUTH_ERROR_CODES.VALIDATION },
     });
 
     // The refused registration must not have created a user row.

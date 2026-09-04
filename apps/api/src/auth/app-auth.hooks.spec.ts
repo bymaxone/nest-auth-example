@@ -64,10 +64,12 @@ function makeSafeUser(overrides?: Partial<SafeAuthUser>): SafeAuthUser {
 describe('AppAuthHooks', () => {
   let hooks: AppAuthHooks;
   let auditLogCreate: jest.Mock<() => Promise<void>>;
+  let userUpdateMany: jest.Mock<() => Promise<{ count: number }>>;
   let sendNewSessionAlert: jest.Mock<() => Promise<void>>;
 
   beforeEach(async () => {
     auditLogCreate = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    userUpdateMany = jest.fn<() => Promise<{ count: number }>>().mockResolvedValue({ count: 1 });
     sendNewSessionAlert = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
     // Stub `IEmailProvider` — only `sendNewSessionAlert` is exercised by
     // `onNewSession`; the remaining methods would throw if accidentally called.
@@ -79,6 +81,7 @@ describe('AppAuthHooks', () => {
           provide: PrismaService,
           useValue: {
             auditLog: { create: auditLogCreate },
+            user: { updateMany: userUpdateMany },
           },
         },
         {
@@ -692,6 +695,26 @@ describe('AppAuthHooks', () => {
           }),
         }),
       );
+    });
+
+    it('promotes the account out of PENDING once the address is verified', async () => {
+      /*
+       * Scenario: a self-registered account is created PENDING and verifying the
+       * emailed code is the step that clears that. Without the promotion the
+       * user works normally but shows as PENDING in the team roster forever,
+       * beside an "Activate" control nobody ever needs to press.
+       * Rule: the write is scoped by tenant and by the PENDING status, so an
+       * account suspended between the two events is left alone.
+       */
+      const user = makeSafeUser({ id: 'user-1', tenantId: 'acme' });
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await hooks.afterEmailVerified(user, ctx);
+
+      expect(userUpdateMany).toHaveBeenCalledWith({
+        where: { id: 'user-1', tenantId: 'acme', status: 'PENDING' },
+        data: { status: 'ACTIVE' },
+      });
     });
 
     it('swallows AuditLog write failures so the email verification flow is never blocked', async () => {

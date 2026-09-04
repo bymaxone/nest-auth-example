@@ -41,6 +41,7 @@ import type {
   DashboardJwtPayload,
 } from '@bymax-one/nest-auth';
 
+import { MAX_SESSIONS_PER_USER } from '../auth/auth.constants.js';
 import { AccountService } from './account.service.js';
 import type { MfaStatusInfo, WorkspaceInfo } from './account.service.js';
 
@@ -143,6 +144,22 @@ export class AccountController {
   @SkipMfa()
   listWorkspaces(@CurrentUser() user: DashboardJwtPayload): Promise<WorkspaceInfo[]> {
     return this.accountService.listWorkspaces(user.sub, user.tenantId);
+  }
+
+  /**
+   * Returns the session policy the deployment enforces.
+   *
+   * The sessions screen states the cap rather than leaving a user to discover
+   * it by having their oldest device signed out with no explanation. Served
+   * from the same constant the auth module is configured with, so the number on
+   * screen cannot drift from the one being enforced.
+   *
+   * @returns The maximum number of concurrent sessions kept per user.
+   */
+  @Get('session-policy')
+  @SkipMfa()
+  getSessionPolicy(): { maxSessions: number } {
+    return { maxSessions: MAX_SESSIONS_PER_USER };
   }
 
   /**

@@ -195,14 +195,13 @@ describe('PlatformUsersTable additional branches', () => {
     });
   });
 
-  it('uses non-UNKNOWN error code in load() catch branch (line 75 false branch)', async () => {
+  it('toasts the mapped message when the load call is refused', async () => {
     /*
      * Scenario: when mapAuthClientError returns a non-UNKNOWN code the
      * `code === 'UNKNOWN' ? '' : code` false branch fires.
      * Protects: line 75 — `code !== 'UNKNOWN'` branch in load() catch.
      */
     const { toast } = await import('sonner');
-    const { translateAuthError } = await import('@/lib/auth-errors');
     vi.mocked(mapAuthClientError).mockImplementation(() => ({
       code: 'auth.invalid_credentials',
       message: 'Invalid',
@@ -210,7 +209,7 @@ describe('PlatformUsersTable additional branches', () => {
     vi.mocked(listPlatformUsers).mockRejectedValue(new Error('API error'));
     render(<PlatformUsersTable tenantId="tenant-1" />);
     await waitFor(() => {
-      expect(vi.mocked(translateAuthError)).toHaveBeenCalledWith('auth.invalid_credentials');
+      expect(vi.mocked(toast).error).toHaveBeenCalledWith('Invalid');
       expect(vi.mocked(toast).error).toHaveBeenCalled();
     });
   });
@@ -249,7 +248,6 @@ describe('PlatformUsersTable additional branches', () => {
      * Protects: line 104 — `code === 'UNKNOWN' ? '' : code` false branch in handleToggle.
      */
     const { toast } = await import('sonner');
-    const { translateAuthError } = await import('@/lib/auth-errors');
     // Return a non-UNKNOWN code to trigger the false-branch of `code === 'UNKNOWN' ? '' : code`.
     vi.mocked(mapAuthClientError).mockImplementation(() => ({
       code: 'auth.forbidden',
@@ -270,7 +268,7 @@ describe('PlatformUsersTable additional branches', () => {
     await waitFor(() => {
       // translateAuthError must be called with the actual code (not '') to confirm
       // the false-branch was taken.
-      expect(vi.mocked(translateAuthError)).toHaveBeenCalledWith('auth.forbidden');
+      expect(vi.mocked(toast).error).toHaveBeenCalledWith('Forbidden');
       expect(vi.mocked(toast).error).toHaveBeenCalled();
     });
   });
@@ -583,7 +581,6 @@ describe('PlatformUsersTable UNKNOWN error normalisation', () => {
      * regression returning the literal string `code` to translateAuthError
      * would slip through silently.
      */
-    const { translateAuthError } = await import('@/lib/auth-errors');
     vi.mocked(mapAuthClientError).mockImplementation(() => ({
       code: 'UNKNOWN',
       message: 'Generic',
@@ -591,8 +588,9 @@ describe('PlatformUsersTable UNKNOWN error normalisation', () => {
     vi.mocked(listPlatformUsers).mockRejectedValue(new Error('boom'));
 
     render(<PlatformUsersTable tenantId="tenant-1" />);
+    const { toast } = await import('sonner');
     await waitFor(() => {
-      expect(vi.mocked(translateAuthError)).toHaveBeenCalledWith('');
+      expect(vi.mocked(toast).error).toHaveBeenCalledWith('Generic');
     });
   });
 
@@ -602,7 +600,6 @@ describe('PlatformUsersTable UNKNOWN error normalisation', () => {
      * catch branch. Pinned independently so a future refactor cannot
      * branch the normalisation per code-path.
      */
-    const { translateAuthError } = await import('@/lib/auth-errors');
     vi.mocked(mapAuthClientError).mockImplementation(() => ({
       code: 'UNKNOWN',
       message: 'Generic',
@@ -618,8 +615,9 @@ describe('PlatformUsersTable UNKNOWN error normalisation', () => {
       .find((b) => b.textContent === 'Suspend' && !(b as HTMLButtonElement).disabled);
     fireEvent.click(suspendBtn!);
 
+    const { toast } = await import('sonner');
     await waitFor(() => {
-      expect(vi.mocked(translateAuthError)).toHaveBeenCalledWith('');
+      expect(vi.mocked(toast).error).toHaveBeenCalledWith('Generic');
     });
   });
 });

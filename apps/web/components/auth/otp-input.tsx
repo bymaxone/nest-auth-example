@@ -1,73 +1,107 @@
 /**
- * @fileoverview OTP input — `length` single-character boxes with auto-advance and paste support.
+ * @fileoverview Segmented one-time-code field — one box per digit.
  *
- * Designed for numeric OTPs (email verification, TOTP). Each box accepts exactly
- * one digit; typing a valid digit auto-advances focus to the next box. Deleting
- * from an empty box moves focus back to the previous one. Pasting a string of
- * digits distributes them across the boxes.
+ * Used by every code entry screen: email verification, the sign-in MFA
+ * challenge, authenticator enrolment, disabling a factor, and recovery-code
+ * regeneration.
  *
- * Use with React Hook Form via `<Controller>`:
- * ```tsx
- * <Controller
- *   name="otp"
- *   control={control}
- *   render={({ field }) => (
- *     <OtpInput length={6} value={field.value ?? ''} onChange={field.onChange} />
- *   )}
- * />
- * ```
+ * Two details carry the component:
+ *
+ * 1. **Each keystroke composes on the newest value, not the rendered one.**
+ *    Deriving the next code from the `value` prop drops digits when someone
+ *    types faster than React re-renders — the second keystroke reads the value
+ *    from before the first and overwrites it. A ref holds the authoritative
+ *    string and is updated synchronously inside the handler, so a burst of six
+ *    keystrokes always composes into six digits. This matters precisely because
+ *    the codes expire in thirty seconds, which is what makes people type fast.
+ *
+ * 2. **A filled box accepts a replacement.** `maxLength={1}` makes the browser
+ *    ignore a keystroke on a box that already holds a character, so a rejected
+ *    code could otherwise only be corrected by clearing every box by hand.
+ *    Focusing a box selects its content, so typing overwrites.
  *
  * @layer components/auth
  */
 
 'use client';
 
-import { useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { cn } from '@/lib/utils';
 
-/** Props accepted by `OtpInput`. */
 interface OtpInputProps {
-  /** Number of single-character input boxes. */
+  /** Number of digit boxes to render. */
   length: number;
-  /**
-   * Controlled value — the concatenated OTP string.
-   * May be shorter than `length` while the user is typing.
-   */
+  /** Current code. Shorter than `length` while the user is still typing. */
   value: string;
-  /** Called with the new concatenated value on every change. */
+  /** Called with the full code string after every edit. */
   onChange: (value: string) => void;
-  /** ARIA label prefix for individual boxes — defaults to `"Digit"`. */
+  /** Accessible name prefix for each box, e.g. `"Digit 3 of 6"`. */
   digitLabel?: string;
 }
 
 /**
- * Accessible numeric OTP input with per-box focus management.
+ * Renders `length` single-character boxes bound to one code string.
  *
- * @param length      - Number of input boxes (typically 6).
- * @param value       - Controlled concatenated value.
- * @param onChange    - Change handler receiving the new full string.
- * @param digitLabel  - ARIA label prefix applied as `"${digitLabel} N of length"`.
+ * @param props - Field length, controlled value, change handler and label prefix.
+ * @returns The segmented code field.
  */
 export function OtpInput({ length, value, onChange, digitLabel = 'Digit' }: OtpInputProps) {
   // Stryker disable next-line ArrayDeclaration: initial value is overwritten by the per-input ref callback on first render — `["Stryker was here"]` produces identical post-mount behaviour.
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  /** Focus the input at `index` if it exists. */
+  /**
+   * The authoritative code between renders.
+   *
+   * Assigned on every render so a parent-driven change (a reset after a rejected
+   * code) is picked up, and again inside the change handler so consecutive
+   * keystrokes in the same tick each build on the previous one.
+   */
+  const valueRef = useRef(value);
+  valueRef.current = value;
+
   const focus = (index: number) => {
     // Stryker disable next-line OptionalChaining: the optional chain is a defence-in-depth guard for out-of-range indices. Every caller already gates by `index < length - 1` or `index > 0`, so removing `?.` cannot crash in practice — the mutant is observationally equivalent under the current focus-call sites.
     inputRefs.current[index]?.focus();
   };
 
-  /** Padded char array so indexing is always safe. */
-  // Stryker disable next-line MethodExpression: `padEnd(length, '')` and `padStart(length, '')` behave identically — `String.prototype.padEnd`/`padStart` BOTH return the original string when the padder is empty (the spec defines no growth with an empty filler). The `.slice(0, length)` that follows then caps both outputs the same way.
-  const chars = value.padEnd(length, '').slice(0, length);
+  /**
+   * Splits a code string into exactly `length` slots.
+   *
+   * `padEnd(length, '')` cannot be used for this: padding with an empty string
+   * is a no-op, so the result stays shorter than `length` and an index write
+   * past its end produces holes.
+   *
+   * @param raw - Code string, possibly shorter or longer than the field.
+   * @returns One entry per box, `''` where the box is empty.
+   */
+  const toSlots = useCallback(
+    (raw: string): string[] => Array.from({ length }, (_unused, index): string => raw[index] ?? ''),
+    [length],
+  );
+
+  /**
+   * Commits a new code, keeping the ref and the parent in step.
+   *
+   * @param slots - The full set of boxes after the edit.
+   */
+  const commit = useCallback(
+    (slots: string[]): void => {
+      const next = slots.join('');
+      valueRef.current = next;
+      onChange(next);
+    },
+    [onChange],
+  );
 
   const handleChange = (index: number, raw: string) => {
-    // Keep only the last digit typed (handles Android's composing-text quirks)
+    // Keep only the last digit typed. Covers Android composing text, and the
+    // case where a replacement lands beside an existing character.
     const digit = raw.replace(/\D/g, '').slice(-1);
-    const newChars = chars.split('');
-    newChars[index] = digit;
-    onChange(newChars.join(''));
+
+    const slots = toSlots(valueRef.current);
+    slots[index] = digit;
+    commit(slots);
+
     // Stryker disable next-line ConditionalExpression,EqualityOperator,ArithmeticOperator: the auto-advance boundary uses `index < length - 1` with `?.focus()` cover. Every boundary-extending mutant (`<=`, `length + 1`, `if (true)`) would call `focus(length)`/`focus(length + 1)` which the optional-chain in `focus()` safely no-ops on a missing ref — observationally identical to the original.
     if (digit && index < length - 1) {
       focus(index + 1);
@@ -88,11 +122,11 @@ export function OtpInput({ length, value, onChange, digitLabel = 'Digit' }: OtpI
     const canMoveRight = index < length - 1;
 
     if (e.key === 'Backspace') {
-      if (!chars[index] && index > 0) {
-        // Box is empty — clear the previous box and move focus there
-        const newChars = chars.split('');
-        newChars[index - 1] = '';
-        onChange(newChars.join(''));
+      const slots = toSlots(valueRef.current);
+      if (!slots[index] && index > 0) {
+        // Box is empty — clear the previous box and move focus there.
+        slots[index - 1] = '';
+        commit(slots);
         focus(index - 1);
       }
     } else if (e.key === 'ArrowLeft' && canMoveLeft) {
@@ -102,7 +136,6 @@ export function OtpInput({ length, value, onChange, digitLabel = 'Digit' }: OtpI
     }
   };
 
-  /** Distribute pasted digits across boxes, starting at index 0. */
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     e.preventDefault();
     // The clipboard `getData('text')` MIME format is a no-op in jsdom (the
@@ -110,17 +143,22 @@ export function OtpInput({ length, value, onChange, digitLabel = 'Digit' }: OtpI
     // identical inside the unit harness.
     // Stryker disable next-line StringLiteral
     const digitsOnly = e.clipboardData.getData('text').replace(/\D/g, '');
-    // Stryker disable next-line MethodExpression: belt-and-suspenders cap — the final `padded.slice(0, length)` below already crops the controlled value, so this leading cap is redundant. Kept here as a defensive pre-cap so the intermediate `padded` line is never longer than necessary.
     const pasted = digitsOnly.slice(0, length);
-    const padded = pasted.padEnd(length, chars.slice(pasted.length));
-    // Stryker disable next-line MethodExpression: trailing `.slice(0, length)` is a belt-and-suspenders cap — `padded` is at most `length` chars because `pasted` is pre-capped at `length`, and `padEnd(length, …)` does not grow beyond its target. Removing the trailing slice is observationally equivalent.
-    onChange(padded.slice(0, length));
+
+    // A paste replaces from the start and keeps whatever sat beyond it.
+    const slots = toSlots(valueRef.current);
+    for (let i = 0; i < pasted.length; i += 1) {
+      slots[i] = pasted[i] ?? '';
+    }
+    commit(slots);
     focus(Math.min(pasted.length, length - 1));
   };
 
+  const slots = toSlots(value);
+
   return (
     <div className="flex justify-center gap-2" role="group" aria-label="One-time code input">
-      {Array.from({ length }, (_, i) => (
+      {Array.from({ length }, (_unused, i) => (
         <input
           key={i}
           ref={(el) => {
@@ -130,10 +168,14 @@ export function OtpInput({ length, value, onChange, digitLabel = 'Digit' }: OtpI
           inputMode="numeric"
           autoComplete={i === 0 ? 'one-time-code' : 'off'}
           maxLength={1}
-          value={chars[i] ?? ''}
+          value={slots[i] ?? ''}
           onChange={(e) => handleChange(i, e.target.value)}
           onKeyDown={(e) => handleKeyDown(i, e)}
           onPaste={i === 0 ? handlePaste : undefined}
+          // Selecting on focus is what lets a filled box be typed over: with
+          // `maxLength={1}` and a collapsed caret the browser drops the
+          // keystroke, so a wrong code could not be corrected by retyping.
+          onFocus={(e) => e.currentTarget.select()}
           aria-label={`${digitLabel} ${i + 1} of ${length}`}
           // Stryker disable StringLiteral
           className={cn(

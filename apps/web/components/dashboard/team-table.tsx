@@ -150,10 +150,15 @@ export function TeamTable({ isAdmin, currentUserId }: TeamTableProps) {
           const statusStyle = STATUS_STYLES[user.status] ?? STATUS_STYLES['INACTIVE'];
           return (
             <TableRow key={user.id}>
-              <TableCell className="font-medium text-[rgba(255,255,255,0.8)]">
+              <TableCell
+                className="max-w-[220px] truncate font-medium text-[rgba(255,255,255,0.8)]"
+                title={user.name}
+              >
                 {user.name}
               </TableCell>
-              <TableCell className="text-xs">{user.email}</TableCell>
+              <TableCell className="max-w-[260px] truncate text-xs" title={user.email}>
+                {user.email}
+              </TableCell>
               <TableCell>
                 <span className="font-mono text-[10px] font-semibold tracking-wide text-[#ff6224] uppercase">
                   {user.role}

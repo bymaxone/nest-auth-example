@@ -26,6 +26,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { ShieldAlert } from 'lucide-react';
 import { useSession } from '@bymax-one/nest-auth/react';
 import { MfaSetupCard } from '@/components/dashboard/mfa-setup-card';
@@ -33,6 +34,7 @@ import { MfaDisableCard } from '@/components/dashboard/mfa-disable-card';
 import { MfaStatusUnavailableCard } from '@/components/dashboard/mfa-status-unavailable-card';
 import { EmailChangeCard } from '@/components/dashboard/email-change-card';
 import { getMfaStatus } from '@/lib/auth-client';
+import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 
 /**
@@ -52,7 +54,7 @@ const STATUS_FETCH_ATTEMPTS = 3;
 const STATUS_RETRY_DELAY_MS = 750;
 
 export default function SecurityPage() {
-  const { user, refresh } = useSession();
+  const { user, status, refresh } = useSession();
   const searchParams = useSearchParams();
   const [isMfaRequired, setIsMfaRequired] = useState(false);
   // `null` means "not known yet" — either still loading or the status request
@@ -171,9 +173,27 @@ export default function SecurityPage() {
       )}
 
       <div className="max-w-xl">
-        {user === null ? (
+        {user === null && status === 'loading' ? (
           <Card className="p-6">
             <p className="text-sm text-[rgba(255,255,255,0.4)]">Loading…</p>
+          </Card>
+        ) : user === null ? (
+          /* The session ended while this page was open — enabling a second
+             factor invalidates every session, so this is a normal way to get
+             here. Branching on `user === null` alone leaves the card showing
+             "Loading…" forever with no way out. */
+          <Card className="flex flex-col items-start gap-4 p-6">
+            <div>
+              <h2 className="font-mono text-base font-semibold text-white">
+                Your session has ended
+              </h2>
+              <p className="mt-2 text-sm text-[rgba(255,255,255,0.5)]">
+                Sign in again to manage two-factor authentication.
+              </p>
+            </div>
+            <Button asChild size="sm" className="bg-[#ff6224] text-white hover:bg-[#e5551f]">
+              <Link href="/auth/login">Sign in</Link>
+            </Button>
           </Card>
         ) : user.mfaEnabled ? (
           <MfaDisableCard onDisabled={handleToggle} />

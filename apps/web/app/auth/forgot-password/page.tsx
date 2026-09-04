@@ -41,8 +41,8 @@ import {
   resolveTenantForLogin,
   TenantNotFoundError,
 } from '@/lib/auth-client';
-import { translateAuthError } from '@/lib/auth-errors';
 import { TENANT_OPTIONS, resolveDefaultTenantSlug } from '@/lib/tenants';
+import { env } from '@/lib/env';
 
 /**
  * Inner form — wrapped in `<Suspense>` by the default export so the page can be
@@ -58,6 +58,9 @@ function ForgotPasswordForm() {
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  // Captured on submit so the code-entry link can carry the same tenant the
+  // request was made against.
+  const [resolvedTenantId, setResolvedTenantId] = useState<string | null>(null);
 
   const {
     register,
@@ -75,6 +78,7 @@ function ForgotPasswordForm() {
     try {
       // Resolve slug → CUID so tenantAwareFetch injects X-Tenant-Id.
       const tenantId = await resolveTenantForLogin(tenantSlug);
+      setResolvedTenantId(tenantId);
       document.cookie = `tenant_id=${tenantId}; Path=/; SameSite=Lax; Max-Age=31536000`;
 
       // Call the low-level client instead of `useAuth().forgotPassword`. The
@@ -94,10 +98,10 @@ function ForgotPasswordForm() {
         );
         return;
       }
-      const { code } = mapAuthClientError(err);
-      // Translate and surface only transport-level errors (rate limit, network)
-      // Account-not-found is indistinguishable from success by design
-      toast.error(translateAuthError(code === 'UNKNOWN' ? '' : code));
+      // Surface only transport-level errors (rate limit, network).
+      // Account-not-found is indistinguishable from success by design.
+      const { message } = mapAuthClientError(err);
+      toast.error(message);
       // Still show the confirmation to prevent account enumeration via error timing
       setSubmitted(true);
     } finally {
@@ -125,6 +129,22 @@ function ForgotPasswordForm() {
           </p>
         </div>
 
+        {/* In code mode the email carries a numeric code and no link, so this
+            screen is the only way through to the form that accepts it. Without
+            the route the flow dead-ends here. */}
+        {env.NEXT_PUBLIC_PASSWORD_RESET_MODE === 'otp' && (
+          <Button asChild size="lg" className="bg-[#ff6224] text-white hover:bg-[#e5551f]">
+            <Link
+              href={{
+                pathname: '/auth/reset-password',
+                query: { mode: 'otp', email: getValues('email'), tenantId: resolvedTenantId ?? '' },
+              }}
+            >
+              Enter the code from the email
+            </Link>
+          </Button>
+        )}
+
         <Link
           href="/auth/login"
           className="text-sm text-[rgba(255,98,36,0.8)] transition-colors hover:text-[#ff6224]"
@@ -151,7 +171,7 @@ function ForgotPasswordForm() {
         className="flex flex-col gap-4"
       >
         {/* Workspace — symmetric with login + register pickers. */}
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <Label htmlFor="fp-tenantId" className="text-[rgba(255,255,255,0.7)]">
             Workspace
           </Label>
@@ -170,7 +190,7 @@ function ForgotPasswordForm() {
         </div>
 
         {/* Email */}
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <Label htmlFor="email" className="text-[rgba(255,255,255,0.7)]">
             Email
           </Label>

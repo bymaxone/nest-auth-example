@@ -370,3 +370,21 @@ export const platformUpdateUserStatus = (
     method: 'PATCH',
     body: JSON.stringify({ status }),
   });
+
+/**
+ * Clears a user's second factor from the platform context.
+ *
+ * Calls `POST /api/platform/users/:id/reset-mfa` behind `JwtPlatformGuard`.
+ * Restricted to `SUPER_ADMIN` — `SUPPORT` is read-only.
+ *
+ * This is the recovery path for a user who has lost their authenticator and
+ * their recovery codes. It removes the factor rather than replacing it, so the
+ * user signs in with their password and enrols again.
+ *
+ * @param userId - Target user ID.
+ * @returns The updated `PlatformUserInfo`, with `mfaEnabled: false`.
+ */
+export const platformResetUserMfa = (userId: string): Promise<PlatformUserInfo> =>
+  platformApiFetch<PlatformUserInfo>(`/api/platform/users/${userId}/reset-mfa`, {
+    method: 'POST',
+  });

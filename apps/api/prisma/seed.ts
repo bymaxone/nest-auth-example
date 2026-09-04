@@ -171,11 +171,11 @@ async function main(): Promise<void> {
   // spec files (E2E_MEMBER_EMAIL, E2E_ADMIN_EMAIL env vars).
   //
   // The admin account exists in BOTH tenants (separate User rows, same email) so
-  // the tenant switcher in apps/web demonstrates the Slack-style workspace
-  // selection pattern: clicking another workspace logs out and redirects the
-  // user to the login page for that tenant. With the library's one-JWT-per-tenant
-  // model, switching the live JWT context is intentionally impossible — each
-  // workspace has its own User row, its own password, and its own MFA setup.
+  // the workspace switcher in apps/web has something to switch between. Each
+  // workspace is its own User row with its own password and its own MFA setup;
+  // `POST /api/account/switch-workspace` re-issues the session against the
+  // destination row after checking the caller owns it, so the user stays signed
+  // in rather than being sent back to the login page.
   const acmeTenant = tenants.find((t) => t.slug === 'acme');
   const globexTenant = tenants.find((t) => t.slug === 'globex');
   if (acmeTenant && globexTenant) {
@@ -263,7 +263,8 @@ async function main(): Promise<void> {
     },
   });
 
-  // Create the documented platform super-admin for e2e tests and Phase 15 frontend.
+  // Create the documented platform super-admin used by the e2e suite and the
+  // platform admin area in apps/web.
   // Uses a dedicated password (PLATFORM_ADMIN_PASSWORD) distinct from the tenant
   // seed password so docs and tests reference a single canonical credential.
   // FCM #22 — Platform admin context.

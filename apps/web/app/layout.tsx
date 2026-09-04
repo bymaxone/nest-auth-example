@@ -14,7 +14,7 @@ import { GeistSans } from 'geist/font/sans';
 import { GeistMono } from 'geist/font/mono';
 
 import './globals.css';
-import Providers from './providers';
+import { Toaster } from '@/components/ui/sonner';
 
 /** @see https://nextjs.org/docs/app/building-your-application/optimizing/metadata */
 export const metadata: Metadata = {
@@ -37,10 +37,22 @@ export default function RootLayout({ children }: RootLayoutProps) {
     <html
       lang="en"
       className={`${GeistSans.variable} ${GeistMono.variable} dark`}
+      // `globals.css` sets `scroll-behavior: smooth` on <html>. Next needs this
+      // attribute to know the smoothing is deliberate, so it can suppress it for
+      // route transitions (which would otherwise animate the scroll reset) and
+      // stop warning about it in development.
+      data-scroll-behavior="smooth"
       suppressHydrationWarning
     >
       <body>
-        <Providers>{children}</Providers>
+        {/* The auth provider is mounted by the /auth and /dashboard layouts
+            rather than here. It probes the session on mount, and doing that
+            app-wide made the public landing page fire an identity request and a
+            token refresh that can only ever be refused — three console errors
+            on a page with no protected content. The toaster stays app-wide
+            because every area toasts. */}
+        {children}
+        <Toaster />
       </body>
     </html>
   );

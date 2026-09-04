@@ -56,6 +56,17 @@ const envSchema = z.object({
     .enum(['true', 'false'])
     .transform((v) => v === 'true')
     .default(false),
+
+  /**
+   * How the API delivers a password reset — must match the API's
+   * `PASSWORD_RESET_METHOD`.
+   *
+   * `token` mails a link that lands on the reset page with everything it needs.
+   * `otp` mails a numeric code and nothing else, so the request screen has to
+   * offer a way into the code-entry screen; without knowing the mode it dead-ends
+   * on "check your inbox" and the user has nowhere to go.
+   */
+  NEXT_PUBLIC_PASSWORD_RESET_MODE: z.enum(['token', 'otp']).default('token'),
 });
 
 /** Public type of the validated, frozen env object. */

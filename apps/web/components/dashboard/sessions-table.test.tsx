@@ -20,6 +20,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
 vi.mock('@/lib/auth-client', () => ({
   listSessions: vi.fn(),
+  getSessionPolicy: vi.fn(),
   revokeSession: vi.fn(),
   handleAuthClientError: vi.fn(),
 }));
@@ -30,7 +31,12 @@ vi.mock('sonner', () => ({
 
 // ── Typed imports after mocks ─────────────────────────────────────────────────
 
-import { listSessions, revokeSession, handleAuthClientError } from '@/lib/auth-client';
+import {
+  listSessions,
+  getSessionPolicy,
+  revokeSession,
+  handleAuthClientError,
+} from '@/lib/auth-client';
 import type { SessionInfo } from '@/lib/auth-client';
 import { SessionsTable } from './sessions-table.js';
 
@@ -59,6 +65,9 @@ const mockSessions: SessionInfo[] = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The table reads the session cap alongside the list. Tests that do not care
+  // about the cap still need the call to settle.
+  vi.mocked(getSessionPolicy).mockResolvedValue({ maxSessions: 5 });
 });
 
 describe('SessionsTable states', () => {

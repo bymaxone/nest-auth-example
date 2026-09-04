@@ -351,7 +351,7 @@ describe('Sessions — list, single-session revocation, revoke-all', () => {
       .set('X-Tenant-Id', 'acme');
 
     expect(res.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.VALIDATION]);
-    expect(res.body).toMatchObject({ code: AUTH_ERROR_CODES.VALIDATION, statusCode: 400 });
+    expect(res.body).toMatchObject({ error: { code: AUTH_ERROR_CODES.VALIDATION } });
   });
 
   it('DELETE /api/auth/sessions/:sessionHash answers 404 auth.session_not_found for an unknown hash', async () => {
@@ -374,6 +374,6 @@ describe('Sessions — list, single-session revocation, revoke-all', () => {
     const res = await agent.delete(`/api/auth/sessions/${unknownHash}`).set('X-Tenant-Id', 'acme');
 
     expect(res.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.SESSION_NOT_FOUND]);
-    expect(res.body).toMatchObject({ code: AUTH_ERROR_CODES.SESSION_NOT_FOUND, statusCode: 404 });
+    expect(res.body).toMatchObject({ error: { code: AUTH_ERROR_CODES.SESSION_NOT_FOUND } });
   });
 });

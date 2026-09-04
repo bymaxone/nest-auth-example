@@ -18,6 +18,14 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
+/** Router double — the card navigates to sign-in once enrolment completes. */
+const mockRouter = { push: vi.fn(), replace: vi.fn(), refresh: vi.fn() };
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => mockRouter,
+  usePathname: () => '/dashboard/security',
+}));
+
 vi.mock('@/lib/auth-client', () => ({
   mfaSetup: vi.fn(),
   mfaVerifyEnable: vi.fn(),

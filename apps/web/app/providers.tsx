@@ -25,7 +25,6 @@ import type {
   UseAuthStatusResult,
   AuthStatus,
 } from '@bymax-one/nest-auth/react';
-import { Toaster } from '@/components/ui/sonner';
 import { authClient } from '@/lib/auth-client';
 
 interface ProvidersProps {
@@ -64,7 +63,6 @@ export default function Providers({ children }: ProvidersProps) {
       onSessionExpired={() => router.push('/auth/login?reason=session_expired')}
     >
       {children}
-      <Toaster />
     </AuthProvider>
   );
 }

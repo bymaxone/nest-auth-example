@@ -202,7 +202,7 @@ describe('POST /api/auth/login — anti-enumeration', () => {
       .send({ email: 'alice@acme.example.test', password: 'definitely-wrong' });
 
     expect(unknownEmailRes.status).toBe(wrongPasswordRes.status);
-    expect(unknownEmailRes.body.code).toBe(wrongPasswordRes.body.code);
+    expect(unknownEmailRes.body.error.code).toBe(wrongPasswordRes.body.error.code);
   });
 });
 
@@ -225,8 +225,7 @@ describe('POST /api/auth/login — trusted-origin enforcement', () => {
 
     expect(res.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.UNTRUSTED_ORIGIN]);
     expect(res.body).toMatchObject({
-      code: AUTH_ERROR_CODES.UNTRUSTED_ORIGIN,
-      statusCode: 403,
+      error: { code: AUTH_ERROR_CODES.UNTRUSTED_ORIGIN },
     });
   });
 
@@ -247,6 +246,6 @@ describe('POST /api/auth/login — trusted-origin enforcement', () => {
       .send({ email: 'nobody@nowhere.invalid', password: 'IrrelevantP@ssw0rd!x' });
 
     expect(res.status).toBe(401);
-    expect(res.body).toMatchObject({ code: AUTH_ERROR_CODES.INVALID_CREDENTIALS });
+    expect(res.body).toMatchObject({ error: { code: AUTH_ERROR_CODES.INVALID_CREDENTIALS } });
   });
 });

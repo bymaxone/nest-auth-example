@@ -27,7 +27,6 @@ import { PasswordInput } from '@/components/auth/password-input';
 import { platformLogin } from '@/lib/auth-client';
 import { setPlatformTokens } from '@/lib/platform-auth';
 import type { PlatformAdmin } from '@/lib/platform-auth';
-import { translateAuthError } from '@/lib/auth-errors';
 import { mapAuthClientError } from '@/lib/auth-client';
 
 /** Zod schema for the platform login form — email + password. */
@@ -78,8 +77,8 @@ export function PlatformLoginForm() {
       setPlatformTokens(result.accessToken, result.refreshToken, result.admin as PlatformAdmin);
       router.replace('/platform/tenants');
     } catch (err) {
-      const { code } = mapAuthClientError(err);
-      toast.error(translateAuthError(code === 'UNKNOWN' ? '' : code));
+      const { message } = mapAuthClientError(err);
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -100,7 +99,7 @@ export function PlatformLoginForm() {
         className="flex flex-col gap-4"
       >
         {/* Email */}
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <Label htmlFor="email" className="text-[rgba(255,255,255,0.7)]">
             Email
           </Label>
@@ -122,7 +121,7 @@ export function PlatformLoginForm() {
         </div>
 
         {/* Password */}
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <Label htmlFor="password" className="text-[rgba(255,255,255,0.7)]">
             Password
           </Label>

@@ -2,11 +2,11 @@
  * @file auth-exception.filter.spec.ts
  * @description Unit tests for `AuthExceptionFilter`.
  *
- * Covers every branch of the `catch` method:
- *   1. Well-formed `AuthException` body → response contains `{ code, message, statusCode }`.
- *   2. Malformed body (does not match `AuthExceptionBody`) → falls back to `TOKEN_INVALID`,
- *      and a warning is logged.
- *   3. Body with no `message` field → `message` falls back to `AUTH_ERROR_MESSAGES[code]`.
+ * The filter's contract is the library envelope, because that is what
+ * `createAuthClient` parses. These tests pin the shape itself, not only the
+ * values inside it: a regression to a flat `{ code, message, statusCode }` body
+ * is what silently turns every error message in `apps/web` into the generic
+ * fallback sentence, and it is invisible from the status code alone.
  *
  * Mocks `ArgumentsHost` using plain objects — no NestJS testing module needed.
  * Tests are synchronous; the filter method is not async.
@@ -17,37 +17,39 @@
 
 import { jest } from '@jest/globals';
 import {
-  AuthException,
-  AUTH_ERROR_CODES,
-  AUTH_ERROR_MESSAGES,
-  AUTH_ERROR_STATUS,
-} from '@bymax-one/nest-auth';
-import type { AuthErrorCode } from '@bymax-one/nest-auth';
+  BadRequestException,
+  ForbiddenException,
+  HttpException,
+  HttpStatus,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { ThrottlerException } from '@nestjs/throttler';
+import { AuthException, AUTH_ERROR_CODES, AUTH_ERROR_MESSAGES } from '@bymax-one/nest-auth';
 import { AuthExceptionFilter } from './auth-exception.filter.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Response body shape written by the filter via `res.status(n).json(body)`. */
-interface FilterResponseBody {
-  code: string;
-  message: string;
-  statusCode: number;
+/** Envelope body written by the filter via `res.status(n).json(body)`. */
+interface EnvelopeBody {
+  error: {
+    code: string;
+    message: string;
+    details: Record<string, unknown> | null;
+  };
 }
 
 /**
  * Builds a mock `ArgumentsHost` whose HTTP context produces a response spy.
- * The `jsonSpy` captures the last call's body argument for assertions.
  *
- * @returns `{ host, getLastBody }` — the fake host and a helper to retrieve the last JSON body.
+ * @returns The fake host plus helpers reading the status and body last written.
  */
 function makeHost(): {
   host: Parameters<AuthExceptionFilter['catch']>[1];
-  getLastBody: () => FilterResponseBody | undefined;
+  getStatus: () => number | undefined;
+  getBody: () => EnvelopeBody | undefined;
 } {
-  // Use `unknown` for the mock type to avoid Jest 30 generic constraints.
-  // The actual runtime value is a FilterResponseBody — we retrieve it via getLastBody.
   const jsonMock = jest.fn<(body: unknown) => void>();
-
   const statusMock = jest.fn<(code: number) => { json: typeof jsonMock }>().mockReturnValue({
     json: jsonMock,
   });
@@ -58,14 +60,19 @@ function makeHost(): {
     })),
   } as unknown as Parameters<AuthExceptionFilter['catch']>[1];
 
-  /** Retrieves the FilterResponseBody passed to the last json() call. */
-  function getLastBody(): FilterResponseBody | undefined {
-    // noUncheckedIndexedAccess: cast through unknown to access runtime argument.
-    const calls = jsonMock.mock.calls as unknown as Array<[FilterResponseBody]>;
+  /** Reads the status passed to the first status() call. */
+  function getStatus(): number | undefined {
+    const calls = statusMock.mock.calls as unknown as Array<[number]>;
     return calls[0]?.[0];
   }
 
-  return { host, getLastBody };
+  /** Reads the body passed to the first json() call. */
+  function getBody(): EnvelopeBody | undefined {
+    const calls = jsonMock.mock.calls as unknown as Array<[EnvelopeBody]>;
+    return calls[0]?.[0];
+  }
+
+  return { host, getStatus, getBody };
 }
 
 // ─── Suite ────────────────────────────────────────────────────────────────────
@@ -75,253 +82,182 @@ describe('AuthExceptionFilter', () => {
 
   beforeEach(() => {
     filter = new AuthExceptionFilter();
+    jest.restoreAllMocks();
   });
 
-  // ── Standard AuthException ─────────────────────────────────────────────────
+  // ── AuthException ──────────────────────────────────────────────────────────
 
-  it('maps a well-formed AuthException to { code, message, statusCode } in the response', () => {
-    // FCM #29 — every AuthException must produce the standardised envelope expected
-    // by the frontend error-code map. Code and message come from the exception body.
-    const code: AuthErrorCode = AUTH_ERROR_CODES.INVALID_CREDENTIALS;
-    const exception = new AuthException(code);
-    const { host, getLastBody } = makeHost();
+  /**
+   * Scenario: the library throws its own exception.
+   * Rule: the envelope it already carries is written through untouched, so the
+   * code the client reads is the code the library raised.
+   */
+  it('passes a library exception through in its own envelope', () => {
+    const { host, getStatus, getBody } = makeHost();
+
+    filter.catch(new AuthException(AUTH_ERROR_CODES.INVALID_CREDENTIALS), host);
+
+    expect(getStatus()).toBe(HttpStatus.UNAUTHORIZED);
+    expect(getBody()?.error.code).toBe(AUTH_ERROR_CODES.INVALID_CREDENTIALS);
+    expect(typeof getBody()?.error.message).toBe('string');
+  });
+
+  /**
+   * Scenario: any error response at all.
+   * Rule: the body is nested under `error`. A flat top-level `code` is the shape
+   * `createAuthClient` cannot parse, so its absence is the actual contract.
+   */
+  it('nests the code under `error` rather than at the top level', () => {
+    const { host, getBody } = makeHost();
+
+    filter.catch(new AuthException(AUTH_ERROR_CODES.MFA_REQUIRED), host);
+
+    const body = getBody();
+    expect(body).toHaveProperty('error.code', AUTH_ERROR_CODES.MFA_REQUIRED);
+    expect(body).not.toHaveProperty('code');
+    expect(body).not.toHaveProperty('statusCode');
+  });
+
+  /**
+   * Scenario: a library version whose exception body no longer matches.
+   * Rule: answer a usable envelope anyway and warn, rather than writing a body
+   * the client cannot read.
+   */
+  it('falls back to an invalid-token envelope when the library body drifts', () => {
+    const { host, getStatus, getBody } = makeHost();
+    const warn = jest.spyOn(filter['logger'], 'warn').mockImplementation(() => undefined);
+
+    const drifted = new AuthException(AUTH_ERROR_CODES.INVALID_CREDENTIALS);
+    jest.spyOn(drifted, 'getResponse').mockReturnValue({ unexpected: true });
+
+    filter.catch(drifted, host);
+
+    expect(getStatus()).toBe(HttpStatus.UNAUTHORIZED);
+    expect(getBody()?.error.code).toBe(AUTH_ERROR_CODES.TOKEN_INVALID);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  // ── Framework exceptions ───────────────────────────────────────────────────
+
+  /**
+   * Scenario: the rate limiter rejects a request.
+   * Rule: it answers as a rate-limit error, not as a generic internal one, so the
+   * user is told to wait instead of being shown an unexplained failure.
+   */
+  it('maps a throttler rejection to the too-many-requests code', () => {
+    const { host, getStatus, getBody } = makeHost();
+
+    filter.catch(new ThrottlerException(), host);
+
+    expect(getStatus()).toBe(HttpStatus.TOO_MANY_REQUESTS);
+    expect(getBody()?.error.code).toBe(AUTH_ERROR_CODES.TOO_MANY_REQUESTS);
+    expect(getBody()?.error.message).toBe(AUTH_ERROR_MESSAGES[AUTH_ERROR_CODES.TOO_MANY_REQUESTS]);
+  });
+
+  /**
+   * Scenario: a DTO fails validation.
+   * Rule: the per-field messages survive as structured detail, so a form can point
+   * at the field instead of only showing a sentence.
+   */
+  it('carries validation field messages through as details', () => {
+    const { host, getStatus, getBody } = makeHost();
+
+    filter.catch(new BadRequestException({ message: ['email must be an email'] }), host);
+
+    expect(getStatus()).toBe(HttpStatus.BAD_REQUEST);
+    expect(getBody()?.error.code).toBe(AUTH_ERROR_CODES.VALIDATION);
+    expect(getBody()?.error.details).toEqual({ fields: ['email must be an email'] });
+  });
+
+  /**
+   * Scenario: a bad request that carries no field array.
+   * Rule: still a validation error, with no invented detail.
+   */
+  it('answers a bare bad request with a validation code and no details', () => {
+    const { host, getBody } = makeHost();
+
+    filter.catch(new BadRequestException('nope'), host);
+
+    expect(getBody()?.error.code).toBe(AUTH_ERROR_CODES.VALIDATION);
+    expect(getBody()?.error.details).toBeNull();
+  });
+
+  /**
+   * Scenario: guards throw the framework's own refusals.
+   * Rule: each status maps to the code that describes it.
+   */
+  it.each([
+    [new UnauthorizedException(), HttpStatus.UNAUTHORIZED, AUTH_ERROR_CODES.TOKEN_INVALID],
+    [new ForbiddenException(), HttpStatus.FORBIDDEN, AUTH_ERROR_CODES.FORBIDDEN],
+    [new NotFoundException(), HttpStatus.NOT_FOUND, AUTH_ERROR_CODES.INTERNAL],
+  ])('maps %# to its matching auth code', (exception, status, code) => {
+    const { host, getStatus, getBody } = makeHost();
 
     filter.catch(exception, host);
 
-    const body = getLastBody();
-    expect(body?.code).toBe(code);
-    expect(body?.statusCode).toBe(exception.getStatus());
-    expect(typeof body?.message).toBe('string');
-    expect(body?.message.length).toBeGreaterThan(0);
+    expect(getStatus()).toBe(status);
+    expect(getBody()?.error.code).toBe(code);
   });
 
-  it('uses the status code from the exception when it is not 401', () => {
-    // Ensures that non-default status codes (e.g. 403, 429) are propagated
-    // to the response rather than being overridden with a hardcoded 401.
-    // The status is a property of the code — AuthException derives it from
-    // the AUTH_ERROR_STATUS map, so the assertion pins the map value too.
-    const exception = new AuthException(AUTH_ERROR_CODES.FORBIDDEN);
-    const { host, getLastBody } = makeHost();
+  /**
+   * Scenario: an exception thrown by another layer that already speaks the envelope.
+   * Rule: it is written through unchanged rather than re-wrapped.
+   */
+  it('passes a nested envelope through unchanged', () => {
+    const { host, getBody } = makeHost();
+    const envelope = {
+      error: { code: AUTH_ERROR_CODES.SESSION_NOT_FOUND, message: 'gone', details: null },
+    };
 
-    filter.catch(exception, host);
+    filter.catch(new HttpException(envelope, HttpStatus.NOT_FOUND), host);
 
-    expect(getLastBody()?.statusCode).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.FORBIDDEN]);
-    expect(getLastBody()?.statusCode).toBe(403);
+    expect(getBody()).toEqual(envelope);
   });
 
-  // ── Malformed body ─────────────────────────────────────────────────────────
+  /**
+   * Scenario: a framework exception whose message names an internal detail.
+   * Rule: the catalogue message is written, never the thrown one, so a driver
+   * error cannot put a connection string in a response body.
+   */
+  it('never writes the thrown message for a framework exception', () => {
+    const { host, getBody } = makeHost();
 
-  it('falls back to TOKEN_INVALID code when the exception body has an unexpected shape', () => {
-    // Forward-compat guard: a library version mismatch may produce an unexpected
-    // body structure. The filter must not crash — it falls back to TOKEN_INVALID.
-    const exception = new AuthException(AUTH_ERROR_CODES.TOKEN_INVALID);
-    // Override getResponse to return a non-conforming body (plain string).
-    jest.spyOn(exception, 'getResponse').mockReturnValue('plain string body');
+    filter.catch(new BadRequestException('postgres://user:secret@host/db'), host);
 
-    const { host, getLastBody } = makeHost();
-
-    filter.catch(exception, host);
-
-    expect(getLastBody()?.code).toBe(AUTH_ERROR_CODES.TOKEN_INVALID);
+    expect(getBody()?.error.message).toBe(AUTH_ERROR_MESSAGES[AUTH_ERROR_CODES.VALIDATION]);
+    expect(JSON.stringify(getBody())).not.toContain('secret');
   });
 
-  it('logs a warning when the exception body does not match AuthExceptionBody shape', () => {
-    // The warning is observable in production without exposing the raw exception body.
-    // We spy on the logger's `warn` method to assert the warning was emitted.
-    const exception = new AuthException(AUTH_ERROR_CODES.TOKEN_INVALID);
-    // Override body to something that fails the isAuthExceptionBody guard.
-    jest.spyOn(exception, 'getResponse').mockReturnValue(42 as unknown as string);
+  // ── Unknown throwables ─────────────────────────────────────────────────────
 
-    const loggerWarnSpy = jest
-      .spyOn(
-        // Access the private logger field via bracket notation to observe the warning.
-        (filter as unknown as { logger: { warn: (msg: string) => void } }).logger,
-        'warn',
-      )
-      .mockImplementation(() => undefined);
+  /**
+   * Scenario: something that is not an exception at all reaches the filter.
+   * Rule: answer a generic internal error and log the cause, so the failure is
+   * visible in the logs without reaching the caller.
+   */
+  it('answers a generic internal error for a non-exception throwable', () => {
+    const { host, getStatus, getBody } = makeHost();
+    const error = jest.spyOn(filter['logger'], 'error').mockImplementation(() => undefined);
 
-    const { host } = makeHost();
+    filter.catch(new Error('connect ECONNREFUSED 127.0.0.1:5432'), host);
 
-    filter.catch(exception, host);
-
-    expect(loggerWarnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('AuthException body shape mismatch'),
-    );
+    expect(getStatus()).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+    expect(getBody()?.error.code).toBe(AUTH_ERROR_CODES.INTERNAL);
+    expect(JSON.stringify(getBody())).not.toContain('ECONNREFUSED');
+    expect(error).toHaveBeenCalledTimes(1);
   });
 
-  // ── Message fallback ───────────────────────────────────────────────────────
+  /**
+   * Scenario: a rejected promise carrying a non-Error value.
+   * Rule: the filter still answers, describing the value by type only.
+   */
+  it('answers when the thrown value is not an Error', () => {
+    const { host, getStatus, getBody } = makeHost();
+    jest.spyOn(filter['logger'], 'error').mockImplementation(() => undefined);
 
-  it('falls back to AUTH_ERROR_MESSAGES[code] when the exception body has no message field', () => {
-    // If the body has the right shape but the inner `message` is missing, the
-    // filter must use the static message map rather than emitting undefined.
-    const code: AuthErrorCode = AUTH_ERROR_CODES.ACCOUNT_LOCKED;
-    const exception = new AuthException(code);
+    filter.catch('boom', host);
 
-    // Override the response to have the correct shape but without `message`.
-    jest.spyOn(exception, 'getResponse').mockReturnValue({
-      error: { code, details: null },
-    });
-
-    const { host, getLastBody } = makeHost();
-
-    filter.catch(exception, host);
-
-    const body = getLastBody();
-    expect(body?.code).toBe(code);
-    // The message must be the static fallback, not undefined or empty.
-    const expectedMessage = (AUTH_ERROR_MESSAGES as Record<string, string | undefined>)[code];
-    expect(body?.message).toBe(expectedMessage ?? code);
-  });
-
-  it('uses the code itself as message when code is absent from AUTH_ERROR_MESSAGES', () => {
-    // Ultimate fallback: an unknown future code that is not in AUTH_ERROR_MESSAGES
-    // still produces a valid message (the code string itself) rather than undefined.
-    const unknownCode = 'auth.future_code_unknown' as AuthErrorCode;
-    const exception = new AuthException(AUTH_ERROR_CODES.TOKEN_INVALID);
-
-    jest.spyOn(exception, 'getResponse').mockReturnValue({
-      error: { code: unknownCode, details: null },
-    });
-
-    const { host, getLastBody } = makeHost();
-
-    filter.catch(exception, host);
-
-    const body = getLastBody();
-    // AUTH_ERROR_MESSAGES does not contain unknownCode — must fall through to `code`.
-    expect(typeof body?.message).toBe('string');
-    expect((body?.message ?? '').length).toBeGreaterThan(0);
-  });
-
-  // ── isAuthExceptionBody guard branches ─────────────────────────────────────
-
-  describe('isAuthExceptionBody guard branches', () => {
-    /**
-     * Builds a `logger.warn` spy bound to the filter under test.
-     *
-     * @returns Jest spy that captures warn invocations and produces no output.
-     */
-    function spyOnWarn(): jest.SpiedFunction<(msg: string) => void> {
-      return jest
-        .spyOn((filter as unknown as { logger: { warn: (msg: string) => void } }).logger, 'warn')
-        .mockImplementation(() => undefined);
-    }
-
-    it('warns and falls back to TOKEN_INVALID when the body is a primitive (number)', () => {
-      /*
-       * Scenario: a future library version mismatch produces a numeric error
-       * payload instead of the documented `{ error: { code, ... } }` envelope.
-       * The filter must not crash on the property-access path — it surfaces
-       * a generic TOKEN_INVALID code and warns the operator via the
-       * application logger so the drift is observable in production.
-       */
-      const exception = new AuthException(AUTH_ERROR_CODES.TOKEN_INVALID);
-      jest.spyOn(exception, 'getResponse').mockReturnValue(42 as unknown as string);
-      const warnSpy = spyOnWarn();
-      const { host, getLastBody } = makeHost();
-
-      filter.catch(exception, host);
-
-      expect(warnSpy).toHaveBeenCalledTimes(1);
-      expect(getLastBody()?.code).toBe(AUTH_ERROR_CODES.TOKEN_INVALID);
-    });
-
-    it('warns and falls back to TOKEN_INVALID when the body is an object with no "error" key', () => {
-      /*
-       * Scenario: a malformed exception body that lacks the canonical
-       * `error` envelope (an upstream catch handler may have flattened the
-       * shape). The filter must reject the body and surface TOKEN_INVALID
-       * so the user receives a recognisable error code rather than
-       * `undefined` propagating into the response JSON.
-       */
-      const exception = new AuthException(AUTH_ERROR_CODES.TOKEN_INVALID);
-      jest.spyOn(exception, 'getResponse').mockReturnValue({ foo: 'bar' });
-      const warnSpy = spyOnWarn();
-      const { host, getLastBody } = makeHost();
-
-      filter.catch(exception, host);
-
-      expect(warnSpy).toHaveBeenCalledTimes(1);
-      expect(getLastBody()?.code).toBe(AUTH_ERROR_CODES.TOKEN_INVALID);
-    });
-
-    it('warns and falls back to TOKEN_INVALID when `error` is a primitive (not an object)', () => {
-      /*
-       * Scenario: an upstream change stores the error code as a top-level
-       * string instead of nesting it under `error: { code }`. The filter
-       * must reject this shape rather than later crashing when it reads
-       * `code` on a string value.
-       */
-      const exception = new AuthException(AUTH_ERROR_CODES.TOKEN_INVALID);
-      jest.spyOn(exception, 'getResponse').mockReturnValue({ error: 'just a string' });
-      const warnSpy = spyOnWarn();
-      const { host, getLastBody } = makeHost();
-
-      filter.catch(exception, host);
-
-      expect(warnSpy).toHaveBeenCalledTimes(1);
-      expect(getLastBody()?.code).toBe(AUTH_ERROR_CODES.TOKEN_INVALID);
-    });
-
-    it('warns and falls back to TOKEN_INVALID when `error` is null', () => {
-      /*
-       * Scenario: a partial server-side mutation produces `{ error: null }`.
-       * JavaScript's `typeof null === 'object'` would let a naive guard
-       * accept the value and then crash when reading `error.code`. The
-       * explicit null check protects the production path from a 500
-       * caused by the filter itself rather than the original exception.
-       */
-      const exception = new AuthException(AUTH_ERROR_CODES.TOKEN_INVALID);
-      jest.spyOn(exception, 'getResponse').mockReturnValue({ error: null });
-      const warnSpy = spyOnWarn();
-      const { host, getLastBody } = makeHost();
-
-      filter.catch(exception, host);
-
-      expect(warnSpy).toHaveBeenCalledTimes(1);
-      expect(getLastBody()?.code).toBe(AUTH_ERROR_CODES.TOKEN_INVALID);
-    });
-
-    it('reads the code from the `error` key when the body has a well-formed envelope', () => {
-      /*
-       * Scenario: a future refactor that swapped the canonical `error`
-       * property for any other key (or an empty-string key) would silently
-       * change which value the filter reads as the error code. Sending a
-       * body that carries both a recognisable `error` envelope and a
-       * separate null entry on the empty-string key proves the filter
-       * genuinely reads the `error` key — only then does ACCOUNT_LOCKED
-       * surface to the response.
-       */
-      const exception = new AuthException(AUTH_ERROR_CODES.TOKEN_INVALID);
-      jest.spyOn(exception, 'getResponse').mockReturnValue({
-        '': null,
-        error: { code: AUTH_ERROR_CODES.ACCOUNT_LOCKED, details: null },
-      });
-      const warnSpy = spyOnWarn();
-      const { host, getLastBody } = makeHost();
-
-      filter.catch(exception, host);
-
-      // The envelope is recognised — no warn is emitted.
-      expect(warnSpy).not.toHaveBeenCalled();
-      // The forwarded code is the one nested under the `error` key.
-      expect(getLastBody()?.code).toBe(AUTH_ERROR_CODES.ACCOUNT_LOCKED);
-    });
-
-    it('does NOT warn on the happy path (well-formed AuthException body)', () => {
-      /*
-       * Scenario: every successful request must keep the operator log
-       * quiet. A warn on the happy path would flood production logs with
-       * thousands of false-positive entries every minute and dilute the
-       * signal of real shape mismatches.
-       */
-      const exception = new AuthException(AUTH_ERROR_CODES.INVALID_CREDENTIALS);
-      const warnSpy = spyOnWarn();
-      const { host } = makeHost();
-
-      filter.catch(exception, host);
-
-      expect(warnSpy).not.toHaveBeenCalled();
-    });
+    expect(getStatus()).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+    expect(getBody()?.error.code).toBe(AUTH_ERROR_CODES.INTERNAL);
   });
 });

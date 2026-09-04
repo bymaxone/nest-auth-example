@@ -81,7 +81,7 @@ export function InviteForm({ onSuccess }: InviteFormProps) {
       noValidate
       className="flex flex-wrap items-end gap-3"
     >
-      <div className="min-w-[200px] flex-1 space-y-1">
+      <div className="min-w-[200px] flex-1 space-y-2">
         <Label htmlFor="inviteEmail" className="text-xs text-[rgba(255,255,255,0.6)]">
           Email address
         </Label>
@@ -96,14 +96,14 @@ export function InviteForm({ onSuccess }: InviteFormProps) {
         {errors.email && <p className="text-xs text-red-400">{errors.email.message}</p>}
       </div>
 
-      <div className="space-y-1">
+      <div className="space-y-2">
         <Label htmlFor="inviteRole" className="text-xs text-[rgba(255,255,255,0.6)]">
           Role
         </Label>
         <select
           id="inviteRole"
           {...register('role')}
-          className="h-9 rounded-md border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.05)] px-3 text-sm text-[rgba(255,255,255,0.8)] focus:ring-2 focus:ring-[#ff6224]/50 focus:outline-none"
+          className="h-12 appearance-none rounded-full border border-(--glass-border) bg-(--glass-bg) px-5 text-sm text-[rgba(255,255,255,0.8)] transition-shadow duration-200 focus-visible:ring-2 focus-visible:ring-[#ff6224]/50 focus-visible:outline-none"
         >
           {ROLE_OPTIONS.map((r) => (
             <option key={r} value={r} className="bg-[#0c0c0c]">
@@ -115,7 +115,7 @@ export function InviteForm({ onSuccess }: InviteFormProps) {
 
       <Button
         type="submit"
-        size="sm"
+        size="lg"
         disabled={isPending}
         className="bg-[#ff6224] text-white hover:bg-[#e5551f]"
       >

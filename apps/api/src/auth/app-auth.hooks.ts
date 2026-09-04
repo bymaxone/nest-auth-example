@@ -46,6 +46,7 @@ import {
   type SessionAlertInfo,
   sha256,
 } from '@bymax-one/nest-auth';
+import { UserStatus } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -354,6 +355,18 @@ export class AppAuthHooks implements IAuthHooks {
     await this.record('email.verified', context, {
       userId: user.id,
       tenantId: user.tenantId,
+    });
+
+    // Self-registered accounts are created PENDING. Verifying the address is
+    // the step that clears that, so promote here — otherwise a verified user
+    // stays PENDING forever, and the team roster shows them next to an
+    // "Activate" control that nothing in the product ever needs pressed.
+    // `updateMany` keeps the write tenant-scoped and makes it idempotent: a
+    // user who is already ACTIVE, or was suspended between the two events,
+    // matches nothing and is left alone.
+    await this.prisma.user.updateMany({
+      where: { id: user.id, tenantId: user.tenantId, status: UserStatus.PENDING },
+      data: { status: UserStatus.ACTIVE },
     });
   }
 

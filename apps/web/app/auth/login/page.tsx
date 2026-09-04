@@ -190,8 +190,8 @@ function LoginForm() {
         );
         return;
       }
-      const { code } = mapAuthClientError(err);
-      toast.error(translateAuthError(code === 'UNKNOWN' ? '' : code));
+      const { message } = mapAuthClientError(err);
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -200,6 +200,10 @@ function LoginForm() {
   const sessionExpired = searchParams.get('reason') === 'session_expired';
   const justVerified = searchParams.get('verified') === '1';
   const justReset = searchParams.get('reset') === '1';
+  // Enabling a second factor invalidates every existing session by design, so
+  // the user is sent back here. Reporting that as an expiry reads as a failure
+  // right after they successfully secured their account.
+  const mfaJustEnabled = searchParams.get('reason') === 'mfa_enabled';
   // `?error=<code>` is appended by the lib's `oauth.errorRedirectUrl` flow
   // (v1.0.7+) when the OAuth callback throws an `AuthException`. The lib
   // strips the `auth.` namespace prefix and surfaces just the suffix —
@@ -243,6 +247,16 @@ function LoginForm() {
           <p className="text-sm text-green-400">Email verified — you can now sign in.</p>
         </div>
       )}
+      {mfaJustEnabled && (
+        <div
+          role="alert"
+          className="rounded-lg border border-[rgba(34,197,94,0.3)] bg-[rgba(34,197,94,0.1)] px-4 py-3"
+        >
+          <p className="text-sm text-green-400">
+            Two-factor authentication is on. Sign in again with a code from your authenticator app.
+          </p>
+        </div>
+      )}
       {justReset && (
         <div
           role="alert"
@@ -266,7 +280,7 @@ function LoginForm() {
             credential schema; it travels through the resolved CUID + the
             `tenant_id` cookie + the `X-Tenant-Id` header that the lib's
             `tenantIdResolver` consumes. */}
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <Label htmlFor="tenantId" className="text-[rgba(255,255,255,0.7)]">
             Workspace
           </Label>
@@ -297,7 +311,7 @@ function LoginForm() {
         </div>
 
         {/* Email */}
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <Label htmlFor="email" className="text-[rgba(255,255,255,0.7)]">
             Email
           </Label>
@@ -319,7 +333,7 @@ function LoginForm() {
         </div>
 
         {/* Password */}
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <Label htmlFor="password" className="text-[rgba(255,255,255,0.7)]">
               Password

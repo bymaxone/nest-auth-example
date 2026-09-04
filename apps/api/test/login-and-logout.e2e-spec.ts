@@ -310,9 +310,10 @@ describe('Login & Logout — login → /me → logout → error paths', () => {
 
     expect(loginRes.status).toBe(401);
     expect(loginRes.body).toMatchObject({
-      code: expect.stringMatching(/^auth\./),
-      message: expect.any(String),
-      statusCode: 401,
+      error: {
+        code: expect.stringMatching(/^auth\./),
+        message: expect.any(String),
+      },
     });
   });
 
@@ -331,9 +332,10 @@ describe('Login & Logout — login → /me → logout → error paths', () => {
 
     expect(loginRes.status).toBe(401);
     expect(loginRes.body).toMatchObject({
-      code: expect.stringMatching(/^auth\./),
-      message: expect.any(String),
-      statusCode: 401,
+      error: {
+        code: expect.stringMatching(/^auth\./),
+        message: expect.any(String),
+      },
     });
   });
 });

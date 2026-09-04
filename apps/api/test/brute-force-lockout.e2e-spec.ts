@@ -206,8 +206,7 @@ describe('Brute-force lockout — account locks after 5 wrong-password attempts'
     // (the library reserves 429 for rate-limit errors, lockout included).
     expect(lockedAttempt.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.ACCOUNT_LOCKED]);
     expect(lockedAttempt.body).toMatchObject({
-      code: AUTH_ERROR_CODES.ACCOUNT_LOCKED,
-      statusCode: 429,
+      error: { code: AUTH_ERROR_CODES.ACCOUNT_LOCKED },
     });
 
     // Redis must have a lockout key registered for this user's failed-login counter.
@@ -237,12 +236,11 @@ describe('Brute-force lockout — account locks after 5 wrong-password attempts'
       // that would reveal the email is registered.
       expect(attempt.status).toBe(401);
       expect(attempt.body).toMatchObject({
-        code: expect.stringMatching(/^auth\./),
-        statusCode: 401,
+        error: { code: expect.stringMatching(/^auth\./) },
       });
       // Must NOT return ACCOUNT_LOCKED since the account does not exist.
-      const body = attempt.body as { code: string };
-      expect(body.code).not.toMatch(/locked/i);
+      const body = attempt.body as { error: { code: string } };
+      expect(body.error.code).not.toMatch(/locked/i);
     }
   });
 
@@ -306,7 +304,7 @@ describe('Brute-force lockout — account locks after 5 wrong-password attempts'
       .set('X-Tenant-Id', 'acme')
       .send({ email, password });
     expect(lockedLogin.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.ACCOUNT_LOCKED]);
-    expect(lockedLogin.body).toMatchObject({ code: AUTH_ERROR_CODES.ACCOUNT_LOCKED });
+    expect(lockedLogin.body).toMatchObject({ error: { code: AUTH_ERROR_CODES.ACCOUNT_LOCKED } });
 
     // Unlock early — the admin "unlock account" surface.
     const unlockRes = await supertest
