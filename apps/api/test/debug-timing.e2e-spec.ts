@@ -58,7 +58,7 @@ describe('Debug env vars', () => {
     app.useGlobalPipes(
       createAuthValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
     );
-    app.useGlobalFilters(new AuthExceptionFilter());
+    app.useGlobalFilters(new AuthExceptionFilter([]));
     app.useWebSocketAdapter(new WsAdapter(app));
     await app.listen(0);
 

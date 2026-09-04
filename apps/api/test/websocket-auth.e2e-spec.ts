@@ -212,7 +212,7 @@ describe('WebSocket auth — WsJwtGuard protection and push delivery (FCM #24)',
         transformOptions: { enableImplicitConversion: false },
       }),
     );
-    app.useGlobalFilters(new AuthExceptionFilter());
+    app.useGlobalFilters(new AuthExceptionFilter([]));
     // Activate the plain WebSocket adapter so the notifications gateway binds.
     app.useWebSocketAdapter(new WsAdapter(app));
     // Use listen() (not init()) so the HTTP + WS server actually binds to the port.

@@ -93,7 +93,7 @@ export async function createTestApp(options?: { port?: number }): Promise<TestBu
       transformOptions: { enableImplicitConversion: false },
     }),
   );
-  app.useGlobalFilters(new AuthExceptionFilter());
+  app.useGlobalFilters(new AuthExceptionFilter([]));
   // The notifications gateway requires an explicit WebSocket driver — the app
   // uses the plain `ws` adapter (matching main.ts), not socket.io.
   app.useWebSocketAdapter(new WsAdapter(app));
