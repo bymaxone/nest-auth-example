@@ -631,6 +631,20 @@ describe('PlatformUsersTable MFA reset', () => {
     { ...mockUsers[1]! },
   ];
 
+  /** Opens the confirmation dialog and commits to the reset. */
+  function confirmReset(): void {
+    fireEvent.click(screen.getByRole('button', { name: /reset 2fa/i }));
+    fireEvent.click(screen.getByRole('button', { name: /clear it/i }));
+  }
+
+  /*
+   * Assertions about the row's own controls pass `hidden: true`. The dialog
+   * aria-hides the rest of the page while it is mounted, so the default query
+   * cannot see the row at all — and would report a control as "gone" whenever
+   * the overlay happened to still be up, which is the opposite of the fact
+   * these tests are pinning.
+   */
+
   it('offers the reset only for a user who has a factor to clear', async () => {
     /*
      * Scenario: two users, one enrolled in MFA and one not.
@@ -646,9 +660,71 @@ describe('PlatformUsersTable MFA reset', () => {
     expect(screen.getAllByRole('button', { name: /reset 2fa/i })).toHaveLength(1);
   });
 
+  it('hides the reset from a read-only support operator', async () => {
+    /*
+     * Scenario: the signed-in operator holds SUPPORT, which the endpoint's
+     * `@PlatformRoles('SUPER_ADMIN')` guard refuses.
+     * Protects: the control is absent rather than present-and-failing. A button
+     * whose only possible outcome is a 403 reads as a broken endpoint, not as a
+     * permission boundary.
+     */
+    vi.mocked(getPlatformAdmin).mockReturnValue({
+      id: 'admin-2',
+      email: 'support@example.com',
+      name: 'Support',
+      role: 'SUPPORT',
+      status: 'ACTIVE',
+    });
+    vi.mocked(listPlatformUsers).mockResolvedValue(usersWithMfa);
+
+    render(<PlatformUsersTable tenantId="tenant-1" />);
+    await waitFor(() => expect(screen.getByText('Alice')).toBeDefined());
+
+    expect(screen.queryByRole('button', { name: /reset 2fa/i })).toBeNull();
+  });
+
+  it('does nothing until the confirmation is accepted', async () => {
+    /*
+     * Scenario: the admin opens the dialog and backs out.
+     * Protects: the click that opens the confirmation does not itself perform
+     * the reset. The action revokes every session and emails the account owner,
+     * so it must not be reachable by a single stray click in a dense row of
+     * near-identical buttons.
+     */
+    vi.mocked(listPlatformUsers).mockResolvedValue(usersWithMfa);
+
+    render(<PlatformUsersTable tenantId="tenant-1" />);
+    await waitFor(() => expect(screen.getByText('Alice')).toBeDefined());
+
+    fireEvent.click(screen.getByRole('button', { name: /reset 2fa/i }));
+    await screen.findByText(/clear two-factor authentication\?/i);
+    expect(vi.mocked(platformResetUserMfa)).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    expect(vi.mocked(platformResetUserMfa)).not.toHaveBeenCalled();
+  });
+
+  it('names the target account in the confirmation', async () => {
+    /*
+     * Scenario: the dialog is open.
+     * Protects: the copy identifies whose factor is about to be cleared. The
+     * rows differ only by email, so a confirmation that does not name the
+     * account cannot catch the mis-click it exists to catch.
+     */
+    vi.mocked(listPlatformUsers).mockResolvedValue(usersWithMfa);
+
+    render(<PlatformUsersTable tenantId="tenant-1" />);
+    await waitFor(() => expect(screen.getByText('Alice')).toBeDefined());
+
+    fireEvent.click(screen.getByRole('button', { name: /reset 2fa/i }));
+
+    const description = await screen.findByText(/will lose their authenticator/i);
+    expect(description.textContent).toContain('alice@example.com');
+  });
+
   it('clears the factor and updates the row from the response', async () => {
     /*
-     * Scenario: the admin clears the factor for a user who lost both their
+     * Scenario: the admin confirms for a user who lost both their
      * authenticator and their recovery codes.
      * Protects: the target user id reaches the API, and the row is rewritten
      * from what came back rather than from an assumption — so the control
@@ -660,10 +736,10 @@ describe('PlatformUsersTable MFA reset', () => {
     render(<PlatformUsersTable tenantId="tenant-1" />);
     await waitFor(() => expect(screen.getByText('Alice')).toBeDefined());
 
-    fireEvent.click(screen.getByRole('button', { name: /reset 2fa/i }));
+    confirmReset();
 
     await waitFor(() => {
-      expect(screen.queryByRole('button', { name: /reset 2fa/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /reset 2fa/i, hidden: true })).toBeNull();
     });
     expect(vi.mocked(platformResetUserMfa)).toHaveBeenCalledWith('u1');
 
@@ -675,8 +751,7 @@ describe('PlatformUsersTable MFA reset', () => {
 
   it('leaves the row untouched and reports the failure when the reset is refused', async () => {
     /*
-     * Scenario: the API refuses — a SUPPORT admin hitting a SUPER_ADMIN-only
-     * route, or the request failing outright.
+     * Scenario: the API refuses — the request fails, or a guard rejects it.
      * Protects: the control stays, because the factor is still there. Removing
      * it optimistically would tell the admin the account is recoverable when
      * it is not, and the mistake is only discovered by the locked-out user.
@@ -688,19 +763,19 @@ describe('PlatformUsersTable MFA reset', () => {
     render(<PlatformUsersTable tenantId="tenant-1" />);
     await waitFor(() => expect(screen.getByText('Alice')).toBeDefined());
 
-    fireEvent.click(screen.getByRole('button', { name: /reset 2fa/i }));
+    confirmReset();
 
     const { toast } = await import('sonner');
     await waitFor(() => {
       expect(vi.mocked(toast).error).toHaveBeenCalledWith('Forbidden');
     });
-    expect(screen.getByRole('button', { name: /reset 2fa/i })).toBeDefined();
+    expect(screen.getByRole('button', { name: /reset 2fa/i, hidden: true })).toBeDefined();
   });
 
   it('disables the control while the reset is in flight', async () => {
     /*
-     * Scenario: the admin clicks while the request is still open.
-     * Protects: the button is disabled until it settles, so the reset cannot
+     * Scenario: the request is still open after the admin confirmed.
+     * Protects: the trigger is disabled until it settles, so the reset cannot
      * be fired twice — the second call would clear a factor the user has just
      * started re-enrolling.
      */
@@ -710,10 +785,10 @@ describe('PlatformUsersTable MFA reset', () => {
     render(<PlatformUsersTable tenantId="tenant-1" />);
     await waitFor(() => expect(screen.getByText('Alice')).toBeDefined());
 
-    fireEvent.click(screen.getByRole('button', { name: /reset 2fa/i }));
+    confirmReset();
 
     await waitFor(() => {
-      const button = screen.getByRole('button', { name: '…' });
+      const button = screen.getByRole('button', { name: '…', hidden: true });
       expect((button as HTMLButtonElement).disabled).toBe(true);
     });
   });

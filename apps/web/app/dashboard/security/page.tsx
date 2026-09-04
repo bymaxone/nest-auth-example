@@ -191,7 +191,7 @@ export default function SecurityPage() {
                 Sign in again to manage two-factor authentication.
               </p>
             </div>
-            <Button asChild size="sm" className="bg-[#ff6224] text-white hover:bg-[#e5551f]">
+            <Button asChild size="sm">
               <Link href="/auth/login">Sign in</Link>
             </Button>
           </Card>

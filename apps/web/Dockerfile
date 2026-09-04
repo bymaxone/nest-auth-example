@@ -14,6 +14,8 @@
 #   NEXT_PUBLIC_API_URL                 (required) e.g. https://example.com/api
 #   NEXT_PUBLIC_WS_URL                  (required) e.g. wss://example.com
 #   NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED    defaults to false
+#   NEXT_PUBLIC_PASSWORD_RESET_MODE     defaults to token; must match the
+#                                       API's PASSWORD_RESET_METHOD
 #   INTERNAL_API_URL                    build-time placeholder; override at runtime
 #   AUTH_JWT_SECRET_FOR_PROXY           build-time placeholder; override at runtime
 #
@@ -52,11 +54,13 @@ WORKDIR /workspace
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_WS_URL
 ARG NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED=false
+ARG NEXT_PUBLIC_PASSWORD_RESET_MODE=token
 
 # NEXT_PUBLIC_* vars must be set as ENV so Next.js inlines them at build time.
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 ENV NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED=$NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED
+ENV NEXT_PUBLIC_PASSWORD_RESET_MODE=$NEXT_PUBLIC_PASSWORD_RESET_MODE
 ENV NEXT_TELEMETRY_DISABLED=1
 
 COPY . .

@@ -133,7 +133,7 @@ function ForgotPasswordForm() {
             screen is the only way through to the form that accepts it. Without
             the route the flow dead-ends here. */}
         {env.NEXT_PUBLIC_PASSWORD_RESET_MODE === 'otp' && (
-          <Button asChild size="lg" className="bg-[#ff6224] text-white hover:bg-[#e5551f]">
+          <Button asChild size="lg">
             <Link
               href={{
                 pathname: '/auth/reset-password',

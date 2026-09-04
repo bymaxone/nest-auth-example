@@ -8,6 +8,11 @@
  * Optimistic update: the row's status cell flips immediately on click; a rollback
  * restores the previous state if the API call fails.
  *
+ * A `SUPER_ADMIN` can additionally clear a user's second factor. That action
+ * revokes every session, bumps the token epoch and emails the account owner, so
+ * it is offered only where a factor exists, only to the role the endpoint
+ * accepts, and only behind a confirmation naming the target.
+ *
  * Columns: Name · Email · Role · Status · Actions.
  *
  * @layer components/platform
@@ -27,6 +32,17 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   listPlatformUsers,
@@ -76,8 +92,19 @@ export function PlatformUsersTable({ tenantId }: PlatformUsersTableProps) {
   const [toggling, setToggling] = useState<string | null>(null);
   const [resettingMfa, setResettingMfa] = useState<string | null>(null);
 
+  const currentAdmin = getPlatformAdmin();
   /** Current platform admin's ID — used to disable self-suspension. */
-  const currentAdminId = getPlatformAdmin()?.id ?? null;
+  const currentAdminId = currentAdmin?.id ?? null;
+  /**
+   * Whether the operator may clear a second factor.
+   *
+   * `POST /api/platform/users/:id/reset-mfa` is guarded by
+   * `@PlatformRoles('SUPER_ADMIN')` and `SUPPORT` is read-only, so for a support
+   * operator the control could only ever produce a 403. Offering an action that
+   * cannot succeed reads as a broken endpoint rather than as a permission
+   * boundary, so it is not rendered at all.
+   */
+  const canResetMfa = currentAdmin?.role === 'SUPER_ADMIN';
 
   // Dependency arrays extracted to in-component locals so the Stryker
   // disable directives below can land on a single-AST-node line. A directive
@@ -268,17 +295,40 @@ export function PlatformUsersTable({ tenantId }: PlatformUsersTableProps) {
                         {isToggling ? '…' : isSuspended ? 'Unsuspend' : 'Suspend'}
                       </Button>
                     )}
-                    {/* Only offered where there is a factor to clear. */}
-                    {user.mfaEnabled && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={isResettingMfa}
-                        className="text-red-300 hover:bg-[rgba(239,68,68,0.1)] hover:text-red-200"
-                        onClick={() => void handleResetMfa(user)}
-                      >
-                        {isResettingMfa ? '…' : 'Reset 2FA'}
-                      </Button>
+                    {/* Only where there is a factor to clear, and only for the
+                        role the endpoint accepts. */}
+                    {user.mfaEnabled && canResetMfa && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={isResettingMfa}
+                            className="text-red-300 hover:bg-[rgba(239,68,68,0.1)] hover:text-red-200"
+                          >
+                            {isResettingMfa ? '…' : 'Reset 2FA'}
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Clear two-factor authentication?</AlertDialogTitle>
+                            {/* The description names the account, because the
+                                trigger sits in a dense row of identical
+                                buttons and the rows differ only by email. */}
+                            <AlertDialogDescription>
+                              {user.email} will lose their authenticator and their recovery codes,
+                              every session will be revoked, and they will be emailed about it. They
+                              sign in with their password and enrol again. This cannot be undone.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => void handleResetMfa(user)}>
+                              Clear it
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     )}
                   </TableCell>
                 </TableRow>

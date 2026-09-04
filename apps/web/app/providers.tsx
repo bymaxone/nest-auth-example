@@ -1,9 +1,12 @@
 /**
- * @fileoverview Client providers tree — AuthProvider + Toaster.
+ * @fileoverview Client auth boundary — establishes the `AuthProvider` context.
  *
- * This is the only `'use client'` boundary in the root layout tree. The root
- * `app/layout.tsx` remains a server component; this file establishes the
- * React context required by `useSession`, `useAuth`, and `useAuthStatus`.
+ * Mounted by the layouts of the segments that need a session
+ * (`app/auth`, `app/dashboard`), not by the root layout: the provider probes
+ * the session on mount, and doing that app-wide made the public landing page
+ * issue requests that can only be refused. The root layout stays a server
+ * component either way; this file establishes the React context required by
+ * `useSession`, `useAuth`, and `useAuthStatus`.
  *
  * `onSessionExpired` fires when the provider detects that a previously
  * authenticated session can no longer be refreshed — it redirects to the
