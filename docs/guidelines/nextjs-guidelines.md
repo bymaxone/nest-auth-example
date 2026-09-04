@@ -26,15 +26,15 @@ Before creating or editing anything under `apps/web/app/`, `apps/web/proxy.ts` (
 
 ### File conventions we use
 
-| File            | Role                                                       |
-| --------------- | ---------------------------------------------------------- |
-| `layout.tsx`    | Shared wrapper; injects `<AuthProvider>`, Tailwind globals |
-| `page.tsx`      | Actual rendered route                                      |
-| `loading.tsx`   | Suspense fallback for the segment                          |
-| `error.tsx`     | Client error boundary (`'use client'` required)            |
-| `not-found.tsx` | 404 boundary                                               |
-| `route.ts`      | Route handler (GET/POST/…)                                 |
-| `default.tsx`   | Default for parallel routes                                |
+| File            | Role                                                                                                                                                                                              |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `layout.tsx`    | Shared wrapper; Tailwind globals. `<AuthProvider>` is mounted by the `auth` and `dashboard` segment layouts, never the root one — see [nest-auth-guidelines](nest-auth-guidelines.md#react-hooks) |
+| `page.tsx`      | Actual rendered route                                                                                                                                                                             |
+| `loading.tsx`   | Suspense fallback for the segment                                                                                                                                                                 |
+| `error.tsx`     | Client error boundary (`'use client'` required)                                                                                                                                                   |
+| `not-found.tsx` | 404 boundary                                                                                                                                                                                      |
+| `route.ts`      | Route handler (GET/POST/…)                                                                                                                                                                        |
+| `default.tsx`   | Default for parallel routes                                                                                                                                                                       |
 
 Do not combine `page.tsx` + `route.ts` in the same folder.
 

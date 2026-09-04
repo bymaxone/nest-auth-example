@@ -120,6 +120,9 @@ export function PlatformMfaSetupCard({ onEnabled }: PlatformMfaSetupCardProps) {
       setShowModal(true);
     } catch (err) {
       handleAuthClientError(err, { toast });
+      // Clear the boxes so the user retypes rather than resubmitting the code
+      // that was just refused.
+      reset();
     } finally {
       setIsLoading(false);
     }
@@ -168,7 +171,7 @@ export function PlatformMfaSetupCard({ onEnabled }: PlatformMfaSetupCardProps) {
               compromised platform session can suspend tenants and access every workspace. Confirm
               your password to begin.
             </p>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label
                 htmlFor="platform-mfa-setup-password"
                 className="text-xs text-[rgba(255,200,200,0.7)]"
@@ -219,7 +222,7 @@ export function PlatformMfaSetupCard({ onEnabled }: PlatformMfaSetupCardProps) {
             </div>
 
             {/* Manual entry fallback */}
-            <div className="space-y-1">
+            <div className="space-y-2">
               <Label className="text-xs text-[rgba(255,200,200,0.5)]">
                 Or enter the secret manually
               </Label>
@@ -233,7 +236,7 @@ export function PlatformMfaSetupCard({ onEnabled }: PlatformMfaSetupCardProps) {
             </div>
 
             <form onSubmit={(e) => void handleSubmit(onVerify)(e)} className="space-y-3">
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label className="text-xs text-[rgba(255,200,200,0.7)]">
                   Enter 6-digit code from authenticator
                 </Label>

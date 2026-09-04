@@ -113,7 +113,7 @@ export function PasswordChangeForm() {
 
   return (
     <form onSubmit={(e) => void handleSubmit(onSubmit)(e)} noValidate className="space-y-4">
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         <Label htmlFor="currentPassword" className="text-xs text-[rgba(255,255,255,0.6)]">
           Current password
         </Label>
@@ -129,7 +129,7 @@ export function PasswordChangeForm() {
         )}
       </div>
 
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         <Label htmlFor="newPassword" className="text-xs text-[rgba(255,255,255,0.6)]">
           New password
         </Label>
@@ -143,7 +143,7 @@ export function PasswordChangeForm() {
         {errors.newPassword && <p className="text-xs text-red-400">{errors.newPassword.message}</p>}
       </div>
 
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         <Label htmlFor="confirmPassword" className="text-xs text-[rgba(255,255,255,0.6)]">
           Confirm new password
         </Label>

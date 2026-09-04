@@ -12,8 +12,12 @@
 // @vitest-environment jsdom
 
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { RecoveryCodesModal } from './recovery-codes-modal.js';
+
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
 
 const CODES = ['AAAA-1111', 'BBBB-2222', 'CCCC-3333', 'DDDD-4444'];
 
@@ -62,5 +66,79 @@ describe('RecoveryCodesModal interaction', () => {
     render(<RecoveryCodesModal open codes={CODES} onClose={onClose} />);
     fireEvent.click(screen.getByRole('button', { name: /i've saved my codes/i }));
     expect(onClose).toHaveBeenCalledOnce();
+  });
+});
+
+// ── Copying ───────────────────────────────────────────────────────────────────
+
+describe('RecoveryCodesModal copying', () => {
+  it('copies every code to the clipboard, one per line', async () => {
+    /*
+     * Scenario: the codes are shown exactly once and transcribing them by hand
+     * is how people lose them. The control has to hand over all of them, in a
+     * form that pastes into a password manager cleanly.
+     * Protects: the copy action carries the full set, newline separated.
+     */
+    const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+
+    render(<RecoveryCodesModal open codes={CODES} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /copy codes/i }));
+
+    await screen.findByRole('button', { name: /copied/i });
+    expect(writeText).toHaveBeenCalledWith(CODES.join('\n'));
+  });
+
+  it('returns the button to its idle label after the confirmation elapses', async () => {
+    /*
+     * Scenario: the "Copied" state is a confirmation, not a terminal state. It
+     * has to time out so a second copy is obviously available.
+     * Protects: the timeout callback restores the idle label. Left unfired, the
+     * button reads "Copied" forever and a user who wants to copy again has no
+     * signal that clicking will do anything.
+     */
+    vi.useFakeTimers();
+    try {
+      const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+
+      render(<RecoveryCodesModal open codes={CODES} onClose={vi.fn()} />);
+      fireEvent.click(screen.getByRole('button', { name: /copy codes/i }));
+
+      // Let the clipboard promise settle so the confirmation is on screen.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByRole('button', { name: /copied/i })).toBeDefined();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(screen.getByRole('button', { name: /copy codes/i })).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reports a refused clipboard instead of failing silently', async () => {
+    /*
+     * Scenario: the browser refuses the write — the document is not focused, or
+     * permission was denied. The codes stay on screen, so nothing is lost, but
+     * the user has to be told the copy did not happen rather than being left to
+     * assume it did.
+     * Protects: a rejected clipboard write surfaces an error.
+     */
+    const writeText = vi
+      .fn<(text: string) => Promise<void>>()
+      .mockRejectedValue(new Error('denied'));
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+
+    render(<RecoveryCodesModal open codes={CODES} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /copy codes/i }));
+
+    const { toast } = await import('sonner');
+    await vi.waitFor(() => {
+      expect(vi.mocked(toast).error).toHaveBeenCalled();
+    });
   });
 });

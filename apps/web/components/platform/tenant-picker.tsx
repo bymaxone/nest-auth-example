@@ -14,7 +14,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { listPlatformTenants, mapAuthClientError } from '@/lib/auth-client';
-import { translateAuthError } from '@/lib/auth-errors';
 import type { PlatformTenantInfo } from '@/lib/auth-client';
 
 interface TenantPickerProps {
@@ -49,8 +48,8 @@ export function TenantPicker({ selectedTenantId }: TenantPickerProps) {
       const data = await listPlatformTenants();
       setTenants(data);
     } catch (err) {
-      const { code } = mapAuthClientError(err);
-      toast.error(translateAuthError(code === 'UNKNOWN' ? '' : code));
+      const { message } = mapAuthClientError(err);
+      toast.error(message);
     } finally {
       setIsLoading(false);
     }

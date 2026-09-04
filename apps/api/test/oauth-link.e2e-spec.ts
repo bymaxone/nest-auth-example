@@ -334,6 +334,6 @@ describe('OAuth account linking — email/password user links to Google OAuth', 
     const res = await agent.get('/api/auth/oauth/google?tenantId=acme').redirects(0);
 
     expect(res.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.VALIDATION]);
-    expect(res.body).toMatchObject({ code: AUTH_ERROR_CODES.VALIDATION, statusCode: 400 });
+    expect(res.body).toMatchObject({ error: { code: AUTH_ERROR_CODES.VALIDATION } });
   });
 });

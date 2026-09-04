@@ -8,7 +8,17 @@
  *   2. Card shows QR code + manual secret entry field
  *   3. User enters TOTP code → `POST /auth/mfa/verify-enable`
  *   4. On success, recovery codes from step 1 are shown in `RecoveryCodesModal`
- *   5. On modal dismiss, `onEnabled()` is called to re-fetch the MFA state
+ *   5. On modal dismiss, `onEnabled()` reports the enrolment, the card clears
+ *      this browser's auth cookies, and redirects to the login screen
+ *
+ * Step 5 is terminal. Enabling a second factor invalidates every session, this
+ * one included, so the card leaves for `/auth/login?reason=mfa_enabled` rather
+ * than staying on a page whose next request would 401. `onEnabled` therefore
+ * announces the enrolment; it must not be used to re-fetch session state. A
+ * refresh there races the redirect — it 401s, the provider's `onSessionExpired`
+ * pushes `?reason=session_expired`, and being async that push lands last, so the
+ * user who just secured their account is told their session expired. The
+ * security page passes a handler that deliberately does nothing for this reason.
  *
  * Recovery codes are returned by `setup`, not by `verify-enable`. They are
  * stored in component state and cleared once the modal is dismissed.
@@ -19,6 +29,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod/v4';
@@ -39,8 +50,22 @@ const verifySchema = z.object({
 
 type VerifyValues = z.infer<typeof verifySchema>;
 
+/**
+ * Next.js route handler that clears this browser's auth cookies.
+ *
+ * A route handler rather than a backend path, so it is reached with a plain
+ * `fetch` instead of through `apiFetch`'s `/api`-relative pipeline.
+ */
+const LOGOUT_ROUTE = '/api/auth/logout';
+
 interface MfaSetupCardProps {
-  /** Called after MFA is successfully enabled so the parent can refresh state. */
+  /**
+   * Called once MFA is enabled, as the recovery-codes modal is dismissed.
+   *
+   * Announces the enrolment; it is not a cue to re-read session state. The card
+   * redirects immediately afterwards because enabling a factor invalidates every
+   * session — see the file header for why refreshing here loses the race.
+   */
   onEnabled: () => void;
   /**
    * Whether the account has a local password.
@@ -58,7 +83,8 @@ interface MfaSetupCardProps {
  *
  * Renders a "Set up" button initially. On click, calls the setup endpoint
  * and renders a QR code plus a verification form. On verify success, shows
- * the recovery codes modal before calling `onEnabled`.
+ * the recovery codes modal, then calls `onEnabled` and redirects to the login
+ * screen.
  *
  * @param onEnabled - Callback invoked once MFA is successfully enabled.
  */
@@ -74,6 +100,8 @@ export function MfaSetupCard({ onEnabled, hasPassword = true }: MfaSetupCardProp
   // requires re-authentication proof before returning the TOTP secret.
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState<string | null>(null);
+
+  const router = useRouter();
 
   const {
     control: formControl,
@@ -127,9 +155,36 @@ export function MfaSetupCard({ onEnabled, hasPassword = true }: MfaSetupCardProp
       setShowModal(true);
     } catch (err) {
       handleAuthClientError(err, { toast });
+      // Clear the boxes so the user retypes rather than resubmitting the code
+      // that was just refused.
+      reset();
     } finally {
       setIsLoading(false);
     }
+  };
+
+  /**
+   * Ends this browser's session, then sends the user to sign in again.
+   *
+   * The library revoked the session server-side when the factor was enabled,
+   * but this browser still holds the `access_token` and `has_session` cookies.
+   * `proxy.ts` lists `/auth/login` under `publicRoutesRedirectIfAuthenticated`,
+   * so navigating there while those cookies are set bounces straight back to
+   * `/dashboard` — the success message is never seen, and the dashboard's next
+   * request 401s. Clearing the cookies first is what makes the destination
+   * reachable, and it also means the auth segment's `<AuthProvider>` mounts
+   * with no session to probe rather than one it will find revoked.
+   *
+   * The clear is allowed to fail: the session it targets is already gone, and
+   * stranding the user on a dead page would be worse than an uncleared cookie.
+   */
+  const endSessionAndRedirect = async (): Promise<void> => {
+    try {
+      await fetch(LOGOUT_ROUTE, { method: 'POST', credentials: 'include' });
+    } catch {
+      // Deliberately swallowed — see above.
+    }
+    router.replace('/auth/login?reason=mfa_enabled');
   };
 
   const handleModalClose = () => {
@@ -137,6 +192,7 @@ export function MfaSetupCard({ onEnabled, hasPassword = true }: MfaSetupCardProp
     // Stryker disable next-line ArrayDeclaration: `setRecoveryCodes([])` clears the codes from React state so a re-render cannot leak them back into the DOM. A mutated `["Stryker"]` is observable only if the modal re-opens with the same `recoveryCodes` ref — but each enrolment cycle calls `setRecoveryCodes(result.recoveryCodes)` first, replacing the array.
     setRecoveryCodes([]);
     onEnabled();
+    void endSessionAndRedirect();
   };
 
   // Guards extracted into named locals so per-clause Stryker disable directives
@@ -173,7 +229,7 @@ export function MfaSetupCard({ onEnabled, hasPassword = true }: MfaSetupCardProp
                 : 'Protect your account with a TOTP authenticator app (Google Authenticator, Authy, etc.).'}
             </p>
             {hasPassword && (
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label
                   htmlFor="mfa-setup-password"
                   className="text-xs text-[rgba(255,255,255,0.6)]"
@@ -222,7 +278,7 @@ export function MfaSetupCard({ onEnabled, hasPassword = true }: MfaSetupCardProp
             </div>
 
             {/* Manual entry fallback */}
-            <div className="space-y-1">
+            <div className="space-y-2">
               <Label className="text-xs text-[rgba(255,255,255,0.4)]">
                 Or enter the secret manually
               </Label>
@@ -236,7 +292,7 @@ export function MfaSetupCard({ onEnabled, hasPassword = true }: MfaSetupCardProp
             </div>
 
             <form onSubmit={(e) => void handleSubmit(onVerify)(e)} className="space-y-3">
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label className="text-xs text-[rgba(255,255,255,0.6)]">
                   Enter 6-digit code from authenticator
                 </Label>

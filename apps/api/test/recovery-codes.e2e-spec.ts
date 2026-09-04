@@ -416,6 +416,6 @@ describe('MFA recovery codes — issuance, valid use, and single-use enforcement
     // as `auth.mfa_invalid_code` — the dedicated RECOVERY_CODE_INVALID code was
     // removed so recovery-code and TOTP failures are indistinguishable.
     expect(secondUse.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.MFA_INVALID_CODE]);
-    expect(secondUse.body).toMatchObject({ code: AUTH_ERROR_CODES.MFA_INVALID_CODE });
+    expect(secondUse.body).toMatchObject({ error: { code: AUTH_ERROR_CODES.MFA_INVALID_CODE } });
   });
 });

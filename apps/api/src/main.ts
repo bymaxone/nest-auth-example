@@ -62,12 +62,6 @@ class LegacyRouteWarningFilter implements LoggerService {
 }
 
 /**
- * Bootstrap the NestJS application.
- *
- * Reads `API_PORT` and `WEB_ORIGIN` from `ConfigService<Env, true>` after the
- * application module is created so the Zod-validated values are always used.
- */
-/**
  * Narrows the HTTP adapter's underlying instance to an Express application.
  *
  * `getInstance()` is untyped, so this guard is what lets `trust proxy` be set
@@ -84,6 +78,12 @@ function isExpressApplication(value: unknown): value is Application {
   return isObjectLike && typeof (value as Application).set === 'function';
 }
 
+/**
+ * Bootstrap the NestJS application.
+ *
+ * Reads `API_PORT` and `WEB_ORIGIN` from `ConfigService<Env, true>` after the
+ * application module is created so the Zod-validated values are always used.
+ */
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, new ExpressAdapter(), {
     bufferLogs: true,
@@ -155,10 +155,25 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-  // Maps every AuthException from @bymax-one/nest-auth to { code, message, statusCode }
-  // so the frontend error-code map (apps/web/lib/auth-errors.ts) has a deterministic
-  // response envelope. Must be registered before the app starts listening.
-  app.useGlobalFilters(new AuthExceptionFilter());
+  // Answers every failure in the library envelope, `{ error: { code, message,
+  // details } }` — the shape `createAuthClient` parses, so the frontend error
+  // map (apps/web/lib/auth-errors.ts) reads a code rather than falling back to
+  // its generic sentence. Must be registered before the app starts listening.
+  //
+  // The configured secrets are handed over so the filter can strip them from an
+  // unhandled driver error's own message before logging it; Pino's redact paths
+  // match structured fields and never reach an interpolated string. `filter`
+  // drops the ones this deployment has not set.
+  const loggableSecrets = [
+    config.get<string>('DATABASE_URL'),
+    config.get<string>('REDIS_URL'),
+    config.get<string>('JWT_SECRET'),
+    config.get<string>('MFA_ENCRYPTION_KEY'),
+    config.get<string>('RESEND_API_KEY'),
+    config.get<string>('OAUTH_GOOGLE_CLIENT_SECRET'),
+  ].filter((value): value is string => typeof value === 'string' && value.length > 0);
+
+  app.useGlobalFilters(new AuthExceptionFilter(loggableSecrets));
 
   app.enableShutdownHooks();
 

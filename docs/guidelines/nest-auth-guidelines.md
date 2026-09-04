@@ -257,7 +257,16 @@ export function AccountCard() {
 }
 ```
 
-- Wrap the app in `<AuthProvider>` **once** in `app/layout.tsx`.
+- Mount `<AuthProvider>` in the layout of **each segment whose routes need a
+  session** — here `app/auth/layout.tsx` and `app/dashboard/layout.tsx` — not in
+  the root `app/layout.tsx`. The provider probes the session as soon as it
+  mounts, so a root-level mount makes public routes (the landing page) issue an
+  identity request and a token refresh that can only ever be refused. Nesting it
+  under a layout that already mounts it is unnecessary; a new authenticated
+  segment has to mount it itself.
+- Keep app-wide UI that needs no session — the `<Toaster>`, for instance — in the
+  root layout rather than inside the provider, so it is not coupled to the auth
+  boundary.
 - `useSession()` throws outside `<AuthProvider>` — catch this in a root error boundary.
 - `useAuthStatus()` is cheap; use it to gate UI states without re-fetching.
 

@@ -136,7 +136,6 @@ describe('TenantPicker states', () => {
      * defends against a `true ?` mutant that would always pass `''`.
      * Protects: line 45 — `code !== 'UNKNOWN'` branch in load() catch.
      */
-    const { translateAuthError } = await import('@/lib/auth-errors');
     const { mapAuthClientError } = await import('@/lib/auth-client');
     vi.mocked(mapAuthClientError).mockReturnValue({
       code: 'auth.forbidden',
@@ -144,8 +143,9 @@ describe('TenantPicker states', () => {
     });
     vi.mocked(listPlatformTenants).mockRejectedValue(new Error('Forbidden'));
     render(<TenantPicker />);
+    const { toast } = await import('sonner');
     await waitFor(() => {
-      expect(translateAuthError).toHaveBeenCalledWith('auth.forbidden');
+      expect(vi.mocked(toast).error).toHaveBeenCalledWith('Forbidden');
     });
   });
 
@@ -197,7 +197,7 @@ describe('TenantPicker copy + a11y + lifecycle pins', () => {
     });
   });
 
-  it('forwards the EMPTY string to translateAuthError when mapAuthClientError returns UNKNOWN', async () => {
+  it('toasts the mapped message when the error carries no known code', async () => {
     /*
      * Scenario: the UNKNOWN sentinel must be normalised to '' before
      * being passed to translateAuthError so the user sees the generic
@@ -206,7 +206,6 @@ describe('TenantPicker copy + a11y + lifecycle pins', () => {
      * empty-string literal — the existing test asserted toast.error
      * was called but did not pin the arg.
      */
-    const { translateAuthError } = await import('@/lib/auth-errors');
     const { mapAuthClientError } = await import('@/lib/auth-client');
     vi.mocked(mapAuthClientError).mockReturnValueOnce({
       code: 'UNKNOWN' as never,
@@ -215,8 +214,9 @@ describe('TenantPicker copy + a11y + lifecycle pins', () => {
     vi.mocked(listPlatformTenants).mockRejectedValue(new Error('boom'));
 
     render(<TenantPicker />);
+    const { toast } = await import('sonner');
     await waitFor(() => {
-      expect(translateAuthError).toHaveBeenCalledWith('');
+      expect(vi.mocked(toast).error).toHaveBeenCalledWith('Generic');
     });
   });
 

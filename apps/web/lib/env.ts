@@ -1,12 +1,19 @@
 /**
  * @fileoverview Validated, frozen environment configuration for apps/web.
  *
- * All process.env reads in apps/web MUST go through this module. Direct
- * `process.env.FOO` access anywhere else is a lint error (no-process-env rule).
+ * **Server-only. Never import this from a client component.** The schema
+ * requires `INTERNAL_API_URL` and `AUTH_JWT_SECRET_FOR_PROXY`, which are not
+ * `NEXT_PUBLIC_` and therefore absent from the browser bundle. Parsing fails
+ * there, and because the parse runs at module load the import throws while the
+ * component tree is being built — the page renders as blank, with the real
+ * cause only visible in the console. Server code (route handlers,
+ * `lib/require-auth.ts`) is where this belongs.
  *
- * NEXT_PUBLIC_* variables are exposed to the browser bundle by Next.js at
- * build time. All other variables are server-only — never reference them in
- * client components or they will be undefined (and Next.js will warn).
+ * A client component that needs a `NEXT_PUBLIC_` value imports `publicEnv` from
+ * `lib/env.public`, which declares those keys and nothing else and so validates
+ * in the browser too. The public schema below is that same module's, merged in,
+ * so each public variable is declared exactly once and the server still refuses
+ * to boot on a malformed value.
  *
  * Throws at module load with a human-readable error if any required variable
  * is missing or malformed — the app refuses to serve until the config is fixed.
@@ -14,8 +21,16 @@
 
 import { z } from 'zod';
 
-/** Zod schema for every env var consumed by apps/web. */
-const envSchema = z.object({
+import { publicEnvSchema } from './env.public';
+
+/**
+ * Zod schema for the server-only variables.
+ *
+ * The `NEXT_PUBLIC_*` keys live in `lib/env.public.ts` and are merged in below,
+ * so each public variable is declared exactly once and the browser can validate
+ * the same shape without these server-only fields.
+ */
+const serverEnvSchema = z.object({
   // ── Server-only ────────────────────────────────────────────────────────────
   /**
    * Internal URL the Next.js server uses to proxy /api/* requests to NestJS.
@@ -31,32 +46,10 @@ const envSchema = z.object({
    * Minimum 32 characters to meet entropy requirements.
    */
   AUTH_JWT_SECRET_FOR_PROXY: z.string().min(32),
-
-  // ── Public (NEXT_PUBLIC_*) ─────────────────────────────────────────────────
-  /**
-   * Base URL for API calls made from the browser (same-origin /api proxy).
-   * Typically http://localhost:3000/api in development, /api in production.
-   */
-  NEXT_PUBLIC_API_URL: z.string().url(),
-
-  /**
-   * WebSocket base URL for the browser WS client.
-   * Must be same-origin (e.g. `ws://localhost:3000` in dev) so that the
-   * HttpOnly access_token cookie is automatically forwarded on the WS upgrade
-   * request. Next.js proxies `/ws/:path*` to the NestJS gateway.
-   * Use `wss://` in production when the app is served over HTTPS.
-   */
-  NEXT_PUBLIC_WS_URL: z.string().url(),
-
-  /**
-   * Feature flag: enable the Google OAuth login button.
-   * Requires the API to be configured with GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET.
-   */
-  NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED: z
-    .enum(['true', 'false'])
-    .transform((v) => v === 'true')
-    .default(false),
 });
+
+/** Zod schema for every env var consumed by apps/web, public keys included. */
+const envSchema = serverEnvSchema.merge(publicEnvSchema);
 
 /** Public type of the validated, frozen env object. */
 export type Env = Readonly<z.infer<typeof envSchema>>;

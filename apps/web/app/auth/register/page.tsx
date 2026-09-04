@@ -28,7 +28,6 @@ import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/auth/password-input';
 import { registerSchema, type RegisterFormValues } from '@/lib/schemas/auth';
 import { mapAuthClientError, resolveTenantForLogin, TenantNotFoundError } from '@/lib/auth-client';
-import { translateAuthError } from '@/lib/auth-errors';
 import { useCooldown } from '@/hooks/use-cooldown';
 import { TENANT_OPTIONS, DEFAULT_TENANT_SLUG } from '@/lib/tenants';
 
@@ -95,8 +94,8 @@ export default function RegisterPage() {
         toast.error(`Workspace "${err.slug}" was not found. Pick a different workspace.`);
         return;
       }
-      const { code } = mapAuthClientError(err);
-      toast.error(translateAuthError(code === 'UNKNOWN' ? '' : code));
+      const { message } = mapAuthClientError(err);
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -185,7 +184,7 @@ export default function RegisterPage() {
         className="flex flex-col gap-4"
       >
         {/* Email */}
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <Label htmlFor="email" className="text-[rgba(255,255,255,0.7)]">
             Email
           </Label>
@@ -207,7 +206,7 @@ export default function RegisterPage() {
         </div>
 
         {/* Name */}
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <Label htmlFor="name" className="text-[rgba(255,255,255,0.7)]">
             Display name
           </Label>
@@ -229,7 +228,7 @@ export default function RegisterPage() {
         </div>
 
         {/* Password */}
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <Label htmlFor="password" className="text-[rgba(255,255,255,0.7)]">
             Password
           </Label>
@@ -250,7 +249,7 @@ export default function RegisterPage() {
         </div>
 
         {/* Tenant */}
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <Label htmlFor="tenantId" className="text-[rgba(255,255,255,0.7)]">
             Workspace
           </Label>

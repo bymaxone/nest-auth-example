@@ -68,8 +68,13 @@ const nextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              // Unsafe-inline is required for RSC streaming and React hydration in Next.js
-              "script-src 'self' 'unsafe-inline'",
+              // Unsafe-inline is required for RSC streaming and React hydration in Next.js.
+              // `unsafe-eval` is added in development only: React's development
+              // build calls eval() to rebuild call stacks for the error overlay,
+              // and a CSP without it makes every page load log a console error
+              // that the Next overlay then counts as an issue. The production
+              // policy stays strict — React never calls eval() there.
+              `script-src 'self' 'unsafe-inline'${isProduction ? '' : " 'unsafe-eval'"}`,
               `connect-src 'self' ${process.env['NEXT_PUBLIC_API_URL'] ?? ''} ${process.env['NEXT_PUBLIC_WS_URL'] ?? ''}`,
               "img-src 'self' data:",
               "style-src 'self' 'unsafe-inline'",

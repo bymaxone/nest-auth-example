@@ -29,6 +29,15 @@ export const BLOCKED_USER_STATUSES: readonly UserStatus[] = [
 ];
 
 /**
+ * Concurrent sessions kept per user before the oldest is evicted.
+ *
+ * Surfaced to the dashboard through `GET /api/account/session-policy` so the
+ * sessions screen can state the limit instead of silently signing the user's
+ * oldest device out.
+ */
+export const MAX_SESSIONS_PER_USER = 5;
+
+/**
  * Returns true when the given status string matches a blocked status.
  *
  * The library types `SafeAuthUser.status` as `string` (not `UserStatus`) so

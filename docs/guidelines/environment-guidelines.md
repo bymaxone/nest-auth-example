@@ -156,23 +156,37 @@ Inject `ConfigService<Env, true>` (strict mode) everywhere. Use `.getOrThrow('KE
 
 ### Web
 
+Two modules, split by what can reach the browser:
+
+| Module              | Holds                                                         | Imported from         |
+| ------------------- | ------------------------------------------------------------- | --------------------- |
+| `lib/env.public.ts` | the `NEXT_PUBLIC_*` keys only                                 | client **and** server |
+| `lib/env.ts`        | those plus the server-only keys (it merges the public schema) | server only           |
+
 ```ts
-// apps/web/lib/env.ts
-import { z } from 'zod';
-
-const schema = z.object({
+// apps/web/lib/env.public.ts — safe on both sides
+export const publicEnvSchema = z.object({
   NEXT_PUBLIC_API_URL: z.string().url(),
-  WEB_ORIGIN: z.string().url(),
 });
 
-export const env = schema.parse({
-  NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
-  WEB_ORIGIN: process.env.WEB_ORIGIN,
-});
+// Explicit member expressions: Next inlines `process.env.NEXT_PUBLIC_X` at
+// build time, but leaves `process.env[name]` and a spread of `process.env`
+// alone, so those arrive empty in the browser.
+const rawPublicEnv = { NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL };
+export const publicEnv = Object.freeze(publicEnvSchema.parse(rawPublicEnv));
 ```
 
-- **Explicit mapping** (not `schema.parse(process.env)`) — keeps the client bundle free of server-only keys. Next.js inlines only `NEXT_PUBLIC_*` at build time, but listing the keys you read makes intent explicit and static-analyzable.
-- Imported from server components directly; client components re-import the same symbol (safe because every key is `NEXT_PUBLIC_*`).
+- **A client component imports `publicEnv`, never `env`.** `lib/env` requires
+  `INTERNAL_API_URL` and `AUTH_JWT_SECRET_FOR_PROXY`, which are not
+  `NEXT_PUBLIC_` and so are absent from the browser bundle. Its parse fails
+  there, and because the parse runs at module load the import throws while the
+  component tree is being built — the page renders blank, with the cause visible
+  only in the console.
+- **Explicit mapping**, not `schema.parse(process.env)` — see the comment above;
+  this is a correctness requirement in the browser, not a style preference.
+- Server code (route handlers, `lib/require-auth.ts`) imports `env`, which merges
+  the public schema, so each public variable is declared exactly once and a
+  malformed value still fails the server at boot.
 
 ---
 

@@ -278,9 +278,9 @@ describe('Login & Logout — login → /me → logout → error paths', () => {
 
   it('wrong password returns INVALID_CREDENTIALS code and 401', async () => {
     // Scenario: submitting the correct email with the wrong password must return
-    // a 401 response with a body that matches the auth error envelope shape
-    // ({ code, message, statusCode }). The code must start with 'auth.' to allow
-    // the frontend to map it via the auth-errors map. Covers FCM row #29.
+    // a 401 whose body matches the library envelope, { error: { code, message,
+    // details } }. The code must start with 'auth.' so the frontend can map it
+    // through the auth-errors map. Covers FCM row #29.
     const email = uniqueEmail('wrongpw');
     const password = 'Str0ngUniqu3Passw0rd!';
 
@@ -310,9 +310,10 @@ describe('Login & Logout — login → /me → logout → error paths', () => {
 
     expect(loginRes.status).toBe(401);
     expect(loginRes.body).toMatchObject({
-      code: expect.stringMatching(/^auth\./),
-      message: expect.any(String),
-      statusCode: 401,
+      error: {
+        code: expect.stringMatching(/^auth\./),
+        message: expect.any(String),
+      },
     });
   });
 
@@ -331,9 +332,10 @@ describe('Login & Logout — login → /me → logout → error paths', () => {
 
     expect(loginRes.status).toBe(401);
     expect(loginRes.body).toMatchObject({
-      code: expect.stringMatching(/^auth\./),
-      message: expect.any(String),
-      statusCode: 401,
+      error: {
+        code: expect.stringMatching(/^auth\./),
+        message: expect.any(String),
+      },
     });
   });
 });

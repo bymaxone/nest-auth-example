@@ -102,6 +102,9 @@ export function PlatformMfaDisableCard({ onDisabled }: PlatformMfaDisableCardPro
       setFreshCodes(result.recoveryCodes);
     } catch (err) {
       handleAuthClientError(err, { toast });
+      // Clear the boxes so the user retypes rather than resubmitting the code
+      // that was just refused.
+      reset();
     } finally {
       setIsPending(false);
     }
@@ -172,7 +175,7 @@ export function PlatformMfaDisableCard({ onDisabled }: PlatformMfaDisableCardPro
           <form onSubmit={(e) => void handleSubmit(onSubmit)(e)} className="space-y-4">
             <p className="text-sm text-[rgba(255,200,200,0.6)]">{formTitle}</p>
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label className="text-xs text-[rgba(255,200,200,0.7)]">Authenticator code</Label>
               <Controller
                 control={control}

@@ -26,7 +26,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { OtpInput } from '@/components/auth/otp-input';
 import { verifyEmailSchema, type VerifyEmailFormValues } from '@/lib/schemas/auth';
-import { translateAuthError } from '@/lib/auth-errors';
+import { NETWORK_ERROR_MESSAGE, readAuthErrorCode, translateAuthError } from '@/lib/auth-errors';
 import { useCooldown } from '@/hooks/use-cooldown';
 
 /**
@@ -78,8 +78,8 @@ function VerifyEmailForm() {
       });
 
       if (!response.ok) {
-        const body = (await response.json()) as { code?: string; message?: string };
-        const code = body.code ?? '';
+        const body: unknown = await response.json();
+        const code = readAuthErrorCode(body);
         toast.error(translateAuthError(code));
         return;
       }
@@ -88,7 +88,7 @@ function VerifyEmailForm() {
     } catch {
       // The verification response is handled above; anything reaching here is a
       // transport failure, which carries nothing worth showing the user.
-      toast.error('An unexpected error occurred. Please try again.');
+      toast.error(NETWORK_ERROR_MESSAGE);
     } finally {
       setIsSubmitting(false);
     }

@@ -70,10 +70,17 @@ function StatCard({ icon: Icon, label, value, accent }: StatCardConfig) {
           <Icon className="h-4 w-4" style={{ color: accent }} />
         </div>
 
-        {/* Value + label */}
-        <div>
-          <p className="font-mono text-2xl leading-none font-bold text-white">{value}</p>
-          <p className="mt-1 text-xs font-medium text-[rgba(255,255,255,0.5)]">{label}</p>
+        {/* Value + label. `min-w-0` lets the value shrink inside the flex
+            column so `truncate` has a width to clip against — without it the
+            text sets the card's width and overflows instead of ellipsing. */}
+        <div className="min-w-0">
+          <p
+            className="truncate font-mono text-2xl leading-none font-bold text-white"
+            title={value}
+          >
+            {value}
+          </p>
+          <p className="mt-1.5 text-xs font-medium text-[rgba(255,255,255,0.5)]">{label}</p>
         </div>
       </div>
     </div>

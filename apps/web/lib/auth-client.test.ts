@@ -28,7 +28,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AuthClientError } from '@bymax-one/nest-auth/client';
-import { translateAuthError } from './auth-errors';
+import { NETWORK_ERROR_MESSAGE, translateAuthError } from './auth-errors';
 import type { RefreshOutcome } from '@bymax-one/nest-auth/client';
 
 // ── Mock @bymax-one/nest-auth/client ──────────────────────────────────────────
@@ -103,6 +103,7 @@ import {
   mapAuthClientError,
   handleAuthClientError,
   listSessions,
+  getSessionPolicy,
   revokeSession,
   revokeAllSessions,
   listTenants,
@@ -131,6 +132,7 @@ import {
   listPlatformTenants,
   listPlatformUsers,
   platformUpdateUserStatus,
+  platformResetUserMfa,
   resolveTenantForLogin,
   resolveTenantSlugById,
   TenantNotFoundError,
@@ -317,16 +319,19 @@ describe('mapAuthClientError', () => {
     expect(result.redirectTo).toBeUndefined();
   });
 
-  it('normalises a generic Error instance to code=UNKNOWN', () => {
+  it('normalises a generic Error instance to the network sentence', () => {
     /*
-     * Scenario: non-library errors (network failures, etc.) must be normalised
-     * to `code: UNKNOWN` with the error message preserved.
-     * Protects: graceful handling of non-AuthClientError Error instances.
+     * Scenario: the request never produced a response — offline, DNS failure,
+     * the API not running. The thrown text is developer-facing ("Failed to
+     * fetch") and reads like a crash, so the user gets the one sentence that
+     * names something they can act on.
+     * Protects: transport failures are reported as connection problems.
      */
-    const err = new Error('Network failure');
+    const err = new Error('Failed to fetch');
     const result = mapAuthClientError(err);
     expect(result.code).toBe('UNKNOWN');
-    expect(result.message).toBe('Network failure');
+    expect(result.message).toBe(NETWORK_ERROR_MESSAGE);
+    expect(result.message).not.toContain('Failed to fetch');
     expect(result.redirectTo).toBeUndefined();
   });
 
@@ -338,7 +343,7 @@ describe('mapAuthClientError', () => {
      */
     const result = mapAuthClientError('some string error');
     expect(result.code).toBe('UNKNOWN');
-    expect(result.message).toBe('An unexpected error occurred.');
+    expect(result.message).toBe(NETWORK_ERROR_MESSAGE);
   });
 
   it('normalises null to the generic message', () => {
@@ -349,7 +354,7 @@ describe('mapAuthClientError', () => {
      */
     const result = mapAuthClientError(null);
     expect(result.code).toBe('UNKNOWN');
-    expect(result.message).toBe('An unexpected error occurred.');
+    expect(result.message).toBe(NETWORK_ERROR_MESSAGE);
   });
 });
 
@@ -363,8 +368,8 @@ describe('handleAuthClientError', () => {
      * Protects: toast is always called with the correct message string.
      */
     const toast = { error: vi.fn() };
-    handleAuthClientError(new Error('Some error'), { toast });
-    expect(toast.error).toHaveBeenCalledWith('Some error');
+    handleAuthClientError(new Error('Failed to fetch'), { toast });
+    expect(toast.error).toHaveBeenCalledWith(NETWORK_ERROR_MESSAGE);
   });
 
   it('calls router.push when error has a redirectTo and router is provided', () => {
@@ -592,19 +597,15 @@ describe('apiFetch response handling', () => {
     expect(result).toBeUndefined();
   });
 
-  it('propagates the example AuthExceptionFilter flat envelope code through to AuthClientError.code', async () => {
+  it('propagates the legacy flat envelope code through to AuthClientError.code', async () => {
     /*
-     * Scenario: the API's `AuthExceptionFilter` reshapes every
-     * `AuthException` thrown by `@bymax-one/nest-auth` into a FLAT
-     * top-level shape `{ code, message, statusCode }` (see
-     * `apps/api/src/auth/auth-exception.filter.ts`). This is the
-     * dominant shape on the wire — apiFetch must read `code` at the
-     * top level and propagate it so call sites can route through
-     * `translateAuthError(code)`. Without this, the user sees the
-     * generic "An unexpected error occurred" toast on a wrong TOTP
-     * during the OAuth-MFA challenge.
-     * Protects: the primary "Shape 1" branch that handles the
-     * example's serialized envelope.
+     * Scenario: a deployment still answering the flat top-level shape
+     * `{ code, message, statusCode }`, which `auth-exception.filter.ts`
+     * emitted before it moved to the library envelope. apiFetch must still
+     * read the top-level `code` so a page talking to an API that has not
+     * picked up the change keeps routing through `translateAuthError(code)`
+     * instead of falling back to "An unexpected error occurred".
+     * Protects: the Shape 1 branch, kept for rollout compatibility.
      */
     mockInnerFetch.mockResolvedValueOnce(
       new Response(
@@ -633,13 +634,12 @@ describe('apiFetch response handling', () => {
 
   it('propagates the lib AuthException nested envelope code through to AuthClientError.code', async () => {
     /*
-     * Scenario: the lib's `AuthException` wraps the body under
-     * `{ error: { code, message, details } }` when no consumer-side
-     * exception filter reshapes it. apiFetch must unwrap that envelope
-     * as a fallback so the helper works against either deployment style
-     * — apps that register a flattening filter (Shape 1) and apps that
-     * forward the lib's raw envelope (Shape 2). Protects the secondary
-     * fallback branch.
+     * Scenario: the body arrives under `{ error: { code, message, details } }`
+     * — what `@bymax-one/nest-auth` emits and what this API's exception filter
+     * now answers with, so this is the shape on the wire today. apiFetch must
+     * unwrap it; failing to is exactly what leaves `AuthClientError.code`
+     * undefined and every form on its generic sentence.
+     * Protects: the Shape 2 branch.
      */
     mockInnerFetch.mockResolvedValueOnce(
       new Response(
@@ -809,6 +809,25 @@ describe('listSessions', () => {
     expect(result).toEqual(sessions);
     const [path] = mockInnerFetch.mock.calls[0] as [string];
     expect(path).toBe('/auth/sessions');
+  });
+});
+
+describe('getSessionPolicy', () => {
+  it('fetches GET /account/session-policy and returns the cap', async () => {
+    /*
+     * Scenario: the sessions screen asks the API what the concurrency cap is
+     * instead of hardcoding it.
+     * Protects: the path and return shape. A number typed into the UI would
+     * drift the moment the API's cap changed, and the eviction it explains
+     * would start describing the wrong limit.
+     */
+    mockInnerFetch.mockResolvedValueOnce(makeJsonResponse({ maxSessions: 5 }));
+
+    const result = await getSessionPolicy();
+
+    expect(result).toEqual({ maxSessions: 5 });
+    const [path] = mockInnerFetch.mock.calls[0] as [string];
+    expect(path).toBe('/account/session-policy');
   });
 });
 
@@ -1653,6 +1672,29 @@ describe('platformUpdateUserStatus', () => {
   });
 });
 
+describe('platformResetUserMfa', () => {
+  it('sends POST /api/platform/users/:id/reset-mfa', async () => {
+    /*
+     * Scenario: a platform admin clears the second factor for a user who lost
+     * both their authenticator and their recovery codes.
+     * Protects: path and method. The call carries no body — the endpoint
+     * removes the factor rather than replacing it, so the user re-enrols after
+     * signing in with their password.
+     */
+    const updated = makePlatformUser({ mfaEnabled: false });
+    const mockFetch = vi.fn<typeof fetch>().mockResolvedValueOnce(makeJsonResponse(updated));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await platformResetUserMfa('user-1');
+
+    expect(result).toEqual(updated);
+    const [path, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe('/api/platform/users/user-1/reset-mfa');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBeUndefined();
+  });
+});
+
 // ── MFA helpers ───────────────────────────────────────────────────────────────
 
 describe('disconnectRealtime', () => {
@@ -1855,16 +1897,15 @@ describe('platformApiFetch — 204 and error handling', () => {
     await expect(listPlatformTenants()).rejects.toThrow(AuthClientError);
   });
 
-  it('propagates the example flat envelope code through to AuthClientError.code', async () => {
+  it('propagates the legacy flat envelope code through to AuthClientError.code', async () => {
     /*
-     * Scenario: the platform API also passes every `AuthException`
-     * through `AuthExceptionFilter`, which serializes the flat
-     * `{ code, message, statusCode }` shape. platformApiFetch must read
-     * the top-level `code` so platform-side toasts route through
-     * `translateAuthError(code)`. Without this, every platform MFA
-     * failure (and the regenerate / disable variants) would surface as
-     * the generic "An unexpected error occurred" toast.
-     * Protects: Shape 1 in platformApiFetch.
+     * Scenario: the platform routes share the same exception filter, so they
+     * share its history too — a deployment still on the flat
+     * `{ code, message, statusCode }` shape must keep working.
+     * platformApiFetch must read the top-level `code` so platform-side toasts
+     * route through `translateAuthError(code)` rather than surfacing every MFA
+     * failure as "An unexpected error occurred".
+     * Protects: Shape 1 in platformApiFetch, kept for rollout compatibility.
      */
     const mockFetch = vi.fn<typeof fetch>().mockResolvedValueOnce(
       new Response(

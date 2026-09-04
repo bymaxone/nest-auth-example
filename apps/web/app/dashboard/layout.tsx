@@ -20,6 +20,7 @@ import type { ReactNode } from 'react';
 import { requireAuth } from '@/lib/require-auth';
 import { NotificationListener } from '@/components/notifications/notification-listener';
 import { DashboardShell } from './shell';
+import Providers from '../providers';
 
 interface DashboardLayoutProps {
   /** Dashboard page content. */
@@ -39,9 +40,11 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
   await requireAuth();
 
   return (
-    <DashboardShell>
-      <NotificationListener />
-      {children}
-    </DashboardShell>
+    <Providers>
+      <DashboardShell>
+        <NotificationListener />
+        {children}
+      </DashboardShell>
+    </Providers>
   );
 }

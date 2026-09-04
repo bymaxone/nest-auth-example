@@ -26,6 +26,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { ShieldAlert } from 'lucide-react';
 import { useSession } from '@bymax-one/nest-auth/react';
 import { MfaSetupCard } from '@/components/dashboard/mfa-setup-card';
@@ -33,26 +34,30 @@ import { MfaDisableCard } from '@/components/dashboard/mfa-disable-card';
 import { MfaStatusUnavailableCard } from '@/components/dashboard/mfa-status-unavailable-card';
 import { EmailChangeCard } from '@/components/dashboard/email-change-card';
 import { getMfaStatus } from '@/lib/auth-client';
+import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 
-/**
- * Security settings page — toggles MFA based on the user's current state.
- *
- * `session.refresh()` re-issues `GET /api/auth/me` against the API and
- * updates the `AuthProvider` context with the persisted `mfaEnabled`
- * value. Because both `MfaSetupCard.onEnabled` and `MfaDisableCard.onDisabled`
- * fire AFTER the underlying API call resolves, the refetch picks up the
- * latest server-side state and the page swaps to the correct card on the
- * next render tick.
- */
 /** How many times the MFA-status request is attempted before giving up. */
 const STATUS_FETCH_ATTEMPTS = 3;
 
 /** Pause between status-request attempts, in milliseconds. */
 const STATUS_RETRY_DELAY_MS = 750;
 
+/**
+ * Security settings page — toggles MFA based on the user's current state.
+ *
+ * `session.refresh()` re-issues `GET /api/auth/me` against the API and
+ * updates the `AuthProvider` context with the persisted `mfaEnabled` value.
+ * `MfaDisableCard.onDisabled` fires AFTER the underlying API call resolves, so
+ * the refetch picks up the latest server-side state and the page swaps to the
+ * correct card on the next render tick.
+ *
+ * Enabling is not symmetric: it invalidates every session, so the card
+ * redirects to the login screen and there is no state left to re-read. See
+ * `handleMfaEnabled`.
+ */
 export default function SecurityPage() {
-  const { user, refresh } = useSession();
+  const { user, status, refresh } = useSession();
   const searchParams = useSearchParams();
   const [isMfaRequired, setIsMfaRequired] = useState(false);
   // `null` means "not known yet" — either still loading or the status request
@@ -115,6 +120,23 @@ export default function SecurityPage() {
     void refresh();
   }, [refresh]);
 
+  /**
+   * Called once a second factor has been enabled.
+   *
+   * Deliberately does not refresh the session. Enabling MFA invalidates every
+   * session, this one included, and `MfaSetupCard` sends the user to the login
+   * screen with `?reason=mfa_enabled`. A refresh here would 401, the provider's
+   * `onSessionExpired` would push `?reason=session_expired`, and because the
+   * refresh is async that push lands *after* the card's `replace` — so the user
+   * who just secured their account would be told their session expired instead.
+   * There is also nothing to re-read: the card swap this would drive is on a
+   * page the user is already leaving.
+   */
+  const handleMfaEnabled = useCallback(() => {
+    // Intentionally empty. See above: the only correct action is to let the
+    // card's redirect stand.
+  }, []);
+
   /** Re-runs the status effect after its bounded attempts have been spent. */
   const handleStatusRetry = useCallback(() => {
     setStatusRequestId((id) => id + 1);
@@ -171,16 +193,34 @@ export default function SecurityPage() {
       )}
 
       <div className="max-w-xl">
-        {user === null ? (
+        {user === null && status === 'loading' ? (
           <Card className="p-6">
             <p className="text-sm text-[rgba(255,255,255,0.4)]">Loading…</p>
+          </Card>
+        ) : user === null ? (
+          /* The session ended while this page was open — enabling a second
+             factor invalidates every session, so this is a normal way to get
+             here. Branching on `user === null` alone leaves the card showing
+             "Loading…" forever with no way out. */
+          <Card className="flex flex-col items-start gap-4 p-6">
+            <div>
+              <h2 className="font-mono text-base font-semibold text-white">
+                Your session has ended
+              </h2>
+              <p className="mt-2 text-sm text-[rgba(255,255,255,0.5)]">
+                Sign in again to manage two-factor authentication.
+              </p>
+            </div>
+            <Button asChild size="sm">
+              <Link href="/auth/login">Sign in</Link>
+            </Button>
           </Card>
         ) : user.mfaEnabled ? (
           <MfaDisableCard onDisabled={handleToggle} />
         ) : hasPassword === null ? (
           <MfaStatusUnavailableCard onRetry={handleStatusRetry} />
         ) : (
-          <MfaSetupCard onEnabled={handleToggle} hasPassword={hasPassword} />
+          <MfaSetupCard onEnabled={handleMfaEnabled} hasPassword={hasPassword} />
         )}
       </div>
 

@@ -13,7 +13,12 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 
 const labelVariants = cva(
-  'text-sm leading-none font-medium peer-disabled:cursor-not-allowed peer-disabled:opacity-70',
+  // `block` is load-bearing, not cosmetic. A <label> is inline by default, so in
+  // a `space-y-*` group (which spaces siblings with margin-top) it does not
+  // start a new line and the vertical spacing silently does nothing — the label
+  // ends up beside its control instead of above it. Flex-column groups blockify
+  // their children and hid this, which is why only some screens looked wrong.
+  'block text-sm leading-snug font-medium peer-disabled:cursor-not-allowed peer-disabled:opacity-70',
 );
 
 /**

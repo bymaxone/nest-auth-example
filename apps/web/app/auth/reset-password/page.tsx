@@ -42,7 +42,6 @@ import {
   type ResetPasswordOtpFormValues,
 } from '@/lib/schemas/auth';
 import { mapAuthClientError } from '@/lib/auth-client';
-import { translateAuthError } from '@/lib/auth-errors';
 
 /**
  * Reset password page — token mode form.
@@ -88,8 +87,8 @@ function TokenModeForm({
       await resetPassword({ email, newPassword: data.newPassword, token });
       router.replace('/auth/login?reset=1');
     } catch (err) {
-      const { code } = mapAuthClientError(err);
-      toast.error(translateAuthError(code === 'UNKNOWN' ? '' : code));
+      const { message } = mapAuthClientError(err);
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -102,7 +101,7 @@ function TokenModeForm({
       className="flex flex-col gap-4"
     >
       {/* New password */}
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-2">
         <Label htmlFor="rp-password" className="text-[rgba(255,255,255,0.7)]">
           New password
         </Label>
@@ -123,7 +122,7 @@ function TokenModeForm({
       </div>
 
       {/* Confirm password */}
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-2">
         <Label htmlFor="rp-confirm" className="text-[rgba(255,255,255,0.7)]">
           Confirm password
         </Label>
@@ -187,8 +186,8 @@ function OtpModeForm({ email, tenantId }: { email: string; tenantId: string }) {
       await resetPassword({ email, newPassword: data.newPassword, otp: data.otp });
       router.replace('/auth/login?reset=1');
     } catch (err) {
-      const { code } = mapAuthClientError(err);
-      toast.error(translateAuthError(code === 'UNKNOWN' ? '' : code));
+      const { message } = mapAuthClientError(err);
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -218,7 +217,7 @@ function OtpModeForm({ email, tenantId }: { email: string; tenantId: string }) {
       </div>
 
       {/* New password */}
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-2">
         <Label htmlFor="rp-otp-password" className="text-[rgba(255,255,255,0.7)]">
           New password
         </Label>
@@ -239,7 +238,7 @@ function OtpModeForm({ email, tenantId }: { email: string; tenantId: string }) {
       </div>
 
       {/* Confirm password */}
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-2">
         <Label htmlFor="rp-otp-confirm" className="text-[rgba(255,255,255,0.7)]">
           Confirm password
         </Label>

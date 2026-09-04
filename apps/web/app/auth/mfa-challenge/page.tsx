@@ -57,7 +57,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { OtpInput } from '@/components/auth/otp-input';
 import { mfaChallengeSchema, type MfaChallengeFormValues } from '@/lib/schemas/auth';
-import { translateAuthError } from '@/lib/auth-errors';
 
 const SESSION_KEY = 'mfaTempToken';
 
@@ -140,8 +139,8 @@ function MfaChallengeForm() {
       await refresh();
       router.replace('/dashboard');
     } catch (err) {
-      const { code } = mapAuthClientError(err);
-      toast.error(translateAuthError(code === 'UNKNOWN' ? '' : code));
+      const { code, message } = mapAuthClientError(err);
+      toast.error(message);
 
       // ── Branch on error kind ────────────────────────────────────────
       // `MFA_TEMP_TOKEN_INVALID` is unrecoverable — the temp JWT was
@@ -219,7 +218,7 @@ function MfaChallengeForm() {
           </div>
         ) : (
           /* ── Recovery code text input ── */
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-2">
             <Label htmlFor="mfa-recovery" className="text-[rgba(255,255,255,0.7)]">
               Recovery code
             </Label>

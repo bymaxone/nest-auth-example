@@ -24,6 +24,7 @@
 
 import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useSession } from '@bymax-one/nest-auth/react';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -33,7 +34,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/auth/password-input';
 import { acceptInvitationSchema, type AcceptInvitationFormValues } from '@/lib/schemas/auth';
-import { translateAuthError } from '@/lib/auth-errors';
+import { NETWORK_ERROR_MESSAGE, readAuthErrorCode, translateAuthError } from '@/lib/auth-errors';
 
 /** Error codes that indicate an unrecoverable invitation state. */
 const INVITATION_FATAL_CODES = new Set([
@@ -58,6 +59,8 @@ function AcceptInvitationForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [fatalError, setFatalError] = useState<string | null>(null);
 
+  const { refresh } = useSession();
+
   const {
     register,
     handleSubmit,
@@ -80,8 +83,8 @@ function AcceptInvitationForm() {
       });
 
       if (!response.ok) {
-        const body = (await response.json()) as { code?: string; message?: string };
-        const code = body.code ?? '';
+        const body: unknown = await response.json();
+        const code = readAuthErrorCode(body);
         const message = translateAuthError(code);
 
         if (INVITATION_FATAL_CODES.has(code)) {
@@ -93,9 +96,15 @@ function AcceptInvitationForm() {
         return;
       }
 
+      // Accepting signs the new member in. Without revalidating first, the
+      // provider still holds whoever was signed in in this browser a moment
+      // ago — an administrator who invites and accepts back to back lands on a
+      // dashboard showing their own name and the admin-only navigation. The
+      // sign-in and MFA challenge pages do the same before navigating.
+      await refresh();
       router.replace('/dashboard');
     } catch {
-      toast.error('An unexpected error occurred. Please try again.');
+      toast.error(NETWORK_ERROR_MESSAGE);
     } finally {
       setIsSubmitting(false);
     }
@@ -165,7 +174,7 @@ function AcceptInvitationForm() {
         className="flex flex-col gap-4"
       >
         {/* Display name */}
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <Label htmlFor="ai-name" className="text-[rgba(255,255,255,0.7)]">
             Display name
           </Label>
@@ -187,14 +196,14 @@ function AcceptInvitationForm() {
         </div>
 
         {/* Password */}
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <Label htmlFor="ai-password" className="text-[rgba(255,255,255,0.7)]">
             Password
           </Label>
           <PasswordInput
             id="ai-password"
             autoComplete="new-password"
-            placeholder="At least 8 characters"
+            placeholder="At least 15 characters"
             aria-describedby={errors.password ? 'ai-password-error' : undefined}
             aria-invalid={!!errors.password}
             className="border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.05)] text-white placeholder:text-[rgba(255,255,255,0.3)] focus-visible:ring-[#ff6224]/50"
@@ -208,7 +217,7 @@ function AcceptInvitationForm() {
         </div>
 
         {/* Confirm password */}
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <Label htmlFor="ai-confirm" className="text-[rgba(255,255,255,0.7)]">
             Confirm password
           </Label>

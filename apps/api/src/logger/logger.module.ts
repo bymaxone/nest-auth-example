@@ -93,8 +93,15 @@ export function createAppLoggerModule(): DynamicModule {
             }),
             res: (res: { statusCode: number }) => ({ statusCode: res.statusCode }),
           },
-          // Attach requestId and tenantId to every log line for cross-service tracing.
-          // tenantId is a runtime property attached by the request pipeline from X-Tenant-Id.
+          // Attach requestId to every log line for cross-service tracing.
+          //
+          // `tenantId` is read the same way, but nothing in the application
+          // assigns `req.tenantId` today: the library's `tenantIdResolver`
+          // returns the header or cookie value to the auth layer without
+          // storing it on the request, and the authenticated tenant otherwise
+          // lives in the JWT payload. The property is kept so that populating it
+          // in the request pipeline is all it would take to fill the field —
+          // until then it serialises as undefined and Pino omits it.
           customProps: (req: IncomingMessage) => ({
             requestId: req.id,
             tenantId: (req as IncomingMessage & { tenantId?: string }).tenantId,

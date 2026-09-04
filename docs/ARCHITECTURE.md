@@ -146,7 +146,7 @@ library throws AuthException (carries an AUTH_ERROR_CODES code)
         │
         ▼
 AuthExceptionFilter (apps/api/src/auth/auth-exception.filter.ts, registered in main.ts)
-        │   maps to { code, message, statusCode }
+        │   maps to { error: { code, message, details } }
         ▼
 authClient receives the envelope → throws AuthClientError (@bymax-one/nest-auth/client)
         │

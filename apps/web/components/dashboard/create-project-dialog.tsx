@@ -91,7 +91,7 @@ export function CreateProjectDialog({ onSuccess }: CreateProjectDialogProps) {
         </DialogHeader>
 
         <form onSubmit={(e) => void handleSubmit(onSubmit)(e)} noValidate className="space-y-4">
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="projectName" className="text-xs text-[rgba(255,255,255,0.6)]">
               Project name
             </Label>

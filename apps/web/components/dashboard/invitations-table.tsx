@@ -98,7 +98,12 @@ export function InvitationsTable({ refreshKey }: InvitationsTableProps) {
       <TableBody>
         {invitations.map((invite) => (
           <TableRow key={invite.id}>
-            <TableCell className="text-sm text-[rgba(255,255,255,0.8)]">{invite.email}</TableCell>
+            <TableCell
+              className="max-w-[280px] truncate text-sm text-[rgba(255,255,255,0.8)]"
+              title={invite.email}
+            >
+              {invite.email}
+            </TableCell>
             <TableCell>
               <span className="font-mono text-[10px] font-semibold tracking-wide text-[#ff6224] uppercase">
                 {invite.role}

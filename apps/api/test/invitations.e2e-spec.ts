@@ -250,8 +250,7 @@ describe('Invitations — admin creates invitation → invitee accepts → user 
 
     expect(acceptRes.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.INVALID_INVITATION_TOKEN]);
     expect(acceptRes.body).toMatchObject({
-      code: AUTH_ERROR_CODES.INVALID_INVITATION_TOKEN,
-      statusCode: 400,
+      error: { code: AUTH_ERROR_CODES.INVALID_INVITATION_TOKEN },
     });
   });
 

@@ -16,6 +16,7 @@ import { Test } from '@nestjs/testing';
 import { AuthRateLimitGuard, AuthService, TokenDeliveryService } from '@bymax-one/nest-auth';
 import type { Request, Response } from 'express';
 
+import { MAX_SESSIONS_PER_USER } from '../auth/auth.constants.js';
 import { USER_CONNECTION_PORT } from '../realtime/user-connection.port.js';
 import { AccountController } from './account.controller.js';
 import { AccountService } from './account.service.js';
@@ -148,6 +149,21 @@ describe('AccountController', () => {
 
       expect(listWorkspaces).toHaveBeenCalledWith('user-42', 'tenant-99');
       expect(result).toBe(expected);
+    });
+  });
+
+  // ─── getSessionPolicy ─────────────────────────────────────────────────────
+
+  describe('getSessionPolicy', () => {
+    it('serves the same constant the auth module is configured with', () => {
+      // The number on the sessions screen and the number the library enforces
+      // have to be one value. Asserting against the constant rather than a
+      // literal is what makes a change to the cap impossible to half-apply:
+      // editing the constant alone keeps this green, editing the endpoint alone
+      // does not.
+      const result = controller.getSessionPolicy();
+
+      expect(result).toEqual({ maxSessions: MAX_SESSIONS_PER_USER });
     });
   });
 

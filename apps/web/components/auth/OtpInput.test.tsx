@@ -543,3 +543,77 @@ describe('OtpInput per-box DOM attributes', () => {
     expect(() => fireEvent.keyDown(newInputs[0]!, { key: 'ArrowLeft' })).not.toThrow();
   });
 });
+
+// ── Fast typing and correction ────────────────────────────────────────────────
+
+describe('OtpInput under real typing conditions', () => {
+  it('keeps every digit of a burst typed before a re-render', () => {
+    /*
+     * Scenario: six keystrokes arrive back to back, and the parent has not
+     * re-rendered between them — exactly what happens when someone types a code
+     * that expires in thirty seconds. Deriving each edit from the rendered
+     * `value` prop would make every keystroke overwrite the previous one, so a
+     * six-digit burst would land as a single digit.
+     * Protects: no digit is lost when input outruns rendering.
+     */
+    const onChange = vi.fn();
+    render(<OtpInput length={6} value="" onChange={onChange} />);
+    const inputs = screen.getAllByRole('textbox');
+
+    // Deliberately never re-render with the new value between keystrokes.
+    for (const [index, digit] of [...'916217'].entries()) {
+      fireEvent.change(inputs[index]!, { target: { value: digit } });
+    }
+
+    expect(onChange).toHaveBeenLastCalledWith('916217');
+  });
+
+  it('composes onto the newest value rather than the last rendered one', () => {
+    /*
+     * Scenario: two keystrokes in a row while the component is still showing an
+     * empty field. The second must build on the first.
+     * Protects: the stale-prop read that silently drops digits.
+     */
+    const onChange = vi.fn();
+    render(<OtpInput length={6} value="" onChange={onChange} />);
+    const inputs = screen.getAllByRole('textbox');
+
+    fireEvent.change(inputs[0]!, { target: { value: '4' } });
+    fireEvent.change(inputs[1]!, { target: { value: '2' } });
+
+    expect(onChange).toHaveBeenNthCalledWith(1, '4');
+    expect(onChange).toHaveBeenNthCalledWith(2, '42');
+  });
+
+  it('selects a filled box on focus so the digit can be typed over', () => {
+    /*
+     * Scenario: a code was rejected and the user goes back to fix a digit.
+     * `maxLength={1}` makes the browser ignore a keystroke on a box that still
+     * holds a character unless that character is selected, which would leave the
+     * user resubmitting the code that just failed.
+     * Protects: a wrong code can be corrected by retyping.
+     */
+    render(<OtpInput length={6} value="916217" onChange={vi.fn()} />);
+    const input = screen.getAllByRole('textbox')[2] as HTMLInputElement;
+
+    fireEvent.focus(input);
+
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe(input.value.length);
+  });
+
+  it('replaces the digit in a box that already holds one', () => {
+    /*
+     * Scenario: the box holds "6" and the user types "8" over the selection.
+     * Only the last digit is kept, so the box swaps rather than concatenating.
+     * Protects: correction writes the new digit into the right slot.
+     */
+    const onChange = vi.fn();
+    render(<OtpInput length={6} value="916217" onChange={onChange} />);
+    const inputs = screen.getAllByRole('textbox');
+
+    fireEvent.change(inputs[2]!, { target: { value: '68' } });
+
+    expect(onChange).toHaveBeenCalledWith('918217');
+  });
+});

@@ -46,6 +46,7 @@ import {
   type SessionAlertInfo,
   sha256,
 } from '@bymax-one/nest-auth';
+import { UserStatus } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -355,6 +356,37 @@ export class AppAuthHooks implements IAuthHooks {
       userId: user.id,
       tenantId: user.tenantId,
     });
+
+    // Self-registered accounts are created PENDING. Verifying the address is
+    // the step that clears that, so promote here — otherwise a verified user
+    // stays PENDING forever, and the team roster shows them next to an
+    // "Activate" control that nothing in the product ever needs pressed.
+    // `updateMany` keeps the write tenant-scoped and makes it idempotent: a
+    // user who is already ACTIVE, or was suspended between the two events,
+    // matches nothing and is left alone.
+    try {
+      await this.prisma.user.updateMany({
+        where: { id: user.id, tenantId: user.tenantId, status: UserStatus.PENDING },
+        data: { status: UserStatus.ACTIVE },
+      });
+    } catch (err: unknown) {
+      // The library has already marked the address verified and consumed the
+      // token by the time this hook runs, so throwing here would answer 500 for
+      // a verification that actually succeeded — and the same link cannot be
+      // replayed to retry the promotion. Log and continue, the way audit writes
+      // above do; the account stays PENDING and an admin can still activate it
+      // from the team roster.
+      //
+      // The error's message is not logged: a failing Prisma call quotes its
+      // datasource URL, and this logger's redact paths only match structured
+      // fields like `*.password`.
+      this.logger.error({
+        msg: 'Activation after email verification failed',
+        userId: user.id,
+        tenantId: user.tenantId,
+        error: err instanceof Error ? err.name : typeof err,
+      });
+    }
   }
 
   /**

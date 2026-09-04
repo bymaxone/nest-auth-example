@@ -237,7 +237,7 @@ describe('Platform endpoints — refresh, logout, MFA challenge, revoke sessions
       .set('Content-Type', 'application/json')
       .send({ mfaTempToken: fakeJwt, code: '000000' });
     expect(res.status).toBe(AUTH_ERROR_STATUS[AUTH_ERROR_CODES.MFA_TEMP_TOKEN_INVALID]);
-    expect(res.body).toMatchObject({ code: AUTH_ERROR_CODES.MFA_TEMP_TOKEN_INVALID });
+    expect(res.body).toMatchObject({ error: { code: AUTH_ERROR_CODES.MFA_TEMP_TOKEN_INVALID } });
   });
 
   it('POST /platform/users/:id/reset-mfa clears a tenant user MFA and writes an audit row', async () => {

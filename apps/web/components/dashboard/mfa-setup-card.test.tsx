@@ -18,6 +18,14 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
+/** Router double — the card navigates to sign-in once enrolment completes. */
+const mockRouter = { push: vi.fn(), replace: vi.fn(), refresh: vi.fn() };
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => mockRouter,
+  usePathname: () => '/dashboard/security',
+}));
+
 vi.mock('@/lib/auth-client', () => ({
   mfaSetup: vi.fn(),
   mfaVerifyEnable: vi.fn(),
@@ -330,9 +338,12 @@ describe('MfaSetupCard setup flow', () => {
 
   it('calls onEnabled after closing the recovery codes modal', async () => {
     /*
-     * Scenario: dismissing the RecoveryCodesModal (handleModalClose) must call
-     * the onEnabled prop so the parent re-fetches the MFA state.
+     * Scenario: dismissing the RecoveryCodesModal (handleModalClose) reports the
+     * enrolment to the parent.
      * Protects: handleModalClose calls onEnabled after clearing modal state.
+     * What the parent does with it is its own decision — the security page
+     * deliberately does not refresh here, because enabling MFA kills the session
+     * and the card is already redirecting to the login screen.
      */
     vi.mocked(mfaSetup).mockResolvedValue({
       secret: 'SECRET',
@@ -364,6 +375,85 @@ describe('MfaSetupCard setup flow', () => {
     fireEvent.click(closeButton);
 
     expect(onEnabled).toHaveBeenCalledOnce();
+  });
+
+  it('clears the auth cookies before sending the user to sign in', async () => {
+    /*
+     * Scenario: the factor is enabled and the modal is dismissed.
+     * Protects: the logout call happens, and the redirect follows it. Without
+     * the clear, this browser still holds `access_token` and `has_session`;
+     * `proxy.ts` lists /auth/login under `publicRoutesRedirectIfAuthenticated`,
+     * so the navigation bounces straight back to /dashboard and the success
+     * message is never reachable — the same reason the Playwright enrolment
+     * spec logs out explicitly before revisiting login.
+     */
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.mocked(mfaSetup).mockResolvedValue({
+      secret: 'SECRET',
+      qrCodeUri: 'otpauth://totp/test',
+      recoveryCodes: ['REC-1'],
+    });
+    vi.mocked(mfaVerifyEnable).mockResolvedValue(undefined);
+
+    render(<MfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
+
+    fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
+    await waitFor(() => expect(screen.getByAltText('MFA QR code')).toBeDefined());
+
+    const otpInputs = document.querySelectorAll<HTMLInputElement>('input[maxlength="1"]');
+    ['1', '2', '3', '4', '5', '6'].forEach((digit, i) => {
+      fireEvent.change(otpInputs[i]!, { target: { value: digit } });
+    });
+    fireEvent.click(screen.getByRole('button', { name: /verify & enable/i }));
+    await waitFor(() => expect(screen.getByText('REC-1')).toBeDefined());
+
+    fireEvent.click(screen.getByRole('button', { name: "I've saved my codes" }));
+
+    await waitFor(() => {
+      expect(mockRouter.replace).toHaveBeenCalledWith('/auth/login?reason=mfa_enabled');
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/auth/logout',
+      expect.objectContaining({ method: 'POST', credentials: 'include' }),
+    );
+  });
+
+  it('still redirects when clearing the cookies fails', async () => {
+    /*
+     * Scenario: the logout request rejects — the session it targets is already
+     * revoked, so this is the expected case rather than an exceptional one.
+     * Protects: the redirect still runs. Stranding the user on a page whose
+     * every request now 401s would be a worse outcome than a cookie that was
+     * not cleared.
+     */
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockRejectedValue(new Error('network down')));
+    vi.mocked(mfaSetup).mockResolvedValue({
+      secret: 'SECRET',
+      qrCodeUri: 'otpauth://totp/test',
+      recoveryCodes: ['REC-1'],
+    });
+    vi.mocked(mfaVerifyEnable).mockResolvedValue(undefined);
+
+    render(<MfaSetupCard onEnabled={vi.fn()} />);
+    fillSetupPassword();
+
+    fireEvent.click(screen.getByRole('button', { name: /set up authenticator/i }));
+    await waitFor(() => expect(screen.getByAltText('MFA QR code')).toBeDefined());
+
+    const otpInputs = document.querySelectorAll<HTMLInputElement>('input[maxlength="1"]');
+    ['1', '2', '3', '4', '5', '6'].forEach((digit, i) => {
+      fireEvent.change(otpInputs[i]!, { target: { value: digit } });
+    });
+    fireEvent.click(screen.getByRole('button', { name: /verify & enable/i }));
+    await waitFor(() => expect(screen.getByText('REC-1')).toBeDefined());
+
+    fireEvent.click(screen.getByRole('button', { name: "I've saved my codes" }));
+
+    await waitFor(() => {
+      expect(mockRouter.replace).toHaveBeenCalledWith('/auth/login?reason=mfa_enabled');
+    });
   });
 });
 

@@ -41,8 +41,8 @@ import {
   resolveTenantForLogin,
   TenantNotFoundError,
 } from '@/lib/auth-client';
-import { translateAuthError } from '@/lib/auth-errors';
 import { TENANT_OPTIONS, resolveDefaultTenantSlug } from '@/lib/tenants';
+import { publicEnv } from '@/lib/env.public';
 
 /**
  * Inner form — wrapped in `<Suspense>` by the default export so the page can be
@@ -58,6 +58,19 @@ function ForgotPasswordForm() {
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  // Whether the API actually accepted the request. Distinct from `submitted`,
+  // which is shown even on failure so the response time cannot be used to tell a
+  // registered address from an unregistered one. Only a request the API took can
+  // have produced a code, so only this gates the route into the code-entry form.
+  const [codeIssued, setCodeIssued] = useState(false);
+  // Captured on submit so the code-entry link can carry the same tenant the
+  // request was made against.
+  const [resolvedTenantId, setResolvedTenantId] = useState<string | null>(null);
+
+  // `lib/env.public` rather than `lib/env`: the latter is server-only and throws
+  // in the browser, taking the page down with it. Both validate the same public
+  // keys from one schema.
+  const isOtpMode = publicEnv.NEXT_PUBLIC_PASSWORD_RESET_MODE === 'otp';
 
   const {
     register,
@@ -75,6 +88,7 @@ function ForgotPasswordForm() {
     try {
       // Resolve slug → CUID so tenantAwareFetch injects X-Tenant-Id.
       const tenantId = await resolveTenantForLogin(tenantSlug);
+      setResolvedTenantId(tenantId);
       document.cookie = `tenant_id=${tenantId}; Path=/; SameSite=Lax; Max-Age=31536000`;
 
       // Call the low-level client instead of `useAuth().forgotPassword`. The
@@ -84,6 +98,7 @@ function ForgotPasswordForm() {
       // `tenantIdResolver`. The tenant travels exclusively via the
       // X-Tenant-Id header injected from the `tenant_id` cookie set above.
       await authClient.forgotPassword(data.email);
+      setCodeIssued(true);
       // Always show the generic confirmation — the server never leaks user existence
       setSubmitted(true);
     } catch (err) {
@@ -94,10 +109,10 @@ function ForgotPasswordForm() {
         );
         return;
       }
-      const { code } = mapAuthClientError(err);
-      // Translate and surface only transport-level errors (rate limit, network)
-      // Account-not-found is indistinguishable from success by design
-      toast.error(translateAuthError(code === 'UNKNOWN' ? '' : code));
+      // Surface only transport-level errors (rate limit, network).
+      // Account-not-found is indistinguishable from success by design.
+      const { message } = mapAuthClientError(err);
+      toast.error(message);
       // Still show the confirmation to prevent account enumeration via error timing
       setSubmitted(true);
     } finally {
@@ -125,6 +140,27 @@ function ForgotPasswordForm() {
           </p>
         </div>
 
+        {/* In code mode the email carries a numeric code and no link, so this
+            screen is the only way through to the form that accepts it. Without
+            the route the flow dead-ends here.
+
+            Gated on the request having been accepted: a rate-limited or failed
+            request never sent a code, and this screen is shown for those too.
+            Offering the route there would replace the form the user could have
+            retried with a code form they have nothing to type into. */}
+        {isOtpMode && codeIssued && (
+          <Button asChild size="lg">
+            <Link
+              href={{
+                pathname: '/auth/reset-password',
+                query: { mode: 'otp', email: getValues('email'), tenantId: resolvedTenantId ?? '' },
+              }}
+            >
+              Enter the code from the email
+            </Link>
+          </Button>
+        )}
+
         <Link
           href="/auth/login"
           className="text-sm text-[rgba(255,98,36,0.8)] transition-colors hover:text-[#ff6224]"
@@ -151,7 +187,7 @@ function ForgotPasswordForm() {
         className="flex flex-col gap-4"
       >
         {/* Workspace — symmetric with login + register pickers. */}
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <Label htmlFor="fp-tenantId" className="text-[rgba(255,255,255,0.7)]">
             Workspace
           </Label>
@@ -170,7 +206,7 @@ function ForgotPasswordForm() {
         </div>
 
         {/* Email */}
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <Label htmlFor="email" className="text-[rgba(255,255,255,0.7)]">
             Email
           </Label>

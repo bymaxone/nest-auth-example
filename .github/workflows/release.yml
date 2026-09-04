@@ -130,6 +130,7 @@ jobs:
             NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || 'https://example.com/api' }}
             NEXT_PUBLIC_WS_URL=${{ vars.NEXT_PUBLIC_WS_URL || 'wss://example.com' }}
             NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED=${{ vars.NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED || 'false' }}
+            NEXT_PUBLIC_PASSWORD_RESET_MODE=${{ vars.NEXT_PUBLIC_PASSWORD_RESET_MODE || 'token' }}
 
   # ── update-releases-doc ────────────────────────────────────────────────────
   # Appends a row to docs/RELEASES.md and bot-commits it on main so the table

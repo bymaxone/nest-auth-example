@@ -13,7 +13,7 @@
  *     client slice — a button rather than an on-mount submit so a link
  *     prefetcher can never consume the single-use token
  *   - On success: shows a success state + link to `/auth/login?email_changed=1`
- *   - On failure: toasts `translateAuthError` (`auth.email_change_token_invalid`
+ *   - On failure: toasts the mapped message (`auth.email_change_token_invalid`
  *     for an unknown, expired, or already-used token)
  *   - Missing `?token=`: shows an inline "re-open the link" error instead of crashing
  *
@@ -28,8 +28,7 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import { MailCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { confirmEmailChange, AuthClientError } from '@/lib/auth-client';
-import { translateAuthError } from '@/lib/auth-errors';
+import { confirmEmailChange, mapAuthClientError } from '@/lib/auth-client';
 
 /**
  * Shown when the URL carries no `?token=`, e.g. a mail client truncated the
@@ -176,11 +175,8 @@ function ConfirmEmailChangeContent() {
       setIsConfirmed(true);
       toast.success('Your email address has been updated.');
     } catch (err) {
-      if (err instanceof AuthClientError && err.body?.code !== undefined) {
-        toast.error(translateAuthError(err.body.code));
-      } else {
-        toast.error('An unexpected error occurred. Please try again.');
-      }
+      const { message } = mapAuthClientError(err);
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }

@@ -23,7 +23,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { listSessions, revokeSession, handleAuthClientError } from '@/lib/auth-client';
+import {
+  getSessionPolicy,
+  listSessions,
+  revokeSession,
+  handleAuthClientError,
+} from '@/lib/auth-client';
 import type { SessionInfo } from '@/lib/auth-client';
 
 /**
@@ -37,14 +42,21 @@ export function SessionsTable() {
   // Stryker disable next-line BooleanLiteral: initial `true` paired with `sessions.length === 0` empty-state guard — even with a `false` mutant, the empty-state paragraph renders until the fetch settles.
   const [isLoading, setIsLoading] = useState(true);
   const [revoking, setRevoking] = useState<string | null>(null);
+  // The cap the deployment enforces. `null` until it loads, or if the request
+  // fails — the table is still useful without it, so a failure stays silent.
+  const [maxSessions, setMaxSessions] = useState<number | null>(null);
 
   // Stryker disable next-line ArrayDeclaration: useCallback deps are empty — `listSessions` takes no arguments and the setters / handlers are stable references. A mutated single-element array stays reference-stable.
   const loadDeps: readonly unknown[] = [];
   const load = useCallback(async () => {
     setIsLoading(true);
     try {
-      const data = await listSessions();
+      const [data, policy] = await Promise.all([
+        listSessions(),
+        getSessionPolicy().catch(() => null),
+      ]);
       setSessions(data);
+      setMaxSessions(policy?.maxSessions ?? null);
     } catch (err) {
       handleAuthClientError(err, { toast });
     } finally {
@@ -80,56 +92,67 @@ export function SessionsTable() {
   }
 
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Device</TableHead>
-          <TableHead>IP address</TableHead>
-          <TableHead>Last active</TableHead>
-          <TableHead>Started</TableHead>
-          <TableHead />
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {sessions.map((session) => (
-          <TableRow key={session.id}>
-            <TableCell>
-              <div className="flex items-center gap-2">
-                <Monitor className="h-3.5 w-3.5 shrink-0 text-[rgba(255,255,255,0.3)]" />
-                <span className="max-w-[180px] truncate text-xs text-[rgba(255,255,255,0.7)]">
-                  {session.device ?? 'Unknown device'}
-                </span>
-                {session.isCurrent && (
-                  <span className="rounded-full border border-[rgba(255,98,36,0.3)] bg-[rgba(255,98,36,0.1)] px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-[#ff6224] uppercase">
-                    Current
-                  </span>
-                )}
-              </div>
-            </TableCell>
-            <TableCell className="font-mono text-xs">{session.ip ?? '—'}</TableCell>
-            <TableCell className="text-xs">
-              {formatDistanceToNow(new Date(session.lastActivityAt), { addSuffix: true })}
-            </TableCell>
-            <TableCell className="text-xs">
-              {formatDistanceToNow(new Date(session.createdAt), { addSuffix: true })}
-            </TableCell>
-            <TableCell>
-              {!session.isCurrent && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Revoke session"
-                  disabled={revoking === session.sessionHash}
-                  onClick={() => void handleRevoke(session.sessionHash)}
-                  className="h-7 w-7 text-[rgba(255,255,255,0.3)] hover:text-red-400"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              )}
-            </TableCell>
+    <div className="flex flex-col gap-4">
+      {maxSessions !== null && (
+        /* Stating the cap is what keeps the oldest device being signed out from
+           looking like a bug. Without it the eviction has no explanation on the
+           screen that performs it. */
+        <p className="text-xs text-[rgba(255,255,255,0.45)]">
+          {sessions.length} of {maxSessions} sessions in use. Signing in on a new device beyond the
+          limit signs out the oldest one.
+        </p>
+      )}
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Device</TableHead>
+            <TableHead>IP address</TableHead>
+            <TableHead>Last active</TableHead>
+            <TableHead>Started</TableHead>
+            <TableHead />
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {sessions.map((session) => (
+            <TableRow key={session.id}>
+              <TableCell>
+                <div className="flex items-center gap-2">
+                  <Monitor className="h-3.5 w-3.5 shrink-0 text-[rgba(255,255,255,0.3)]" />
+                  <span className="max-w-[180px] truncate text-xs text-[rgba(255,255,255,0.7)]">
+                    {session.device ?? 'Unknown device'}
+                  </span>
+                  {session.isCurrent && (
+                    <span className="rounded-full border border-[rgba(255,98,36,0.3)] bg-[rgba(255,98,36,0.1)] px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-[#ff6224] uppercase">
+                      Current
+                    </span>
+                  )}
+                </div>
+              </TableCell>
+              <TableCell className="font-mono text-xs">{session.ip ?? '—'}</TableCell>
+              <TableCell className="text-xs">
+                {formatDistanceToNow(new Date(session.lastActivityAt), { addSuffix: true })}
+              </TableCell>
+              <TableCell className="text-xs">
+                {formatDistanceToNow(new Date(session.createdAt), { addSuffix: true })}
+              </TableCell>
+              <TableCell>
+                {!session.isCurrent && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Revoke session"
+                    disabled={revoking === session.sessionHash}
+                    onClick={() => void handleRevoke(session.sessionHash)}
+                    className="h-7 w-7 text-[rgba(255,255,255,0.3)] hover:text-red-400"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
   );
 }

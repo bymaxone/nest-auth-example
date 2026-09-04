@@ -28,7 +28,6 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { listPlatformTenants, mapAuthClientError } from '@/lib/auth-client';
-import { translateAuthError } from '@/lib/auth-errors';
 import type { PlatformTenantInfo } from '@/lib/auth-client';
 
 /** Shared date-formatter options — `addSuffix: true` yields the "… ago" wording. */
@@ -54,8 +53,8 @@ export function TenantsTable() {
       const data = await listPlatformTenants();
       setTenants(data);
     } catch (err) {
-      const { code } = mapAuthClientError(err);
-      toast.error(translateAuthError(code === 'UNKNOWN' ? '' : code));
+      const { message } = mapAuthClientError(err);
+      toast.error(message);
     } finally {
       setIsLoading(false);
     }

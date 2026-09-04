@@ -32,7 +32,7 @@
  */
 
 import { createAuthClient, createAuthFetch, AuthClientError } from '@bymax-one/nest-auth/client';
-import { translateAuthError } from './auth-errors';
+import { NETWORK_ERROR_MESSAGE, translateAuthError } from './auth-errors';
 import type {
   AuthClient,
   AuthClientConfig,
@@ -224,11 +224,14 @@ export function mapAuthClientError(error: unknown): {
       : { code, message };
   }
 
-  // Not an API error: a thrown `Error` here is ours (a network failure, a bug),
-  // never server-authored, so its message is safe to show.
+  // Not an API error: the request never produced a response, so this is a
+  // network failure, an aborted fetch or a bug in our own code. Those messages
+  // are developer-facing — "Failed to fetch" tells a user nothing and looks like
+  // a crash — so the caller gets the one sentence that names something they can
+  // act on. The original is still available on the caught value for debugging.
   return {
     code: 'UNKNOWN' as const,
-    message: error instanceof Error ? error.message : 'An unexpected error occurred.',
+    message: NETWORK_ERROR_MESSAGE,
   };
 }
 
@@ -416,23 +419,22 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 /**
  * Builds an `AuthClientError` from a non-2xx HTTP response body.
  *
- * Three possible body shapes — checked in priority order so the most
- * specific match wins:
+ * Three possible body shapes. They are checked flat-first only because the two
+ * are mutually exclusive — a nested envelope carries no top-level `code`, so the
+ * order cannot shadow anything:
  *
- *   1. **Example's `AuthExceptionFilter` envelope (flat top-level)**:
- *      `{ code: 'auth.<code>', message: string, statusCode: number }`
- *      This is what `apps/api/src/auth/auth-exception.filter.ts` serializes
- *      every `AuthException` thrown by `@bymax-one/nest-auth` into. The
- *      filter flattens the lib's nested `{ error: { code, message, details } }`
- *      into this top-level shape so the frontend can read `parsed.code`
- *      directly. This is the dominant shape on the wire for every
- *      auth/MFA/platform endpoint.
+ *   1. **Legacy flat envelope**: `{ code: 'auth.<code>', message, statusCode }`
+ *      What `auth-exception.filter.ts` used to serialize. It is no longer what
+ *      this API answers, and is kept only so a page keeps working against a
+ *      deployment that has not picked up the change yet. `createAuthClient`
+ *      never parsed it, which is precisely why the filter stopped emitting it:
+ *      a shape the library's own client cannot read left every form showing its
+ *      generic fallback sentence.
  *
- *   2. **Lib's raw `AuthException` envelope** (only seen if the consumer
- *      project does NOT register an exception filter that reshapes it):
- *      `{ error: { code: 'auth.<code>', message, details } }`
- *      Kept as a fallback so the helper works against either deployment
- *      style without changes.
+ *   2. **The library envelope**: `{ error: { code: 'auth.<code>', message,
+ *      details } }` — what `@bymax-one/nest-auth` emits and what
+ *      `auth-exception.filter.ts` now answers with for every failure, framework
+ *      exceptions included. This is the dominant shape on the wire.
  *
  *   3. **NestJS `ValidationPipe` / generic exceptions** carry the
  *      top-level shape `{ statusCode, message, error: string }` with no
@@ -459,7 +461,7 @@ export function buildAuthClientError(status: number, text: string): AuthClientEr
   try {
     const parsed = JSON.parse(text) as Record<string, unknown>;
 
-    // Shape 1 — example's flat AuthExceptionFilter envelope (top-level `code`).
+    // Shape 1 — the legacy flat envelope, kept for rollout compatibility.
     if (typeof parsed['code'] === 'string') {
       const code = parsed['code'];
       if (typeof parsed['message'] === 'string') message = parsed['message'];
@@ -472,7 +474,8 @@ export function buildAuthClientError(status: number, text: string): AuthClientEr
       return new AuthClientError(message, status, body);
     }
 
-    // Shape 2 — lib's raw AuthException envelope (`{ error: { code, message } }`).
+    // Shape 2 — the library envelope (`{ error: { code, message } }`), which is
+    // what the API answers today.
     // The three type-guard clauses are belt-and-suspenders defenses — each
     // catches a different malformed-envelope shape (non-object,
     // null-disguised-as-object, non-string code). The FALSE direction of
@@ -545,12 +548,29 @@ export interface SessionInfo {
 
 // ── Session helpers ───────────────────────────────────────────────────────────
 
+/** Session limits the deployment enforces, from `GET /account/session-policy`. */
+export interface SessionPolicy {
+  /** Concurrent sessions kept per user before the oldest is evicted. */
+  maxSessions: number;
+}
+
 /**
  * Lists all active sessions for the authenticated user.
  *
  * @returns Array of `SessionInfo` sorted newest-first.
  */
 export const listSessions = (): Promise<SessionInfo[]> => apiFetch<SessionInfo[]>('/auth/sessions');
+
+/**
+ * Reads the concurrent-session cap the deployment enforces.
+ *
+ * Served from the same constant the auth module is configured with, so the
+ * number shown on the sessions screen cannot drift from the one enforced.
+ *
+ * @returns The session policy for the current deployment.
+ */
+export const getSessionPolicy = (): Promise<SessionPolicy> =>
+  apiFetch<SessionPolicy>('/account/session-policy');
 
 /**
  * Revokes a single session by its full SHA-256 session hash.
@@ -652,6 +672,7 @@ export {
   listPlatformTenants,
   listPlatformUsers,
   platformUpdateUserStatus,
+  platformResetUserMfa,
 } from './auth-client.platform';
 export type {
   PlatformTenantInfo,

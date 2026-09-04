@@ -101,10 +101,17 @@ export function ProjectsList({ isAdmin, refreshKey }: ProjectsListProps) {
           key={project.id}
           className="flex items-center justify-between py-3 first:pt-0 last:pb-0"
         >
-          <div className="flex items-center gap-3">
+          {/* `min-w-0` on both the row and the text column lets a long project
+              name clip instead of pushing the delete control off the card. */}
+          <div className="flex min-w-0 items-center gap-3">
             <FolderOpen className="h-4 w-4 shrink-0 text-[#ff6224]" />
-            <div>
-              <p className="text-sm font-medium text-[rgba(255,255,255,0.85)]">{project.name}</p>
+            <div className="min-w-0">
+              <p
+                className="truncate text-sm font-medium text-[rgba(255,255,255,0.85)]"
+                title={project.name}
+              >
+                {project.name}
+              </p>
               <p className="text-xs text-[rgba(255,255,255,0.35)]">
                 Created {formatDistanceToNow(new Date(project.createdAt), DATE_FORMAT_OPTIONS)}
               </p>

@@ -82,7 +82,7 @@ function EmailChangeFields({
 }) {
   return (
     <>
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         <Label htmlFor="newEmail" className="text-xs text-[rgba(255,255,255,0.6)]">
           New email address
         </Label>
@@ -97,7 +97,7 @@ function EmailChangeFields({
         {errors.newEmail && <p className="text-xs text-red-400">{errors.newEmail.message}</p>}
       </div>
 
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         <Label
           htmlFor="emailChangeCurrentPassword"
           className="text-xs text-[rgba(255,255,255,0.6)]"
