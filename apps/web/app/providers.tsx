@@ -36,15 +36,6 @@ interface ProvidersProps {
 }
 
 /**
- * Root client provider that wires the auth state machine and toast system.
- *
- * Place this once in `app/layout.tsx`, wrapping `{children}`. Mounting it
- * higher (e.g. in `_app`) is not needed — the App Router layouts are the
- * equivalent.
- *
- * @param children - Page or nested layout content.
- */
-/**
  * Re-exported auth types for components that need to annotate hook return values
  * without a direct import from the library subpath.
  */
@@ -57,6 +48,21 @@ export type {
   AuthStatus,
 };
 
+/**
+ * Client boundary establishing the `AuthProvider` context.
+ *
+ * Mount it in the layout of each segment whose routes need a session —
+ * `app/auth/layout.tsx` and `app/dashboard/layout.tsx` today — not in
+ * `app/layout.tsx`. The provider probes the session as soon as it mounts, so a
+ * root-level mount makes public routes issue an identity request and a refresh
+ * that can only ever be refused. A new authenticated segment has to mount it
+ * too; nesting it under a layout that already does is unnecessary.
+ *
+ * The toaster is separate and lives in the root layout, because every area
+ * toasts and it needs no session.
+ *
+ * @param children - Page or nested layout content.
+ */
 export default function Providers({ children }: ProvidersProps) {
   const router = useRouter();
 

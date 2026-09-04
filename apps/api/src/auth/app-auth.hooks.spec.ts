@@ -724,6 +724,65 @@ describe('AppAuthHooks', () => {
 
       await expect(hooks.afterEmailVerified(user, ctx)).resolves.toBeUndefined();
     });
+
+    it('swallows a failed promotion rather than failing a verification that succeeded', async () => {
+      /*
+       * Scenario: the promotion write fails on a transient database error.
+       * Rule: the hook still resolves. By the time it runs the library has
+       * already marked the address verified and consumed the token, so throwing
+       * would answer 500 for a verification that actually succeeded — and the
+       * same link cannot be replayed to retry. The account stays PENDING, which
+       * an admin can still clear from the team roster.
+       */
+      userUpdateMany.mockRejectedValue(new Error('connection terminated'));
+      const user = makeSafeUser({ id: 'user-1', tenantId: 'acme' });
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await expect(hooks.afterEmailVerified(user, ctx)).resolves.toBeUndefined();
+    });
+
+    it('keeps the failing driver message out of the log line', async () => {
+      /*
+       * Scenario: the promotion fails with an error whose message quotes the
+       * datasource URL, the way a Prisma connection error does.
+       * Rule: only the error's class name is logged. The logger's redact paths
+       * match structured fields such as `*.password`, so a credential that a
+       * driver interpolated into its own message would otherwise pass straight
+       * through into the log.
+       */
+      const logged: unknown[] = [];
+      jest
+        .spyOn(hooks['logger'], 'error')
+        .mockImplementation((entry: unknown): void => void logged.push(entry));
+      userUpdateMany.mockRejectedValue(
+        new Error('connect ECONNREFUSED postgresql://api:hunter2@db.internal:5432/app'),
+      );
+      const user = makeSafeUser({ id: 'user-1', tenantId: 'acme' });
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await hooks.afterEmailVerified(user, ctx);
+
+      expect(JSON.stringify(logged)).not.toContain('hunter2');
+      expect(JSON.stringify(logged)).toContain('Error');
+    });
+
+    it('describes a non-Error rejection by its type', async () => {
+      /*
+       * Scenario: the promotion rejects with something that is not an Error.
+       * Rule: the hook still resolves and the log names the value by type,
+       * rather than serialising a shape nobody controls into the line.
+       */
+      const logged: unknown[] = [];
+      jest
+        .spyOn(hooks['logger'], 'error')
+        .mockImplementation((entry: unknown): void => void logged.push(entry));
+      userUpdateMany.mockRejectedValue('boom');
+      const user = makeSafeUser({ id: 'user-1', tenantId: 'acme' });
+      const ctx = makeContext({ userId: 'user-1', tenantId: 'acme' });
+
+      await expect(hooks.afterEmailVerified(user, ctx)).resolves.toBeUndefined();
+      expect(JSON.stringify(logged)).toContain('string');
+    });
   });
 
   // ─── onPasswordResetCompleted (afterPasswordReset) ────────────────────────
