@@ -168,7 +168,8 @@ function correlationOf(request: Request): {
 /**
  * Global exception filter answering every failure in the library envelope.
  *
- * Registered via `app.useGlobalFilters(new AuthExceptionFilter())` in `main.ts`.
+ * Registered via `app.useGlobalFilters(new AuthExceptionFilter(secrets))` in
+ * `main.ts`, which supplies the configured values to scrub from log lines.
  *
  * @public
  */
@@ -181,12 +182,13 @@ export class AuthExceptionFilter implements ExceptionFilter {
    *   Pino's `redact` paths match structured fields, so they cannot reach a
    *   value a driver interpolated into its own `Error.message` — the connection
    *   URL a failed Prisma or ioredis call quotes back, most of all. Naming the
-   *   values here is what lets them be stripped from that message. Defaults to
-   *   none so the e2e suites, which hold no secrets worth scrubbing, can
-   *   construct the filter with no arguments.
+   *   values here is what lets them be stripped from that message. Required
+   *   rather than defaulted, matching the library's own `describeError`: a
+   *   caller with nothing to scrub says so by passing an empty array, which is
+   *   one keystroke, whereas a default lets a deployment that does hold secrets
+   *   forget to name them and still read as correct.
    */
-  // Stryker disable next-line ArrayDeclaration: an equivalent mutant. The default only ever reaches `describeError` as the list of strings to strip, so seeding it with `["Stryker was here"]` changes a response or a log line only if a thrown message contains that literal — nothing produces one. The behaviour that matters, redaction when secrets ARE supplied, is pinned by "strips a configured secret from the logged message".
-  constructor(private readonly secrets: readonly string[] = []) {}
+  constructor(private readonly secrets: readonly string[]) {}
 
   /**
    * Writes `exception` to the response in the library envelope.

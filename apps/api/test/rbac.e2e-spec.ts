@@ -165,7 +165,7 @@ describe('RBAC — role hierarchy is enforced on protected routes', () => {
         transformOptions: { enableImplicitConversion: false },
       }),
     );
-    app.useGlobalFilters(new AuthExceptionFilter());
+    app.useGlobalFilters(new AuthExceptionFilter([]));
     app.useWebSocketAdapter(new WsAdapter(app));
     await app.init();
   });

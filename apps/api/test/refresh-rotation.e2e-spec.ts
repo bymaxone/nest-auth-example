@@ -155,7 +155,7 @@ describe('Refresh rotation — POST /api/auth/refresh rotates the access token',
         transformOptions: { enableImplicitConversion: false },
       }),
     );
-    app.useGlobalFilters(new AuthExceptionFilter());
+    app.useGlobalFilters(new AuthExceptionFilter([]));
     app.useWebSocketAdapter(new WsAdapter(app));
     await app.init();
   });

@@ -249,7 +249,7 @@ describe('MFA recovery codes — issuance, valid use, and single-use enforcement
         transformOptions: { enableImplicitConversion: false },
       }),
     );
-    app.useGlobalFilters(new AuthExceptionFilter());
+    app.useGlobalFilters(new AuthExceptionFilter([]));
     app.useWebSocketAdapter(new WsAdapter(app));
     await app.init();
   });

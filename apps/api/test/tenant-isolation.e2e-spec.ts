@@ -175,7 +175,7 @@ describe('Tenant isolation — cross-tenant data access is impossible', () => {
         transformOptions: { enableImplicitConversion: false },
       }),
     );
-    app.useGlobalFilters(new AuthExceptionFilter());
+    app.useGlobalFilters(new AuthExceptionFilter([]));
     app.useWebSocketAdapter(new WsAdapter(app));
     await app.init();
   });

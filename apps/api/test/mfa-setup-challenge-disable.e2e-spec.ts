@@ -234,7 +234,7 @@ describe('MFA lifecycle — setup → verify-enable → challenge → disable', 
         transformOptions: { enableImplicitConversion: false },
       }),
     );
-    app.useGlobalFilters(new AuthExceptionFilter());
+    app.useGlobalFilters(new AuthExceptionFilter([]));
     app.useWebSocketAdapter(new WsAdapter(app));
     await app.init();
   });

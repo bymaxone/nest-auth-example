@@ -113,7 +113,7 @@ describe('AppAuthHooks audit trail — FCM #30 (every lifecycle slug is recorded
         transformOptions: { enableImplicitConversion: false },
       }),
     );
-    app.useGlobalFilters(new AuthExceptionFilter());
+    app.useGlobalFilters(new AuthExceptionFilter([]));
     app.useWebSocketAdapter(new WsAdapter(app));
     await app.init();
   });

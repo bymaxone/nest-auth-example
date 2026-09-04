@@ -86,7 +86,7 @@ describe('AuthExceptionFilter', () => {
   let filter: AuthExceptionFilter;
 
   beforeEach(() => {
-    filter = new AuthExceptionFilter();
+    filter = new AuthExceptionFilter([]);
     jest.restoreAllMocks();
   });
 

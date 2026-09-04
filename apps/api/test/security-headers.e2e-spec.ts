@@ -111,7 +111,7 @@ beforeAll(async () => {
       transformOptions: { enableImplicitConversion: false },
     }),
   );
-  app.useGlobalFilters(new AuthExceptionFilter());
+  app.useGlobalFilters(new AuthExceptionFilter([]));
   await app.listen(0);
 
   agent = supertest.agent(app.getHttpServer());
