@@ -8,6 +8,8 @@ export default tseslint.config(
     ignores: [
       '**/dist',
       '**/.next',
+      // Second Next build, produced by the code-mode password-reset e2e project.
+      '**/.next-otp',
       '**/coverage',
       '**/node_modules',
       '**/*.d.ts',

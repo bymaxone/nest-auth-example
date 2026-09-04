@@ -17,8 +17,8 @@
  *   that the library is consumed from npm rather than a `link:../nest-auth`
  *   workspace. Earlier revisions of this file mandated `--webpack` to work
  *   around a Turbopack symlink-resolution issue — that is no longer needed.
- * - `output: 'standalone'` produces a self-contained server.js for production
- *   Docker images (Phase 19).  `outputFileTracingRoot` is set to the monorepo
+ * - `output: 'standalone'` produces a self-contained server.js for the
+ *   production Docker image.  `outputFileTracingRoot` is set to the monorepo
  *   root so that Next.js traces dependencies relative to the workspace root,
  *   keeping the standalone output's node_modules path structure consistent with
  *   how pnpm resolves packages — avoids broken symlink references at runtime.
@@ -34,6 +34,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // A second build of the same source, differing only in its `NEXT_PUBLIC_*`
+  // values, needs somewhere else to live: those values are inlined at build
+  // time, so the variants cannot share an output directory. The Playwright
+  // suite builds one that way to exercise code-based password reset — see
+  // `playwright.config.ts`. Unset everywhere else, which keeps the default.
+  ...(process.env['NEXT_DIST_DIR'] ? { distDir: process.env['NEXT_DIST_DIR'] } : {}),
+
   // 'standalone' is only activated when building the Docker image (the
   // Dockerfile sets NEXT_STANDALONE=true).  In local dev and CI Playwright
   // runs, `next start` is used instead — it requires standard output and is

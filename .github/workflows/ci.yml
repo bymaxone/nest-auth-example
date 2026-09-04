@@ -216,6 +216,26 @@ jobs:
       - name: Build API
         run: pnpm --filter @nest-auth-example/api run build
 
+      # Second build of the same source for the code-based password-reset spec.
+      # `NEXT_PUBLIC_*` values are inlined at build time, so that flow cannot be
+      # covered by setting a variable on the server started above — it needs its
+      # own bundle, and therefore its own output directory. Everything else in
+      # the job (services, seed, Mailpit) is shared.
+      #
+      # Runs BEFORE the default build on purpose: `next build` rewrites the
+      # tracked `next-env.d.ts` to point at whichever `distDir` it used, so the
+      # default build has to be the last one to touch it or the working tree
+      # ends the job dirty and referencing a directory typecheck cannot see.
+      - name: Build web (code-mode password reset)
+        env:
+          NEXT_DIST_DIR: .next-otp
+          NEXT_PUBLIC_PASSWORD_RESET_MODE: otp
+          NEXT_PUBLIC_API_URL: http://localhost:3001/api
+          NEXT_PUBLIC_WS_URL: ws://localhost:3001
+          NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED: 'false'
+          INTERNAL_API_URL: http://localhost:4001
+        run: pnpm --filter @nest-auth-example/web run build
+
       - name: Build web
         run: pnpm --filter @nest-auth-example/web run build
 

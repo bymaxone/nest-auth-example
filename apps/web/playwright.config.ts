@@ -45,6 +45,27 @@ const apiJwtSecret = readEnvKey(path.join(__dirname, '../api/.env'), 'JWT_SECRET
 const isCI = !!process.env['CI'];
 
 /**
+ * Base URL of the second stack, which runs in code-based password-reset mode.
+ *
+ * `PASSWORD_RESET_METHOD` is API boot configuration and
+ * `NEXT_PUBLIC_PASSWORD_RESET_MODE` is inlined into the browser bundle at build
+ * time, so neither can be flipped per request. Covering that flow end to end
+ * therefore needs its own API and its own web build rather than an env tweak on
+ * the default pair. Both share the database, Redis and Mailpit, so the seed and
+ * the mail helpers work unchanged.
+ */
+const OTP_WEB_ORIGIN = 'http://localhost:3001';
+
+/** API that the code-mode web server proxies to. */
+const OTP_API_ORIGIN = 'http://localhost:4001';
+
+/** Build directory for the code-mode web build, kept apart from the default one. */
+const OTP_DIST_DIR = '.next-otp';
+
+/** The one spec that needs the code-mode stack; every other spec uses the default. */
+const OTP_SPEC = 'password-reset-otp.spec.ts';
+
+/**
  * Playwright configuration — targets the Next.js dev server managed by webServer.
  *
  * @see https://playwright.dev/docs/test-configuration
@@ -84,6 +105,15 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      // The code-mode spec belongs to the project below, which points at the
+      // second stack. Without this it would run here too, against a deployment
+      // that mails a link, and fail looking for a control that is not rendered.
+      testIgnore: OTP_SPEC,
+    },
+    {
+      name: 'chromium-otp',
+      testMatch: OTP_SPEC,
+      use: { ...devices['Desktop Chrome'], baseURL: OTP_WEB_ORIGIN },
     },
   ],
 
@@ -160,6 +190,50 @@ export default defineConfig({
         // OAuth button visible in the UI for the click-through spec — the API
         // is configured above with matching placeholder credentials.
         NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED: process.env['NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED'] ?? 'true',
+      },
+    },
+    {
+      // Second API, identical to the one above except that it mails a numeric
+      // code instead of a reset link. It shares the database, Redis and Mailpit
+      // with the default stack — only the reset method and the port differ.
+      command: isCI
+        ? 'node ../../apps/api/dist/main.js'
+        : 'pnpm --filter @nest-auth-example/api dev',
+      url: `${OTP_API_ORIGIN}/api/health`,
+      reuseExistingServer: !isCI,
+      timeout: isCI ? 30_000 : 120_000,
+      stdout: 'ignore',
+      stderr: 'pipe',
+      env: {
+        PASSWORD_RESET_METHOD: 'otp',
+        API_PORT: '4001',
+        WEB_ORIGIN: OTP_WEB_ORIGIN,
+        // Same reasoning as the default API above: one client address is shared
+        // by the whole suite, so the per-IP login tier would be spent between
+        // specs rather than by the behaviour under test.
+        AUTH_THROTTLE_DISABLED: 'true',
+      },
+    },
+    {
+      // Second web build. `NEXT_PUBLIC_PASSWORD_RESET_MODE` is inlined at build
+      // time, so this cannot be the same build as the default server with a
+      // different variable set — hence its own `distDir`, which `next.config.mjs`
+      // reads from `NEXT_DIST_DIR`.
+      command: isCI ? 'pnpm start' : 'pnpm dev',
+      url: OTP_WEB_ORIGIN,
+      reuseExistingServer: !isCI,
+      timeout: isCI ? 30_000 : 120_000,
+      env: {
+        // `next dev` and `next start` both read PORT, so one variable covers
+        // the local and CI commands without a flag either would reject.
+        PORT: '3001',
+        NEXT_DIST_DIR: OTP_DIST_DIR,
+        NEXT_PUBLIC_PASSWORD_RESET_MODE: 'otp',
+        INTERNAL_API_URL: OTP_API_ORIGIN,
+        AUTH_JWT_SECRET_FOR_PROXY: process.env['AUTH_JWT_SECRET_FOR_PROXY'] ?? apiJwtSecret ?? '',
+        NEXT_PUBLIC_API_URL: `${OTP_WEB_ORIGIN}/api`,
+        NEXT_PUBLIC_WS_URL: 'ws://localhost:3001',
+        NEXT_PUBLIC_OAUTH_GOOGLE_ENABLED: 'false',
       },
     },
   ],
